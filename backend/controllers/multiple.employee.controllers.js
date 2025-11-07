@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const MultipleEmployee = require('../models/multipleEmployee.model');
+const SingleEmployee = require('../models/singleEmployee');
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -34,6 +35,7 @@ exports.multipleEmployeeRegister = async (req, res) => {
         //  Respond with employee info + JWT token
         res.status(201).json({
             id: employee._id,
+            TeamId: employee.TeamId,
             storeName: employee.storeName,
             ownerName: employee.ownerName,
             userName: employee.userName,
@@ -48,3 +50,94 @@ exports.multipleEmployeeRegister = async (req, res) => {
         res.status(500).json({ message: "Error during registration", error: err.message });
     }
 };
+
+
+//request singleEmployee to members List
+exports.requestToAddMember = async (req, res) => {
+    
+    try {
+        const loggedInUser = req.employee; // Logged in user
+        const { userId } = req.body;
+         // Check role
+        if (loggedInUser.role !== 'MultipleEmployee') {
+            return res.status(403).json({ message: "Only MultipleEmployee can add members" });
+        }
+
+        if (!userId) {
+            return res.status(400).json({ message: "userId is required" });
+        }
+        const team = await MultipleEmployee.findOne({ TeamId: teamId });
+        if (!team) {
+            return res.status(400).json({ message: "Team not found" });
+        }
+        const singleEmployee = await SingleEmployee.findOne({ userId });
+        if (!singleEmployee) {
+            return res.status(400).json({ message: "single Employee not found" });
+        }
+        if (team.members.includes(userId)) {
+            return res.status(400).json({ message: "Employee already in team" });
+        }
+        if (!member.teamAccepted) {
+            return res.status(400).json({ message: "Employee has not accepted the team request yet" });
+        }
+        if (team.pendingRequests.includes(userId))
+            return res.status(400).json({ message: "Request already sent" });
+        team.pendingRequests.push(userId);
+        await team.save();
+        res.status(200).json({
+            message: `Request sent to ${userId}. Waiting for approval.`,
+            team,
+        });
+    }
+    catch (err) {
+        console.error("Error adding member:", err.message);
+        res.status(500).json({ message: "Error adding member", error: err.message });
+    }
+}
+
+//Remove a singleEmployee from the logged in MultipleEmployee's team
+
+exports.removeMembersFromTeam = async (req, res) => {
+    try {
+        const loggedInUserId = req.employee;
+        const { userId } = req.body;
+        //Check role
+        if (loggedInUserId.role != 'MultipleEmployee') {
+            return res.status(403).json({ message: "Only MultipleEmployee can remove Members" });
+        }
+        if (!userId) {
+            return res.status(400).json({ message: "userId is required" });
+        }
+        //Get the team of the logged-in MultipleEmployee
+        const team = await MultipleEmployee.findOne({ TeamId: loggedInUser.TeamId });
+        if (!team) {
+            return res.status(404).json({ message: "Team not found for this user" });
+        }
+        //Find the Single Employee
+        const employee=await SingleEmployee.findOne({userId});
+        if(!employee){
+            return re.status(404).json({message:"Employee not found"});
+        }
+        //check if the employee is actually a member
+        const memberIndex=team.members.indexOf(userId);
+        if(memberIndex===-1){
+            return res.status(400).json({messgae:"Employee is not a member of this team"});
+        }
+        //Remove employee from team
+        team.members.splice(memberIndex,1);
+        await team.save();
+
+        //Rest teamAccepted to false
+        employee.teamAccepted=false;
+        await employee.save();
+        
+        res.status(200).json({
+            message:`Employee ${userId} removed from your team successfully.`,
+            team,
+        });
+    }
+    catch (err) {
+        console.error("Error removing members",err.message);
+        res.status(500).json({message:"Error removing member",error:err.message});
+    }
+}

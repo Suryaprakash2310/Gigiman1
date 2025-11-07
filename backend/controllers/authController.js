@@ -2,8 +2,8 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const SingleEmployee = require("../models/singleEmployee");
 const MultipleEmployee = require("../models/multipleEmployee.model");
-const Shop = require("../models/shop.model");
-
+const Shop = require("../models/toolshop.model");
+const Service = require("../models/service.model");
 // Generate JWT token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
@@ -20,8 +20,8 @@ exports.sendOtp = async (req, res) => {
   try {
     // Check if user exists in any model
     let user = await SingleEmployee.findOne({ phoneNo }) ||
-               await MultipleEmployee.findOne({ phoneNo }) ||
-               await Shop.findOne({ phoneNo });
+      await MultipleEmployee.findOne({ phoneNo }) ||
+      await Shop.findOne({ phoneNo });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -43,8 +43,8 @@ exports.verifyOtp = async (req, res) => {
 
   try {
     const user = await SingleEmployee.findOne({ phoneNo }) ||
-                 await MultipleEmployee.findOne({ phoneNo }) ||
-                 await Shop.findOne({ phoneNo });
+      await MultipleEmployee.findOne({ phoneNo }) ||
+      await Shop.findOne({ phoneNo });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -72,3 +72,42 @@ exports.verifyOtp = async (req, res) => {
   }
 };
 
+exports.ShowServices = async (req, res) => {
+  try {
+    const services = await Service.find()
+      .collation({ locale: "en", strength: 2 }) // Case-insensitive sorting
+      .sort({ serviceName: 1 })                  // A -> Z alphabetical
+      .lean();                                   // Convert to plain JSON (avoid circular reference)
+      
+    if (!services || services.length === 0) {
+      return res.status(404).json({ message: "No services found" });
+    }
+
+    return res.status(200).json({
+      message: "Services fetched successfully",
+      count: services.length,
+      services
+    });
+
+  } catch (err) {
+    console.error("Service get issue", err.message);
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+exports.searchService=async(req,res)=>{
+  try{
+    const{q}=req.query;
+    const services=await Service.find({
+      serviceName:{$regex:q,$options:"i"},
+    })
+    .collation({locale:"en",strength:2}) // Case Sentative sorting
+    .sort({serviceName:1})              // A -> Z alphabetical
+    .lean();                            // Convert to plain JSON (avoid circular reference)
+
+    res.status(200).json({services});
+  }catch(err){
+    console.error("Searching controller error",err.message);
+    res.status(500).json({message:"Server error",error:err.message});
+  }
+}

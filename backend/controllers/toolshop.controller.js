@@ -1,5 +1,6 @@
 const jwt=require('jsonwebtoken');
-const Shop=require('../models/shop.model');
+const Shop=require('../models/toolshop.model');
+const Cart = require('../models/cart.model');
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -39,3 +40,4 @@ exports.registerShop=async(req,res)=>{
         res.status(500).json({ message: "Error during registration", error: err.message });
     }
 }
+

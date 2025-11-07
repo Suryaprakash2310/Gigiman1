@@ -1,6 +1,6 @@
 const multipleEmployee = require("../models/multipleEmployee.model");
 const SingleEmployee = require("../models/singleEmployee");
-const Shop = require("../models/shop.model");
+const Shop = require("../models/toolshop.model");
 const jwt=require("jsonwebtoken");
 
 exports.protect=async(req,res,next)=>{

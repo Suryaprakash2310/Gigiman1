@@ -6,7 +6,7 @@ const connectDb = require("./config/db");
 // Routers
 const singleemployee = require("./router/employee");
 const multipleemployee = require("./router/multipleemp");
-const shop = require("./router/shop");
+const shop = require("./router/toolshop");
 const auth = require("./router/authRouter");
 
 dotenv.config();
