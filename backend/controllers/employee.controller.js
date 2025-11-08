@@ -1,3 +1,4 @@
+const ROLES = require('../enum/role.model');
 const multipleEmployeeModel = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee');
 const jwt = require('jsonwebtoken');
@@ -12,8 +13,11 @@ exports.registerEmployee = async (req, res) => {
     const { fullname, phoneNo, address, aadhaarNo, role } = req.body;
 
     //  Validate required fields
-    if (!fullname || !phoneNo || !address || !aadhaarNo) {
+    if (!fullname || !phoneNo || !address || !aadhaarNo ) {
       return res.status(400).json({ message: "All fields are required" });
+    }
+    if(!Object(ROLES).include(role)){
+      return res.status(400).json({message:"Invalid role"});
     }
 
     //  Validate address structure
@@ -29,14 +33,14 @@ exports.registerEmployee = async (req, res) => {
     if (existingEmployee) {
       return res.status(400).json({ message: "Employee already registered with this phone or Aadhaar" });
     }
-
+    const employeeRole = ROLES.SINGLE_EMPLOYEE;
     //  Create new employee (auto-generates userId)
     const employee = await SingleEmployee.create({
       fullname,
       phoneNo,
       address,
       aadhaarNo,
-      role: role || "SingleEmployee", // default if not passed
+      role: employeeRole
     });
 
     //  Return response with token

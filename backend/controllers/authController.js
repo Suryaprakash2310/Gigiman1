@@ -3,7 +3,9 @@ const jwt = require("jsonwebtoken");
 const SingleEmployee = require("../models/singleEmployee");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const Shop = require("../models/toolshop.model");
-const Service = require("../models/service.model");
+const DomainService = require("../models/domainservice.model");
+const Domainparts = require("../models/domainparts.model");
+const { error } = require("console");
 // Generate JWT token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
@@ -74,11 +76,11 @@ exports.verifyOtp = async (req, res) => {
 
 exports.ShowServices = async (req, res) => {
   try {
-    const services = await Service.find()
+    const services = await DomainService.find()
       .collation({ locale: "en", strength: 2 }) // Case-insensitive sorting
-      .sort({ serviceName: 1 })                  // A -> Z alphabetical
+      .sort({ domainName: 1 })                  // A -> Z alphabetical
       .lean();                                   // Convert to plain JSON (avoid circular reference)
-      
+
     if (!services || services.length === 0) {
       return res.status(404).json({ message: "No services found" });
     }
@@ -95,19 +97,59 @@ exports.ShowServices = async (req, res) => {
   }
 };
 
-exports.searchService=async(req,res)=>{
-  try{
-    const{q}=req.query;
-    const services=await Service.find({
-      serviceName:{$regex:q,$options:"i"},
+exports.searchService = async (req, res) => {
+  try {
+    const { q } = req.query;
+    const services = await DomainService.find({
+      domainName: { $regex: q, $options: "i" },
     })
-    .collation({locale:"en",strength:2}) // Case Sentative sorting
-    .sort({serviceName:1})              // A -> Z alphabetical
-    .lean();                            // Convert to plain JSON (avoid circular reference)
+      .collation({ locale: "en", strength: 2 }) // Case Sentative sorting
+      .sort({ domainName: 1 })              // A -> Z alphabetical
+      .lean();                            // Convert to plain JSON (avoid circular reference)
 
-    res.status(200).json({services});
-  }catch(err){
-    console.error("Searching controller error",err.message);
-    res.status(500).json({message:"Server error",error:err.message});
+    res.status(200).json({ services });
+  } catch (err) {
+    console.error("Searching controller error", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+}
+//showparts
+exports.showParts = async (req, res) => {
+  try {
+    const { jobId } = req.query;
+    if (!jobId) {
+      return res.status(400).json({ message: "Job must be created before viewing parts" });
+    }
+    const partsList = await Domainparts.find()
+      .collate({ locate: "en", strength: 2 })
+      .sort({ domaintoolname: 1 })
+      .lean();
+    partsList.forEach((item) => {
+      item.parts.sort((a, b) => a.partsname.localeCompare(b.partsname));
+    });
+    res.status(200).json({
+      success: true,
+      jobId,
+      partsAvaiable: partsList,
+    });
+  } catch (err) {
+    console.error("Error showing parts:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+}
+
+exports.searchparts = async (req, res) => {
+  try {
+    const { q } = req.query;
+    const parts = await Domainparts.find({
+      domaintoolname: { $regex: q, $options: "i" },
+    }).collation({ locate: "en", strength: 2 })
+      .sort({ domaniName: 1 })
+      .lean();
+    res.status(200).json({ parts });
+  }
+  catch (err) {
+    console.error("Searching the parts issue", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 }

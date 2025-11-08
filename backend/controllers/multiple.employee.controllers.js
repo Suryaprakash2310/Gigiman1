@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const MultipleEmployee = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee');
+const ROLES = require('../enum/role.model');
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -8,7 +9,7 @@ const generateToken = (id) => {
 };
 
 exports.multipleEmployeeRegister = async (req, res) => {
-    const { storeName, ownerName, userName, gstNo, storeLocation, phoneNo } = req.body;
+    const { storeName, ownerName, userName, gstNo, storeLocation, phoneNo,role} = req.body;
 
     // Validate required fields
     if (!storeName || !ownerName || !userName || !gstNo || !storeLocation || !phoneNo) {
@@ -21,7 +22,8 @@ exports.multipleEmployeeRegister = async (req, res) => {
         if (existingEmployee) {
             return res.status(400).json({ message: "Employee is already registered" });
         }
-
+        
+        const employeeRole=ROLES.MULTIPLE_EMPLOYEE;
         // Create new MultipleEmployee
         const employee = await MultipleEmployee.create({
             storeName,
@@ -29,7 +31,8 @@ exports.multipleEmployeeRegister = async (req, res) => {
             userName,
             gstNo,
             storeLocation,
-            phoneNo
+            phoneNo,
+            role:employeeRole
         });
 
         //  Respond with employee info + JWT token

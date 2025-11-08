@@ -1,15 +1,25 @@
 const express = require("express");
 const router = express.Router();
-const { sendOtp, verifyOtp, ShowSerives, ShowServices } = require("../controllers/authController");
 
-// Step 1: Send OTP
+const {
+  sendOtp,
+  verifyOtp,
+  ShowServices,
+  searchService,
+  showParts,
+  searchparts
+} = require("../controllers/publicController");
+
+//  OTP Routes
 router.post("/send-otp", sendOtp);
-
-// Step 2: Verify OTP
 router.post("/verify-otp", verifyOtp);
 
-//show the all services to the All employees
+//  Service Routes
+router.get("/services", ShowServices);       // Show all services
+router.get("/services/search", searchService); // Search services
 
-router.get("/services",ShowServices);
+//  Parts Routes
+router.get("/parts", showParts);              // Show all parts (only after job created)
+router.get("/parts/search", searchparts);     // Search parts by name
 
 module.exports = router;

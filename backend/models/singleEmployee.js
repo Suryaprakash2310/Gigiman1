@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Counter = require('./counter.model');
+const ROLES=require("../enum/role.model");
 
 const singleEmployeeSchema = new mongoose.Schema({
   userId: {
@@ -17,8 +18,9 @@ const singleEmployeeSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ["SingleEmployee", "MultipleEmployee", "Shop"], 
+    enum:Object.values(ROLES),
     required: true,
+    default:ROLES.SINGLE_EMPLOYEE
   },
   verified: {
     type: String,
@@ -65,7 +67,7 @@ singleEmployeeSchema.pre('save', async function (next) {
 
   // Reuse a freed ID if available
   if (counter.freeIds.length > 0) {
-    newNumber = counter.freeIds.shift();
+    newNumber = counter.freeIds.shift();//Reuse Old ID
   } else {
     counter.seq += 1;
     newNumber = counter.seq;
@@ -83,6 +85,7 @@ singleEmployeeSchema.pre('save', async function (next) {
 
 //  Free up the ID when an employee is deleted
 singleEmployeeSchema.post('findOneAndDelete', async function (doc) {
+  if(!doc || !doc.userId)return;
   if (doc && doc.userId) {
     const counter = await Counter.findOne({ name: 'employee' });
     if (counter) {

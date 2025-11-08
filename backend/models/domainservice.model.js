@@ -1,7 +1,7 @@
 const mongoose=require('mongoose');
 
-const serviceschema=mongoose.Schema({
-    serviceName:{
+const domainserviceschema=mongoose.Schema({
+    domainName:{
         type:String,
         required:true,
         trim:true,
@@ -13,7 +13,7 @@ const serviceschema=mongoose.Schema({
 });
 
 //fast sorting
-serviceschema.index({ serviceName: 1 });
+domainserviceschema.index({ serviceName: 1 });
 
 
-module.exports=mongoose.model("Service",serviceschema);
+module.exports=mongoose.model("DomainService",domainserviceschema);

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const Counter = require('./counter.model');
-
+const ROLES=require("../enum/role.model");
 const MultipleEmployeeSchema = new mongoose.Schema({
   TeamId: {
     type: String,
@@ -44,6 +44,12 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     type: Number,
     required: true,
     unique: true,
+  },
+  role:{
+    type:String,
+    enum:Object.values(ROLES),
+    required:true,
+    default:ROLES.MULTIPLE_EMPLOYEE,
   }
 }, { timestamps: true });
 
