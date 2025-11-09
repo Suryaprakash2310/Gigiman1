@@ -18,6 +18,6 @@ const serviceListSchema=mongoose.Schema({
         type:String,
         required:true,
     },
-})
+},{timeStamps:true})
 
 module.exports=mongoose.model("ServiceList",serviceListSchema);

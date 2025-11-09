@@ -9,7 +9,7 @@ const generateToken = (id) => {
 };
 
 exports.multipleEmployeeRegister = async (req, res) => {
-    const { storeName, ownerName, userName, gstNo, storeLocation, phoneNo,role} = req.body;
+    const { storeName, ownerName, userName, gstNo, storeLocation, phoneNo, role } = req.body;
 
     // Validate required fields
     if (!storeName || !ownerName || !userName || !gstNo || !storeLocation || !phoneNo) {
@@ -22,8 +22,10 @@ exports.multipleEmployeeRegister = async (req, res) => {
         if (existingEmployee) {
             return res.status(400).json({ message: "Employee is already registered" });
         }
-        
-        const employeeRole=ROLES.MULTIPLE_EMPLOYEE;
+        if (!Object.values(ROLES).includes(role)) {
+            return res.status(400).json({ message: "Invalid role" });
+        }
+        const employeeRole = ROLES.MULTIPLE_EMPLOYEE;
         // Create new MultipleEmployee
         const employee = await MultipleEmployee.create({
             storeName,
@@ -32,7 +34,7 @@ exports.multipleEmployeeRegister = async (req, res) => {
             gstNo,
             storeLocation,
             phoneNo,
-            role:employeeRole
+            role: employeeRole
         });
 
         //  Respond with employee info + JWT token
@@ -57,11 +59,11 @@ exports.multipleEmployeeRegister = async (req, res) => {
 
 //request singleEmployee to members List
 exports.requestToAddMember = async (req, res) => {
-    
+
     try {
         const loggedInUser = req.employee; // Logged in user
         const { userId } = req.body;
-         // Check role
+        // Check role
         if (loggedInUser.role !== 'MultipleEmployee') {
             return res.status(403).json({ message: "Only MultipleEmployee can add members" });
         }
@@ -117,30 +119,30 @@ exports.removeMembersFromTeam = async (req, res) => {
             return res.status(404).json({ message: "Team not found for this user" });
         }
         //Find the Single Employee
-        const employee=await SingleEmployee.findOne({userId});
-        if(!employee){
-            return re.status(404).json({message:"Employee not found"});
+        const employee = await SingleEmployee.findOne({ userId });
+        if (!employee) {
+            return re.status(404).json({ message: "Employee not found" });
         }
         //check if the employee is actually a member
-        const memberIndex=team.members.indexOf(userId);
-        if(memberIndex===-1){
-            return res.status(400).json({messgae:"Employee is not a member of this team"});
+        const memberIndex = team.members.indexOf(userId);
+        if (memberIndex === -1) {
+            return res.status(400).json({ messgae: "Employee is not a member of this team" });
         }
         //Remove employee from team
-        team.members.splice(memberIndex,1);
+        team.members.splice(memberIndex, 1);
         await team.save();
 
         //Rest teamAccepted to false
-        employee.teamAccepted=false;
+        employee.teamAccepted = false;
         await employee.save();
-        
+
         res.status(200).json({
-            message:`Employee ${userId} removed from your team successfully.`,
+            message: `Employee ${userId} removed from your team successfully.`,
             team,
         });
     }
     catch (err) {
-        console.error("Error removing members",err.message);
-        res.status(500).json({message:"Error removing member",error:err.message});
+        console.error("Error removing members", err.message);
+        res.status(500).json({ message: "Error removing member", error: err.message });
     }
 }

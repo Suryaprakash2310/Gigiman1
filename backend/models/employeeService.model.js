@@ -1,0 +1,21 @@
+const mongoose=require('mongoose');
+
+const EmployeeServiceSchema=mongoose.Schema({
+    employeeId:{
+        type:String,
+        required:true,
+    },
+    capableservice:[{
+        type:mongoose.Types.ObjectId,
+        ref:"DomainService",
+    }],
+},{timeStamps:true});
+
+EmployeeServiceSchema.pre('save',async function(next){
+    if(this.capableservice.length>3){
+        return next(new Error("Employee can only add Maximum 3 Services"));
+    }
+    next();
+})
+
+module.exports=mongoose.model('EmployeeService',EmployeeServiceSchema);

@@ -19,6 +19,10 @@ const DomainpartSchema=mongoose.Schema({
             required:true,
         }
     }]
-})
+},{timeStamps:true});
+//  INDEXES FOR FAST SEARCH + SORTING
+DomainpartSchema.index({ domaintoolname: 1 });       // Searching tool categories
+DomainpartSchema.index({ "parts.partsname": 1 });    // Searching inside parts array
+
 
 module.exports=mongoose.model('Domainparts',DomainpartSchema);

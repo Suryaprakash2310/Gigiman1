@@ -4,21 +4,29 @@ const SingleEmployee = require('../models/singleEmployee');
 const jwt = require('jsonwebtoken');
 
 // Generate JWT token
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
+const generateToken = (user) => {
+  return jwt.sign(
+    {
+      id: user._id,
+      employeeId: user.userId,
+      role: user.role
+    },
+    process.env.JWT_KEY,
+    { expiresIn: '7d' }
+  );
 };
-
 exports.registerEmployee = async (req, res) => {
   try {
     const { fullname, phoneNo, address, aadhaarNo, role } = req.body;
 
     //  Validate required fields
-    if (!fullname || !phoneNo || !address || !aadhaarNo ) {
+    if (!fullname || !phoneNo || !address || !aadhaarNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
-    if(!Object(ROLES).include(role)){
-      return res.status(400).json({message:"Invalid role"});
+    if (!Object.values(ROLES).includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
     }
+
 
     //  Validate address structure
     if (!address.city || !address.state || !address.pincode) {
@@ -40,7 +48,7 @@ exports.registerEmployee = async (req, res) => {
       phoneNo,
       address,
       aadhaarNo,
-      role: employeeRole
+      role: ROLES.SINGLE_EMPLOYEE 
     });
 
     //  Return response with token
@@ -52,7 +60,7 @@ exports.registerEmployee = async (req, res) => {
       address: employee.address,
       role: employee.role,
       verified: employee.verified,
-      token: generateToken(employee._id),
+      token: generateToken(employee),
     });
 
   } catch (err) {
@@ -66,37 +74,37 @@ exports.registerEmployee = async (req, res) => {
 
 //Accept request by the singleEmployee
 
-exports.acceptTeamRequest=async(req,res)=>{
-  try{
-    const loggedInUserId = req.employee.userId; 
+exports.acceptTeamRequest = async (req, res) => {
+  try {
+    const loggedInUserId = req.employee.userId;
     const employee = await SingleEmployee.findOne({ userId: loggedInUserId });
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
-    if(employee.teamAccepted){
-      return res.status(400).json({message:"Team request already accepted"});
+    if (employee.teamAccepted) {
+      return res.status(400).json({ message: "Team request already accepted" });
     }
     //update employee status
-    employee.teamAccepted=true;
+    employee.teamAccepted = true;
     await employee.save();
 
     //Remove from pending requests in all multipleEmployee
     await multipleEmployeeModel.updateMany(
-      {pendingRequests:loggedInUserId},
+      { pendingRequests: loggedInUserId },
       {
-        $pull:{pendingRequests:loggedInUserId},
-        $addToSet:{members:loggedInUserId}
+        $pull: { pendingRequests: loggedInUserId },
+        $addToSet: { members: loggedInUserId }
       }
     );
 
     res.status(200).json({
-      message:"Team request Accepted Successfully",
-      userId:employee.userId,
-      teamAccepted:true
+      message: "Team request Accepted Successfully",
+      userId: employee.userId,
+      teamAccepted: true
     });
   }
-  catch(err){
-     console.error("acceptTeamRequest error:", err.message);
-     res.status(500).json({ message: "Error accepting request", error: err.message });
+  catch (err) {
+    console.error("acceptTeamRequest error:", err.message);
+    res.status(500).json({ message: "Error accepting request", error: err.message });
   }
 }

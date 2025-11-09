@@ -48,7 +48,6 @@ const partsrequestSchema = mongoose.Schema({
         default: PART_REQUEST_STATUS.PENDING,
     },
     ],
-}
-)
+},{timeStamps:true})
 
 module.exports = mongoose.model('PartRequest', partsrequestSchema);

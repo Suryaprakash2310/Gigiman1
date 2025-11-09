@@ -14,20 +14,17 @@ exports.protect=async(req,res,next)=>{
     const decoded=jwt.verify(token,process.env.JWT_KEY);
         
     // Try to find user in SingleEmployee first
-    let employee = await SingleEmployee.findById(decoded.id);
+      let employee =
+      (await SingleEmployee.findById(decoded.id)) ||
+      (await multipleEmployee.findById(decoded.id)) ||
+      (await Shop.findById(decoded.id));
 
-    // If not found, try MultipleEmployee
-    if (!employee) {
-      employee = await multipleEmployee.findById(decoded.id);
-    }
-    if(!employee){
-      employee=await Shop.findById(decoded.id);
-    }
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
-
     req.employee = employee;
+    req.employeeId=decoded.employeeId;
+    req.role=decoded.role;
     //proceed to next middleware or route
     next();
     }

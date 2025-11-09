@@ -28,7 +28,7 @@ app.get("/", (req, res) => res.send("API is running..."));
 
 app.use("/api/singleemployee", singleemployee);
 app.use("/api/multipleemployee", multipleemployee);
-app.use("/api/shop", shop);
+app.use("/api/toolshop", shop);
 app.use("/api/auth", auth);
 
 // ------------------- START SERVER -------------------

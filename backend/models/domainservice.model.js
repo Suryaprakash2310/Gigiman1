@@ -10,7 +10,7 @@ const domainserviceschema=mongoose.Schema({
         type:String,
         default:null,
     }
-});
+},{timeStamps:true});
 
 //fast sorting
 domainserviceschema.index({ serviceName: 1 });

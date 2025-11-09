@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Counter = require('./counter.model');
-const ROLES=require("../enum/role.model");
+const ROLES = require("../enum/role.model");
+
 const MultipleEmployeeSchema = new mongoose.Schema({
   TeamId: {
     type: String,
@@ -12,13 +13,13 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   },
   members: [
     {
-       type: String, 
+      type: String,
       ref: "SingleEmployee",
     }
   ],
   pendingRequests: [
     {
-      type: String, // waiting approval userId
+      type: String,
       ref: "SingleEmployee",
     }
   ],
@@ -45,11 +46,11 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
-  role:{
-    type:String,
-    enum:Object.values(ROLES),
-    required:true,
-    default:ROLES.MULTIPLE_EMPLOYEE,
+  role: {
+    type: String,
+    enum: Object.values(ROLES),
+    required: true,
+    default: ROLES.MULTIPLE_EMPLOYEE,
   }
 }, { timestamps: true });
 
@@ -63,10 +64,10 @@ MultipleEmployeeSchema.pre('save', async function (next) {
 
     let idNumber;
     if (counter.freeIds.length > 0) {
-      idNumber = counter.freeIds.shift();
+      idNumber = counter.freeIds.shift();   // Reuse freed ID
     } else {
-      idNumber = counter.nextNumber;
-      counter.nextNumber += 1;
+      counter.seq += 1;                     // Increment sequence
+      idNumber = counter.seq;
     }
 
     this.TeamId = `M${idNumber}`;
@@ -75,15 +76,17 @@ MultipleEmployeeSchema.pre('save', async function (next) {
   next();
 });
 
-// Free up ID when deleted
+// Free ID on delete
 MultipleEmployeeSchema.post('findOneAndDelete', async function (doc) {
-  if (doc) {
+  if (doc && doc.TeamId) {
     const counter = await Counter.findOne({ name: 'MultipleEmployee' });
     if (counter) {
-      const freedNumber = parseInt(doc.TeamId.replace('E', ''));
-      counter.freeIds.push(freedNumber);
-      counter.freeIds.sort((a, b) => a - b);
-      await counter.save();
+      const freedNumber = parseInt(doc.TeamId.replace('M', ''));
+      if (!isNaN(freedNumber)) {
+        counter.freeIds.push(freedNumber);
+        counter.freeIds.sort((a, b) => a - b);
+        await counter.save();
+      }
     }
   }
 });

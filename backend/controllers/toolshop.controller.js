@@ -9,16 +9,14 @@ const generateToken = (id) => {
 
 exports.registerShop = async (req, res) => {
   try {
-    const { shopName, ownerName, gstNo, storeLocation, phoneNo,role } = req.body;
+    const { shopName, ownerName, gstNo, storeLocation, phoneNo, role } = req.body;
 
     if (!shopName || !ownerName || !gstNo || !storeLocation || !phoneNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
-    if(!Object(ROLES).include(role)){
-      return res.status(400).json({message:"Invalid role"});
+    if (!Object.values(ROLES).includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
     }
-
-
     const existingShop = await ToolShop.findOne({
       $or: [{ gstNo }, { phoneNo }]
     });
