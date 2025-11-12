@@ -36,8 +36,9 @@ exports.sendOtp = async (req, res) => {
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Generate 6-digit OTP
+    // Generate 4-digit OTP
     const otp = crypto.randomInt(1000, 9999);
+    //store OTP with 5 minutes expiry
     otpStore[phoneNo] = {
       otp,
       expiresAt:Data.now()+5*6*1000 //5 minutes
