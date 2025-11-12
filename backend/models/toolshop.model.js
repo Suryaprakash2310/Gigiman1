@@ -36,6 +36,17 @@ const toolshopSchema = new mongoose.Schema(
       default: ROLES.TOOL_SHOP,
       required: true,
     },
+    location:{
+      type:{
+        type:String,
+        enum:["Point"],
+        default:"Point"
+      },
+      coordinates:{
+        type:[Number],//[longitude,latitude]
+        required:true,
+      }
+    }
   },
   { timestamps: true }
 );
@@ -58,10 +69,9 @@ toolshopSchema.pre("save", async function (next) {
     counter.seq += 1;
     newNumber = counter.seq;
   }
-
-  this.toolShopId = `T${newNumber}`;
+  const paddedNumber=newNumber.toString().padStart(4,'0');
+  this.toolShopId = `T${paddedNumber}`;
   await counter.save();
-
   next();
 });
 

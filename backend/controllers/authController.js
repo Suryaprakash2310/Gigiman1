@@ -11,7 +11,7 @@ const generateToken = (user) => {
   return jwt.sign(
     {
       id: user._id,
-      employeeId: user.userId || user.TeamId || user.toolShopId,  // <-- here
+      employeeId: user.empId || user.TeamId || user.toolShopId,  // <-- here
       role: user.role
     },
     process.env.JWT_KEY,
@@ -74,7 +74,7 @@ exports.verifyOtp = async (req, res) => {
       id: user._id,
       type: user.constructor.modelName,
       data: user,
-      employeeId: user.userId || user.TeamId || user.toolShopId,
+      employeeId: user.empId || user.TeamId || user.toolShopId,
       role: user.role,
       token,
       message: "Login successful",

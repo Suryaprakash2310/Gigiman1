@@ -3,7 +3,7 @@ const Counter = require('./counter.model');
 const ROLES=require("../enum/role.model");
 
 const singleEmployeeSchema = new mongoose.Schema({
-  userId: {
+  empId: {
     type: String,
     unique: true,
   },
@@ -49,13 +49,25 @@ const singleEmployeeSchema = new mongoose.Schema({
   type: Boolean,
   default: false,
 },
+location: {
+  type: {
+    type: String,
+    enum: ["Point"],
+    default: "Point"
+  },
+  coordinates: {
+    type: [Number], // [longitude, latitude]
+    required: true
+  }
+},
+
 
 }, { timestamps: true });
 
 
-//  Auto-generate sequential userId (E1, E2, ...)
+//  Auto-generate sequential empId (E1, E2, ...)
 singleEmployeeSchema.pre('save', async function (next) {
-  if (this.userId) return next();
+  if (this.empId) return next();
 
   let counter = await Counter.findOne({ name: 'employee' });
 
@@ -74,10 +86,10 @@ singleEmployeeSchema.pre('save', async function (next) {
   }
 
   if (isNaN(newNumber)) {
-    return next(new Error("Invalid userId generation — newNumber is NaN"));
+    return next(new Error("Invalid empId generation — newNumber is NaN"));
   }
-
-  this.userId = `E${newNumber}`;
+  const paddedNumber=newNumber.toString().padStart(4,'0');
+  this.empId = `E${paddedNumber}`;
   await counter.save();
   next();
 });
@@ -85,11 +97,11 @@ singleEmployeeSchema.pre('save', async function (next) {
 
 //  Free up the ID when an employee is deleted
 singleEmployeeSchema.post('findOneAndDelete', async function (doc) {
-  if(!doc || !doc.userId)return;
-  if (doc && doc.userId) {
+  if(!doc || !doc.empId)return;
+  if (doc && doc.empId) {
     const counter = await Counter.findOne({ name: 'employee' });
     if (counter) {
-      const freedNumber = parseInt(doc.userId.replace('E', ''));
+      const freedNumber = parseInt(doc.empId.replace('E', ''));
       if (!isNaN(freedNumber) && !counter.freeIds.includes(freedNumber)) {
         counter.freeIds.push(freedNumber);
         counter.freeIds.sort((a, b) => a - b);

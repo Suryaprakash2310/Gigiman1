@@ -9,16 +9,16 @@ const generateToken = (id) => {
 };
 
 exports.multipleEmployeeRegister = async (req, res) => {
-    const { storeName, ownerName, userName, gstNo, storeLocation, phoneNo, role } = req.body;
+    const { storeName, ownerName, gstNo, storeLocation, phoneNo, role } = req.body;
 
     // Validate required fields
-    if (!storeName || !ownerName || !userName || !gstNo || !storeLocation || !phoneNo) {
+    if (!storeName || !ownerName || !gstNo || !storeLocation || !phoneNo) {
         return res.status(400).json({ message: "All fields are required" });
     }
 
     try {
         // Check if employee already exists (by phoneNo or GST)
-        const existingEmployee = await MultipleEmployee.findOne({ $or: [{ phoneNo }, { gstNo }, { userName }] });
+        const existingEmployee = await MultipleEmployee.findOne({ $or: [{ phoneNo }, { gstNo }] });
         if (existingEmployee) {
             return res.status(400).json({ message: "Employee is already registered" });
         }
@@ -30,7 +30,6 @@ exports.multipleEmployeeRegister = async (req, res) => {
         const employee = await MultipleEmployee.create({
             storeName,
             ownerName,
-            userName,
             gstNo,
             storeLocation,
             phoneNo,
@@ -43,7 +42,6 @@ exports.multipleEmployeeRegister = async (req, res) => {
             TeamId: employee.TeamId,
             storeName: employee.storeName,
             ownerName: employee.ownerName,
-            userName: employee.userName,
             gstNo: employee.gstNo,
             storeLocation: employee.storeLocation,
             phoneNo: employee.phoneNo,
@@ -62,35 +60,35 @@ exports.requestToAddMember = async (req, res) => {
 
     try {
         const loggedInUser = req.employee; // Logged in user
-        const { userId } = req.body;
+        const { empId } = req.body;
         // Check role
         if (loggedInUser.role !== 'MultipleEmployee') {
             return res.status(403).json({ message: "Only MultipleEmployee can add members" });
         }
 
-        if (!userId) {
-            return res.status(400).json({ message: "userId is required" });
+        if (!empId) {
+            return res.status(400).json({ message: "empId is required" });
         }
-        const team = await MultipleEmployee.findOne({ TeamId: teamId });
+        const team = await MultipleEmployee.findOne({ TeamId: loggedInUser });
         if (!team) {
             return res.status(400).json({ message: "Team not found" });
         }
-        const singleEmployee = await SingleEmployee.findOne({ userId });
+        const singleEmployee = await SingleEmployee.findOne({ empId });
         if (!singleEmployee) {
             return res.status(400).json({ message: "single Employee not found" });
         }
-        if (team.members.includes(userId)) {
+        if (team.members.includes(empId)) {
             return res.status(400).json({ message: "Employee already in team" });
         }
         if (!member.teamAccepted) {
             return res.status(400).json({ message: "Employee has not accepted the team request yet" });
         }
-        if (team.pendingRequests.includes(userId))
+        if (team.pendingRequests.includes(empId))
             return res.status(400).json({ message: "Request already sent" });
-        team.pendingRequests.push(userId);
+        team.pendingRequests.push(empId);
         await team.save();
         res.status(200).json({
-            message: `Request sent to ${userId}. Waiting for approval.`,
+            message: `Request sent to ${empId}. Waiting for approval.`,
             team,
         });
     }
@@ -104,27 +102,27 @@ exports.requestToAddMember = async (req, res) => {
 
 exports.removeMembersFromTeam = async (req, res) => {
     try {
-        const loggedInUserId = req.employee;
-        const { userId } = req.body;
+        const loggedInEmpId = req.employee;
+        const { empId } = req.body;
         //Check role
-        if (loggedInUserId.role != 'MultipleEmployee') {
+        if (loggedInEmpId.role != 'MultipleEmployee') {
             return res.status(403).json({ message: "Only MultipleEmployee can remove Members" });
         }
-        if (!userId) {
-            return res.status(400).json({ message: "userId is required" });
+        if (!empId) {
+            return res.status(400).json({ message: "empId is required" });
         }
         //Get the team of the logged-in MultipleEmployee
-        const team = await MultipleEmployee.findOne({ TeamId: loggedInUser.TeamId });
+        const team = await MultipleEmployee.findOne({ TeamId: loggedInEmpId.TeamId });
         if (!team) {
             return res.status(404).json({ message: "Team not found for this user" });
         }
         //Find the Single Employee
-        const employee = await SingleEmployee.findOne({ userId });
+        const employee = await SingleEmployee.findOne({ empId });
         if (!employee) {
             return re.status(404).json({ message: "Employee not found" });
         }
         //check if the employee is actually a member
-        const memberIndex = team.members.indexOf(userId);
+        const memberIndex = team.members.indexOf(empId);
         if (memberIndex === -1) {
             return res.status(400).json({ messgae: "Employee is not a member of this team" });
         }
@@ -137,7 +135,7 @@ exports.removeMembersFromTeam = async (req, res) => {
         await employee.save();
 
         res.status(200).json({
-            message: `Employee ${userId} removed from your team successfully.`,
+            message: `Employee ${empId} removed from your team successfully.`,
             team,
         });
     }

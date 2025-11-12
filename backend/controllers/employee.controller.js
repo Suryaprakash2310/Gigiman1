@@ -8,7 +8,7 @@ const generateToken = (user) => {
   return jwt.sign(
     {
       id: user._id,
-      employeeId: user.userId,
+      employeeId: user.empId,
       role: user.role
     },
     process.env.JWT_KEY,
@@ -42,7 +42,7 @@ exports.registerEmployee = async (req, res) => {
       return res.status(400).json({ message: "Employee already registered with this phone or Aadhaar" });
     }
     const employeeRole = ROLES.SINGLE_EMPLOYEE;
-    //  Create new employee (auto-generates userId)
+    //  Create new employee (auto-generates empId)
     const employee = await SingleEmployee.create({
       fullname,
       phoneNo,
@@ -54,7 +54,7 @@ exports.registerEmployee = async (req, res) => {
     //  Return response with token
     res.status(201).json({
       id: employee._id,
-      userId: employee.userId,
+      empId: employee.empId,
       fullname: employee.fullname,
       phoneNo: employee.phoneNo,
       address: employee.address,
@@ -76,8 +76,8 @@ exports.registerEmployee = async (req, res) => {
 
 exports.acceptTeamRequest = async (req, res) => {
   try {
-    const loggedInUserId = req.employee.userId;
-    const employee = await SingleEmployee.findOne({ userId: loggedInUserId });
+    const loggedInEmpId = req.employee.empId;
+    const employee = await SingleEmployee.findOne({ empId: loggedInEmpId });
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
@@ -90,16 +90,16 @@ exports.acceptTeamRequest = async (req, res) => {
 
     //Remove from pending requests in all multipleEmployee
     await multipleEmployeeModel.updateMany(
-      { pendingRequests: loggedInUserId },
+      { pendingRequests: loggedInEmpId },
       {
-        $pull: { pendingRequests: loggedInUserId },
-        $addToSet: { members: loggedInUserId }
+        $pull: { pendingRequests: loggedInEmpId },
+        $addToSet: { members: loggedInEmpId }
       }
     );
 
     res.status(200).json({
       message: "Team request Accepted Successfully",
-      userId: employee.userId,
+      empId: employee.empId,
       teamAccepted: true
     });
   }
