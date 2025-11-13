@@ -2,6 +2,7 @@ const ROLES = require('../enum/role.model');
 const multipleEmployeeModel = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee');
 const jwt = require('jsonwebtoken');
+const DomainService=require('../models/domainservice.model')
 
 // Generate JWT token
 const generateToken = (user) => {
@@ -15,25 +16,26 @@ const generateToken = (user) => {
     { expiresIn: '7d' }
   );
 };
+
 exports.registerEmployee = async (req, res) => {
   try {
-    const { fullname, phoneNo, address, aadhaarNo, role } = req.body;
+    const { fullname, phoneNo, address, aadhaarNo, role, services } = req.body;
 
-    //  Validate required fields
+    // 1. Validate required fields
     if (!fullname || !phoneNo || !address || !aadhaarNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
+
     if (!Object.values(ROLES).includes(role)) {
       return res.status(400).json({ message: "Invalid role" });
     }
 
-
-    //  Validate address structure
+    // 2. Validate address structure
     if (!address.city || !address.state || !address.pincode) {
       return res.status(400).json({ message: "Address must include city, state, and pincode" });
     }
 
-    //  Prevent duplicate employee
+    // 3. Check duplicate employee
     const existingEmployee = await SingleEmployee.findOne({
       $or: [{ phoneNo }, { aadhaarNo }],
     });
@@ -41,17 +43,39 @@ exports.registerEmployee = async (req, res) => {
     if (existingEmployee) {
       return res.status(400).json({ message: "Employee already registered with this phone or Aadhaar" });
     }
-    const employeeRole = ROLES.SINGLE_EMPLOYEE;
-    //  Create new employee (auto-generates empId)
+
+    // 4. SERVICE VALIDATION (NEW PART)
+    if (!Array.isArray(services) || services.length === 0) {
+      return res.status(400).json({ message: "Select at least 1 service" });
+    }
+
+    if (services.length > 3) {
+      return res.status(400).json({ message: "Maximum 3 services allowed" });
+    }
+
+    // Validate service IDs exist
+    const validServices = await DomainService.find({ _id: { $in: services } });
+
+    if (validServices.length !== services.length) {
+      return res.status(400).json({ message: "One or more services not found" });
+    }
+
+    // 5. Create new employee
     const employee = await SingleEmployee.create({
       fullname,
       phoneNo,
       address,
       aadhaarNo,
-      role: ROLES.SINGLE_EMPLOYEE 
+      role: ROLES.SINGLE_EMPLOYEE
     });
 
-    //  Return response with token
+    // 6. Create EmployeeService entry
+    await EmployeeService.create({
+      employeeId: employee._id,   // store the userId
+      capableService: services    // store the selected 1–3 service IDs
+    });
+
+    // 7. Return response with token
     res.status(201).json({
       id: employee._id,
       empId: employee.empId,
@@ -60,6 +84,7 @@ exports.registerEmployee = async (req, res) => {
       address: employee.address,
       role: employee.role,
       verified: employee.verified,
+      servicesAssigned: services,
       token: generateToken(employee),
     });
 
@@ -71,7 +96,6 @@ exports.registerEmployee = async (req, res) => {
     });
   }
 };
-
 //Accept request by the singleEmployee
 
 exports.acceptTeamRequest = async (req, res) => {

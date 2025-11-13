@@ -2,57 +2,87 @@ const jwt = require('jsonwebtoken');
 const MultipleEmployee = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee');
 const ROLES = require('../enum/role.model');
-
+const DomainService=require('../models/domainservice.model')
 // Generate JWT token
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
 };
 
 exports.multipleEmployeeRegister = async (req, res) => {
-    const { storeName, ownerName, gstNo, storeLocation, phoneNo, role } = req.body;
+  try {
+    const { storeName, ownerName, gstNo, storeLocation, phoneNo, role, services } = req.body;
 
-    // Validate required fields
+    // 1. Required fields
     if (!storeName || !ownerName || !gstNo || !storeLocation || !phoneNo) {
-        return res.status(400).json({ message: "All fields are required" });
+      return res.status(400).json({ message: "All fields are required" });
     }
 
-    try {
-        // Check if employee already exists (by phoneNo or GST)
-        const existingEmployee = await MultipleEmployee.findOne({ $or: [{ phoneNo }, { gstNo }] });
-        if (existingEmployee) {
-            return res.status(400).json({ message: "Employee is already registered" });
-        }
-        if (!Object.values(ROLES).includes(role)) {
-            return res.status(400).json({ message: "Invalid role" });
-        }
-        const employeeRole = ROLES.MULTIPLE_EMPLOYEE;
-        // Create new MultipleEmployee
-        const employee = await MultipleEmployee.create({
-            storeName,
-            ownerName,
-            gstNo,
-            storeLocation,
-            phoneNo,
-            role: employeeRole
-        });
-
-        //  Respond with employee info + JWT token
-        res.status(201).json({
-            id: employee._id,
-            TeamId: employee.TeamId,
-            storeName: employee.storeName,
-            ownerName: employee.ownerName,
-            gstNo: employee.gstNo,
-            storeLocation: employee.storeLocation,
-            phoneNo: employee.phoneNo,
-            token: generateToken(employee._id),
-        });
-
-    } catch (err) {
-        console.error("MultipleEmployee registration error:", err.message);
-        res.status(500).json({ message: "Error during registration", error: err.message });
+    // 2. Role validation
+    if (role !== ROLES.MULTIPLE_EMPLOYEE) {
+      return res.status(400).json({ message: "Invalid role" });
     }
+
+    // 3. Check duplicate phone/gst
+    const existingEmployee = await MultipleEmployee.findOne({
+      $or: [{ phoneNo }, { gstNo }]
+    });
+
+    if (existingEmployee) {
+      return res.status(400).json({ message: "Employee already registered" });
+    }
+
+    // 4. Validate services
+    if (!Array.isArray(services) || services.length < 1) {
+      return res.status(400).json({ message: "Select at least 1 service" });
+    }
+
+    if (services.length > 3) {
+      return res.status(400).json({ message: "Maximum 3 services allowed" });
+    }
+
+    // Validate serviceIds exist
+    const validServices = await DomainService.find({ _id: { $in: services } });
+    if (validServices.length !== services.length) {
+      return res.status(400).json({ message: "One or more services not found" });
+    }
+
+    // 5. Create MultipleEmployee
+    const employee = await MultipleEmployee.create({
+      storeName,
+      ownerName,
+      gstNo,
+      storeLocation,
+      phoneNo,
+      role: ROLES.MULTIPLE_EMPLOYEE
+    });
+
+    // 6. Save MultipleEmployee services (same as SingleEmployee)
+    await EmployeeService.create({
+      employeeId: employee._id,
+      capableService: services
+    });
+
+    // 7. Return response
+    res.status(201).json({
+      success: true,
+      id: employee._id,
+      TeamId: employee.TeamId,
+      storeName: employee.storeName,
+      ownerName: employee.ownerName,
+      phoneNo: employee.phoneNo,
+      servicesAssigned: services,
+      token: generateToken(employee)
+    });
+
+  } catch (err) {
+    console.error("MultipleEmployee Registration Error:", err.message);
+    res.status(500).json({
+      message: "Error during registration",
+      error: err.message,
+    });
+  }
 };
+
 
 
 //request singleEmployee to members List

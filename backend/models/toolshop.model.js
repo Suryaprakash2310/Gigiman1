@@ -36,6 +36,10 @@ const toolshopSchema = new mongoose.Schema(
       default: ROLES.TOOL_SHOP,
       required: true,
     },
+    categories: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "Domainparts" }
+    ],
+
     location:{
       type:{
         type:String,

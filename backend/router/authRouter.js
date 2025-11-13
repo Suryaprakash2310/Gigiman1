@@ -23,11 +23,6 @@ router.get("/services", ShowServices);
 
 //  Search services by name
 router.get("/services/search", searchService);
-//Added the service for employee
-
-router.post("/add-service",protect,addEmployeeService);
-//  Show categories (domain list) - only after job created
-router.get("/parts/categories", showCategories);
 
 //  Show parts for a selected category
 router.get("/parts", showParts);

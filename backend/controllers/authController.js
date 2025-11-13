@@ -3,22 +3,11 @@ const jwt = require("jsonwebtoken");
 const SingleEmployee = require("../models/singleEmployee");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const Shop = require("../models/toolshop.model");
-const DomainService = require("../models/domainservice.model");
-const Domainparts = require("../models/domainparts.model");
-const EmployeeService=require("../models/employeeService.model");
-//  store both: database _id AND employeeId / teamId / shopId
-const generateToken = (user) => {
-  return jwt.sign(
-    {
-      id: user._id,
-      employeeId: user.empId || user.TeamId || user.toolShopId,  // <-- here
-      role: user.role
-    },
-    process.env.JWT_KEY,
-    { expiresIn: "7d" }
-  );
-};
 
+// Generate JWT token
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
+};
 
 // Temporary in-memory OTP store (for demo purposes)
 // In production, store in DB with expiry
@@ -31,18 +20,14 @@ exports.sendOtp = async (req, res) => {
   try {
     // Check if user exists in any model
     let user = await SingleEmployee.findOne({ phoneNo }) ||
-      await MultipleEmployee.findOne({ phoneNo }) ||
-      await Shop.findOne({ phoneNo });
+               await MultipleEmployee.findOne({ phoneNo }) ||
+               await Shop.findOne({ phoneNo });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Generate 4-digit OTP
-    const otp = crypto.randomInt(1000, 9999);
-    //store OTP with 5 minutes expiry
-    otpStore[phoneNo] = {
-      otp,
-      expiresAt:Data.now()+5*6*1000 //5 minutes
-    }; // save OTP temporarily
+    // Generate 6-digit OTP
+    const otp = crypto.randomInt(100000, 999999);
+    otpStore[phoneNo] = otp; // save OTP temporarily
     console.log(`OTP for ${phoneNo} is ${otp}`); // in real app, send via SMS
 
     res.status(200).json({ message: "OTP sent successfully" });
@@ -58,8 +43,8 @@ exports.verifyOtp = async (req, res) => {
 
   try {
     const user = await SingleEmployee.findOne({ phoneNo }) ||
-      await MultipleEmployee.findOne({ phoneNo }) ||
-      await Shop.findOne({ phoneNo });
+                 await MultipleEmployee.findOne({ phoneNo }) ||
+                 await Shop.findOne({ phoneNo });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -72,14 +57,12 @@ exports.verifyOtp = async (req, res) => {
     delete otpStore[phoneNo];
 
     // Generate JWT token
-    const token = generateToken(user);
+    const token = generateToken(user._id);
 
     res.status(200).json({
       id: user._id,
       type: user.constructor.modelName,
       data: user,
-      employeeId: user.empId || user.TeamId || user.toolShopId,
-      role: user.role,
       token,
       message: "Login successful",
     });
@@ -139,77 +122,7 @@ exports.searchService = async (req, res) => {
   }
 };
 
-//Add Service Multiple Employee and single Employee
-exports.addEmployeeService = async (req, res) => {
-  try {
-    const employeeId =  req.employeeId; 
-    const { serviceIds } = req.body; // Expecting an array of IDs
 
-    // Validate
-    if (!employeeId) {
-      return res.status(401).json({ message: "Unauthorized: Employee ID not found" });
-    }
-    if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
-      return res.status(400).json({ message: "serviceIds array is required" });
-    }
-
-    // Limit to 3 services
-    if (serviceIds.length > 3) {
-      return res.status(400).json({ message: "Maximum 3 services allowed" });
-    }
-
-    let record = await EmployeeService.findOne({ employeeId });
-
-    if (!record) {
-      record = await EmployeeService.create({
-        employeeId,
-        capableService: serviceIds,
-      });
-    } else {
-      // Merge unique IDs and limit 3
-      const combined = [...new Set([...record.capableService, ...serviceIds])];
-      if (combined.length > 3) {
-        return res.status(400).json({ message: "Max 3 services allowed per employee" });
-      }
-      record.capableService = combined;
-      await record.save();
-    }
-
-    res.status(200).json({
-      success: true,
-      employeeId,
-      capableService: record.capableService,
-      message: "Services added successfully",
-    });
-  } catch (err) {
-    console.error("❌ addMultipleEmployeeServices error:", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
-};
-//Showcategories
-exports.showCategories=async(req,res)=>{
-  try{
-    const { jobId } = req.query;
-    if (!jobId) {
-      return res.status(400).json({
-        message: "Job must be created before viewing parts"
-      });
-    }
-    const categories=await Domainparts.aggregate([
-      {$project:{_id:1,domaintoolname:1}},
-      {$sort:{domaintooname:1}},
-    ]);
-    res.staus(200).json({
-      success:true,
-      total:categories.length,
-      categories,
-    });
-  }
-  catch(err){
-    console.error("Error loading categories",err.message);
-    res.status(500).json({message:"Server error",error:err.message});
-  }
-};
 
 //showparts
 exports.showParts = async (req, res) => {

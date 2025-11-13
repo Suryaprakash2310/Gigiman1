@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.model');
+const Domainparts = require('../models/domainparts.model');
 
 // JWT creator
 const generateToken = (id) => {
@@ -9,13 +10,21 @@ const generateToken = (id) => {
 
 exports.registerShop = async (req, res) => {
   try {
-    const { shopName, ownerName, gstNo, storeLocation, phoneNo, role } = req.body;
-
+    const { shopName, ownerName, gstNo, storeLocation, phoneNo, role, categories } = req.body;
+     // Clean empty values
+    categories = categories?.filter(id => id);
     if (!shopName || !ownerName || !gstNo || !storeLocation || !phoneNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
-    if (!Object.values(ROLES).includes(role)) {
+    if (role !== ROLES.TOOL_SHOP) {
       return res.status(400).json({ message: "Invalid role" });
+    }
+    if(!Array.isArray(categories)){
+      return res.status(400).json({message:"Categories must be an array"});
+    }
+    const valid=await Domainparts.find({_id:{$in:categories}});
+     if (valid.length !== categories.length) {
+      return res.status(400).json({ message: "One or more categories are invalid" });
     }
     const existingShop = await ToolShop.findOne({
       $or: [{ gstNo }, { phoneNo }]
@@ -31,7 +40,8 @@ exports.registerShop = async (req, res) => {
       gstNo,
       storeLocation,
       phoneNo,
-      role: ROLES.TOOL_SHOP
+      role: ROLES.TOOL_SHOP,
+      categories
     });
 
     return res.status(201).json({
@@ -41,6 +51,7 @@ exports.registerShop = async (req, res) => {
       phoneNo: shop.phoneNo,
       gstNo: shop.gstNo,
       role: shop.role,
+      categories:shop.categories,
       token: generateToken(shop._id),
     });
 
