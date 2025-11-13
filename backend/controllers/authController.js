@@ -140,89 +140,155 @@ exports.searchService = async (req, res) => {
 };
 
 //Add Service Multiple Employee and single Employee
-exports.addEmployeeService=async(req,res)=>{
-  try{
-    const employeeId=req.employeeId;
-    const {serviceId}=req.query;
-    if(!serviceId){
-      return res.status(400).json({message:"Service ID is required"});
-    }
-    let record=await EmployeeService.findOne({employeeId});
-    if(!record){
-      record=await EmployeeService.create({
-        employeeId,
-        capableService:[serviceId],
-      });
-    }
-    else{
-      if (record.capableService.length >= 3) {
-        return res.status(400).json({
-          message: "Maximum 3 services allowed per employee",
-        });
-      }
-    }
-    if(record.capableService.include(serviceId)){
-      return res.status(400).json({
-        message:"Service already added"
-      });
-    }
-    record.capableService.push(serviceId);
-    await record.save();
-    res.status(200).json({
-      success:true,
-      employeeId,
-      capableService:record.capableService,
-      message:"Service added to employee Successfully"
-    })
-  }
-  catch(err){
-    console.error("Service controller is error",err.message);
-    res.status(500).json({message:"Server error",error:err.message});
-  }
-}
+// exports.addEmployeeService=async(req,res)=>{
+//   try{
+//     const employeeId=req.employeeId;
+//     const {serviceId}=req.query;
+//     if(!serviceId){
+//       return res.status(400).json({message:"Service ID is required"});
+//     }
+//     let record=await EmployeeService.findOne({employeeId});
+//     if(!record){
+//       record=await EmployeeService.create({
+//         employeeId,
+//         capableService:[serviceId],
+//       });
+//     }
+//     else{
+//       if (record.capableService.length >= 3) {
+//         return res.status(400).json({
+//           message: "Maximum 3 services allowed per employee",
+//         });
+//       }
+//     }
+//     if(record.capableService.include(serviceId)){
+//       return res.status(400).json({
+//         message:"Service already added"
+//       });
+//     }
+//     record.capableService.push(serviceId);
+//     await record.save();
+//     res.status(200).json({
+//       success:true,
+//       employeeId,
+//       capableService:record.capableService,
+//       message:"Service added to employee Successfully"
+//     })
+//   }
+//   catch(err){
+//     console.error("Service controller is error",err.message);
+//     res.status(500).json({message:"Server error",error:err.message});
+//   }
+// }
 
-//Showcategories
-exports.showCategories=async(req,res)=>{
-  try{
-    const { jobId } = req.query;
-    if (!jobId) {
-      return res.status(400).json({
-        message: "Job must be created before viewing parts"
-      });
+// Add multiple services for an employee (Single API)
+exports.addEmployeeService = async (req, res) => {
+  try {
+    const employeeId = req.employee?.employeeId; //|| req.employeeId; // ✅ From middleware or token decode
+    const { serviceIds } = req.body; // Expecting an array of IDs
+
+    // Validate
+    if (!employeeId) {
+      return res.status(401).json({ message: "Unauthorized: Employee ID not found" });
     }
-    const categories=await Domainparts.aggregate([
-      {$project:{_id:1,domainName:1}},
-      {$sort:{domainName:1}},
-    ]);
-    res.staus(200).json({
-      success:true,
-      total:categories.length,
-      categories,
+    if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
+      return res.status(400).json({ message: "serviceIds array is required" });
+    }
+
+    // Limit to 3 services
+    if (serviceIds.length > 3) {
+      return res.status(400).json({ message: "Maximum 3 services allowed" });
+    }
+
+    let record = await EmployeeService.findOne({ employeeId });
+
+    if (!record) {
+      record = await EmployeeService.create({
+        employeeId,
+        capableService: serviceIds,
+      });
+    } else {
+      // Merge unique IDs and limit 3
+      const combined = [...new Set([...record.capableService, ...serviceIds])];
+      if (combined.length > 3) {
+        return res.status(400).json({ message: "Max 3 services allowed per employee" });
+      }
+      record.capableService = combined;
+      await record.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      employeeId,
+      capableService: record.capableService,
+      message: "Services added successfully",
     });
-  }
-  catch(err){
-    console.error("Error loading categories",err.message);
-    res.status(500).json({message:"Server error",error:err.message});
+  } catch (err) {
+    console.error("❌ addMultipleEmployeeServices error:", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
+
+
+//Showcategories
+exports.showCategories = async (req, res) => {
+  try {
+    //const { jobId } = req.query;
+
+    // if (!jobId) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "jobId is required before viewing categories"
+    //   });
+    // }
+    const categories=await Domainparts.aggregate([
+      {$project:{_id:1,domaintoolname:1}},
+      {$sort:{domaintoolname:1}},
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      total: categories.length,
+      categories
+    });
+
+  } catch (error) {
+    console.error("❌ [showCategories]:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while loading categories",
+      error: error.message
+    });
+  }
+};
+
 
 //showparts
 exports.showParts = async (req, res) => {
   try {
-    const { jobId,categoriesId } = req.query;
+    const { jobId, categoriesId } = req.query;
+
     if (!jobId) {
-      return res.status(400).json({ message: "Job must be created before viewing parts" });
-    }
-    if (!categoriesId) {
-      return res.status(400).json({ message: "categories is required" });
+      return res.status(400).json({
+        success: false,
+        message: "jobId is required before viewing parts"
+      });
     }
 
-    const partsList=await Domainparts.aggregate([
-      {
-        $match:{_id:new mongoose.Types.objectId(categoriesId)}
-      },
-      {$unwind:"$parts"},
-      {$sort:{"parts.partsname":1}},
+    if (!categoriesId) {
+      return res.status(400).json({
+        success: false,
+        message: "categoriesId is required"
+      });
+    }
+
+    const categoryObjectId = new mongoose.Types.ObjectId(categoriesId);
+
+    const partsList = await DomainParts.aggregate([
+      { $match: { _id: categoryObjectId } },
+      { $unwind: "$parts" },
+      { $sort: { "parts.partsname": 1 } },
       {
         $group:{
           _id:"$id",
@@ -230,19 +296,29 @@ exports.showParts = async (req, res) => {
           parts:{$push:"$parts"},
         }
       }
-    ])
-    res.status(200).json({
+    ]);
+
+    const categoryData = partsList[0] || { domainName: "", parts: [] };
+
+    return res.status(200).json({
       success: true,
       jobId,
-      category:partsList[0]?.domaintoolname ||"",
-      totlaparts:partsList[0]?.parts.length||0,
-      parts:partsList[0]?.parts||[],
+      category: categoryData.domaintoolname,
+      totalParts: categoryData.parts.length,
+      parts: categoryData.parts
     });
-  } catch (err) {
-    console.error("Error showing parts:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+
+  } catch (error) {
+    console.error("❌ [showParts]:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while loading parts",
+      error: error.message
+    });
   }
-}
+};
+
 
 exports.searchDomain = async (req, res) => {
   try {
