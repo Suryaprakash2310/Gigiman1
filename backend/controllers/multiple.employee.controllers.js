@@ -65,7 +65,6 @@ exports.requestToAddMember = async (req, res) => {
         if (loggedInUser.role !== 'MultipleEmployee') {
             return res.status(403).json({ message: "Only MultipleEmployee can add members" });
         }
-
         if (!empId) {
             return res.status(400).json({ message: "empId is required" });
         }

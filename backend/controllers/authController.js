@@ -140,47 +140,52 @@ exports.searchService = async (req, res) => {
 };
 
 //Add Service Multiple Employee and single Employee
-exports.addEmployeeService=async(req,res)=>{
-  try{
-    const employeeId=req.employeeId;
-    const {serviceId}=req.query;
-    if(!serviceId){
-      return res.status(400).json({message:"Service ID is required"});
-    }
-    let record=await EmployeeService.findOne({employeeId});
-    if(!record){
-      record=await EmployeeService.create({
-        employeeId,
-        capableService:[serviceId],
-      });
-    }
-    else{
-      if (record.capableService.length >= 3) {
-        return res.status(400).json({
-          message: "Maximum 3 services allowed per employee",
-        });
-      }
-    }
-    if(record.capableService.include(serviceId)){
-      return res.status(400).json({
-        message:"Service already added"
-      });
-    }
-    record.capableService.push(serviceId);
-    await record.save();
-    res.status(200).json({
-      success:true,
-      employeeId,
-      capableService:record.capableService,
-      message:"Service added to employee Successfully"
-    })
-  }
-  catch(err){
-    console.error("Service controller is error",err.message);
-    res.status(500).json({message:"Server error",error:err.message});
-  }
-}
+exports.addEmployeeService = async (req, res) => {
+  try {
+    const employeeId =  req.employeeId; 
+    const { serviceIds } = req.body; // Expecting an array of IDs
 
+    // Validate
+    if (!employeeId) {
+      return res.status(401).json({ message: "Unauthorized: Employee ID not found" });
+    }
+    if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
+      return res.status(400).json({ message: "serviceIds array is required" });
+    }
+
+    // Limit to 3 services
+    if (serviceIds.length > 3) {
+      return res.status(400).json({ message: "Maximum 3 services allowed" });
+    }
+
+    let record = await EmployeeService.findOne({ employeeId });
+
+    if (!record) {
+      record = await EmployeeService.create({
+        employeeId,
+        capableService: serviceIds,
+      });
+    } else {
+      // Merge unique IDs and limit 3
+      const combined = [...new Set([...record.capableService, ...serviceIds])];
+      if (combined.length > 3) {
+        return res.status(400).json({ message: "Max 3 services allowed per employee" });
+      }
+      record.capableService = combined;
+      await record.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      employeeId,
+      capableService: record.capableService,
+      message: "Services added successfully",
+    });
+  } catch (err) {
+    console.error("❌ addMultipleEmployeeServices error:", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
 //Showcategories
 exports.showCategories=async(req,res)=>{
   try{
@@ -191,8 +196,8 @@ exports.showCategories=async(req,res)=>{
       });
     }
     const categories=await Domainparts.aggregate([
-      {$project:{_id:1,domainName:1}},
-      {$sort:{domainName:1}},
+      {$project:{_id:1,domaintoolname:1}},
+      {$sort:{domaintooname:1}},
     ]);
     res.staus(200).json({
       success:true,
