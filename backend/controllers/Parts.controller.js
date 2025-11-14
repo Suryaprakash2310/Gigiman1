@@ -1,5 +1,5 @@
 const jwt=require('jsonwebtoken');
-const Shop = require("../models/toolshop.model");
+const Domainpart = require('../models/domainparts.model');
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -9,12 +9,7 @@ const generateToken = (id) => {
 //Showcategories
 exports.showCategories=async(req,res)=>{
   try{
-    if (!jobId) {
-      return res.status(400).json({
-        message: "Job must be created before viewing parts"
-      });
-    }
-    const categories=await Domainparts.aggregate([
+    const categories=await Domainpart.aggregate([
       {$project:{_id:1,domaintoolname:1}},
       {$sort:{domaintooname:1}},
     ]);
