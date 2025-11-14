@@ -3,4 +3,6 @@ const { getProfile } = require('../controllers/profile.controller');
 const { protect } = require('../middleware/authMiddleware');
 const router=express.Router();
 
-router.get("/getprofile",protect,getProfile)
+router.get("/getprofile",protect,getProfile);
+
+module.exports=router;
