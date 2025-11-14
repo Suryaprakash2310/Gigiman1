@@ -9,6 +9,7 @@ const multipleemployee = require("./router/multipleemp");
 const shop = require("./router/toolshop");
 const auth = require("./router/authRouter");
 const parts=require("./router/part.router");
+const profile=require("./router/profile.router");
 
 dotenv.config();
 const app = express();
@@ -32,6 +33,7 @@ app.use("/api/multipleemployee", multipleemployee);
 app.use("/api/toolshop", shop);
 app.use("/api/auth", auth);
 app.use("/api/parts",parts);
+app.use("/api/profile",profile);
 
 // ------------------- START SERVER -------------------
 const port = process.env.PORT || 5000;

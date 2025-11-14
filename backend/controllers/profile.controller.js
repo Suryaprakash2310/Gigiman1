@@ -3,12 +3,12 @@ const SingleEmployee=require('../models/singleEmployee');
 const MultipleEmployee=require('../models/multipleEmployee.model');
 const ToolShop = require('../models/toolshop.model');
 // Generate JWT token
-const generateToken = (emp) => {
+const generateToken = (user) => {
   return jwt.sign(
     {
-      id: emp._id,
-      employeeId: emp.empId || emp.TeamId || emp.toolShopId,
-      role: emp.role
+      id: user._id,
+      employeeId: user.empId || user.TeamId || user.toolShopId,
+      role: user.role
     },
     process.env.JWT_KEY,
     { expiresIn: '7d' }
@@ -17,9 +17,9 @@ const generateToken = (emp) => {
 
 exports.getProfile=async(req,res)=>{
     try{
-        const employeeId=req.emp.id;
+        const employeeId=req.user.id;
     if(!employeeId){
-        res.status(400).json({message:"Employee is not register"});
+        return res.status(400).json({message:"Employee is not register"});
     }
     let employee=await SingleEmployee.findById(employeeId)||
     await MultipleEmployee.findById(employeeId)|| 
