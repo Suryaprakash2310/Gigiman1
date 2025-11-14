@@ -13,7 +13,7 @@ exports.showCategories=async(req,res)=>{
       {$project:{_id:1,domaintoolname:1}},
       {$sort:{domaintooname:1}},
     ]);
-    res.staus(200).json({
+    res.status(200).json({
       success:true,
       total:categories.length,
       categories,

@@ -2,7 +2,8 @@ const ROLES = require('../enum/role.model');
 const multipleEmployeeModel = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee');
 const jwt = require('jsonwebtoken');
-const DomainService=require('../models/domainservice.model')
+const DomainService = require("../models/domainservice.model");
+const EmployeeService = require("../models/employeeService.model");
 
 // Generate JWT token
 const generateToken = (user) => {

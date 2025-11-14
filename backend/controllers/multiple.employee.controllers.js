@@ -3,6 +3,7 @@ const MultipleEmployee = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee');
 const ROLES = require('../enum/role.model');
 const DomainService=require('../models/domainservice.model')
+const EmployeeService=require("../models/employeeService.model")
 // Generate JWT token
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });

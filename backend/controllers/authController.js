@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const SingleEmployee = require("../models/singleEmployee");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const Shop = require("../models/toolshop.model");
+const DomainService=require("../models/domainservice.model")
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -30,7 +31,7 @@ exports.sendOtp = async (req, res) => {
     otpStore[phoneNo] = otp; // save OTP temporarily
     console.log(`OTP for ${phoneNo} is ${otp}`); // in real app, send via SMS
 
-    res.status(200).json({ message: "OTP sent successfully" });
+    res.status(200).json({ message: "OTP sent successfully", otp }); // send OTP in response for testing
   } catch (err) {
     console.error("OTP error:", err.message);
     res.status(500).json({ message: "Server error", error: err.message });
