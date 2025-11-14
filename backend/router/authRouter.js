@@ -6,11 +6,6 @@ const {
   verifyOtp,
   ShowServices,
   searchService,
-  showCategories,
-  showParts,
-  searchDomain,
-  searchParts,
-  addEmployeeService,
 } = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -23,14 +18,5 @@ router.get("/services", ShowServices);
 
 //  Search services by name
 router.get("/services/search", searchService);
-
-//  Show parts for a selected category
-router.get("/parts", showParts);
-
-//  Search domain (first page search)
-router.get("/parts/search-domain", searchDomain);
-
-//  Search parts inside selected domain (second page search)
-router.get("/parts/search", searchParts);
 
 module.exports = router;
