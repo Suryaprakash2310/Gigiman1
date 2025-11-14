@@ -4,10 +4,10 @@ const cors = require("cors");
 const connectDb = require("./config/db");
 
 // Routers
-const singleemployee = require("./router/employee");
-const multipleemployee = require("./router/multipleemp");
-const shop = require("./router/toolshop");
-const auth = require("./router/authRouter");
+const singleemployee = require("./router/singleemployee.router");
+const multipleemployee = require("./router/multipleempolyee.router");
+const shop = require("./router/toolshop.router");
+const auth = require("./router/auth.router");
 const parts=require("./router/part.router");
 const profile=require("./router/profile.router");
 

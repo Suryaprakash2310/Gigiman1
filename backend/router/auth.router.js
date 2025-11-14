@@ -6,8 +6,8 @@ const {
   verifyOtp,
   ShowServices,
   searchService,
-} = require("../controllers/authController");
-const { protect } = require("../middleware/authMiddleware");
+} = require("../controllers/auth.controller");
+const { protect } = require("../middleware/auth.middleware");
 
 //  OTP Login (common to SingleEmployee / MultipleEmployee / ToolShop)
 router.post("/send-otp", sendOtp);

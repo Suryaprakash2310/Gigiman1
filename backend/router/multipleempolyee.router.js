@@ -1,6 +1,6 @@
 const express=require('express');
 const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam } = require('../controllers/multiple.employee.controllers');
-const { protect } = require('../middleware/authMiddleware');
+const { protect } = require('../middleware/auth.middleware');
 const router=express.Router();
 
 

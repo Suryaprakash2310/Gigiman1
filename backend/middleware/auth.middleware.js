@@ -1,5 +1,5 @@
 const multipleEmployee = require("../models/multipleEmployee.model");
-const SingleEmployee = require("../models/singleEmployee");
+const SingleEmployee = require("../models/singleEmployee.model");
 const Shop = require("../models/toolshop.model");
 const jwt=require("jsonwebtoken");
 

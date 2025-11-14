@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const MultipleEmployee = require('../models/multipleEmployee.model');
-const SingleEmployee = require('../models/singleEmployee');
+const SingleEmployee = require('../models/singleEmployee.model');
 const ROLES = require('../enum/role.model');
 const DomainService=require('../models/domainservice.model')
 const EmployeeService=require("../models/employeeService.model")

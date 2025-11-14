@@ -1,5 +1,5 @@
 const jwt=require('jsonwebtoken');
-const SingleEmployee=require('../models/singleEmployee');
+const SingleEmployee=require('../models/singleEmployee.model');
 const MultipleEmployee=require('../models/multipleEmployee.model');
 const ToolShop = require('../models/toolshop.model');
 
@@ -32,10 +32,10 @@ exports.editprofile=async(req,res)=>{
       const role=req.role;
       let allowFields=[];
       if(role==="SINGLE_EMPLOYEE"){
-        allowFields=["fullname","address","aadhaarNo"];
+        allowFields=["fullname","address"];
       }
       if(role==="MULTIPLE_EMPLOYEE"){
-        allowFields=["storeName","ownerName","gstNo","storeLocation"];
+        allowFields=["storeName","ownerName","storeLocation"];
       }
       if(role==="TOOL_SHOP"){
         allowFields=["shopName","ownerName","storeLocation"];

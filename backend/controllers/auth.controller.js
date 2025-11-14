@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
-const SingleEmployee = require("../models/singleEmployee");
+const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const Shop = require("../models/toolshop.model");
 const DomainService=require("../models/domainservice.model")
