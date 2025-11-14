@@ -56,7 +56,7 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   coordinates: {
     type: [Number], // [longitude, latitude]
     required: true
-  }
+  }//coordinates
 },
 }, { timestamps: true });
 
