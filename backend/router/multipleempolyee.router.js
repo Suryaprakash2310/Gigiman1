@@ -7,7 +7,7 @@ const router=express.Router();
 router.post("/register",multipleEmployeeRegister);
 
 //show Single employees
-router.post("/showSingle-employee",showSingleEmployee);
+router.post("/showSingle-employee",protect,showSingleEmployee);
 
 //Requesting add Member in the Multiple employee
 router.post("/requesttoaddmember",protect,requestToAddMember);
