@@ -11,11 +11,14 @@ const EmployeeServiceSchema=mongoose.Schema({
     }],
 },{timestamps:true});
 
-EmployeeServiceSchema.pre('save',async function(next){
-    if(this.capableservice.length>3){
-        return next(new Error("Employee can only add Maximum 3 Services"));
-    }
-    next();
-})
+EmployeeServiceSchema.pre("save", async function (next) {
+  if (this.capableservice.length > 3) {
+    return next(
+      new Error("Employee can only add maximum 3 services")
+    );
+  }
+  next();
+});
+
 
 module.exports=mongoose.model('EmployeeService',EmployeeServiceSchema);

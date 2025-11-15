@@ -73,7 +73,7 @@ exports.registerEmployee = async (req, res) => {
     // 6. Create EmployeeService entry
     await EmployeeService.create({
       employeeId: employee._id,   // store the userId
-      capableService: services    // store the selected 1–3 service IDs
+      capableservice: services    // store the selected 1–3 service IDs
     });
 
     // 7. Return response with token

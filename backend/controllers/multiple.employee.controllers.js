@@ -9,6 +9,7 @@ const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
 };
 
+//registeration for multiple employee
 exports.multipleEmployeeRegister = async (req, res) => {
   try {
     const { storeName, ownerName, gstNo, storeLocation, phoneNo, role, services } = req.body;
@@ -60,7 +61,7 @@ exports.multipleEmployeeRegister = async (req, res) => {
     // 6. Save MultipleEmployee services (same as SingleEmployee)
     await EmployeeService.create({
       employeeId: employee._id,
-      capableService: services
+      capableservice: services
     });
 
     // 7. Return response
@@ -84,37 +85,64 @@ exports.multipleEmployeeRegister = async (req, res) => {
   }
 };
 
-
+//display the singleEmployee to members List
+exports.showSingleEmployee=async(req,res)=>{
+  try{
+    const LoggedInemp=req.employee;//Logged in employee
+    //Check the role the employee is multiple employee or not
+    if(LoggedInemp.role!=ROLES.MULTIPLE_EMPLOYEE){
+      return res.status(403).json({message:"Only multi employee can view single employee list"});
+    }
+    //get all single employees
+    const employees=await SingleEmployee.find().select("empId fullname teamAccepted");
+    //List the single employees
+    res.status(200).json({
+      message:"Registered single employees list",
+      employees,
+    })
+  }
+  catch(err){
+    console.error("Error for showSingleEmployee",err.message);
+    res.status(500).json({message:"Server error",error:err.message});
+  }
+}
 
 //request singleEmployee to members List
 exports.requestToAddMember = async (req, res) => {
 
     try {
-        const loggedInUser = req.employee; // Logged in user
+        const loggedInemp = req.employee; // Logged in employee
         const { empId } = req.body;
         // Check role
-        if (loggedInUser.role !== 'MultipleEmployee') {
+        if (loggedInemp.role !== ROLES.MULTIPLE_EMPLOYEE) {
             return res.status(403).json({ message: "Only MultipleEmployee can add members" });
         }
+        //empId required
         if (!empId) {
             return res.status(400).json({ message: "empId is required" });
         }
-        const team = await MultipleEmployee.findOne({ TeamId: loggedInUser });
+        //Find team
+        const team = await MultipleEmployee.findOne({ TeamId: loggedInemp });
         if (!team) {
             return res.status(400).json({ message: "Team not found" });
         }
+        //Find single employee
         const singleEmployee = await SingleEmployee.findOne({ empId });
         if (!singleEmployee) {
             return res.status(400).json({ message: "single Employee not found" });
         }
+        //Already members
         if (team.members.includes(empId)) {
             return res.status(400).json({ message: "Employee already in team" });
         }
-        if (!member.teamAccepted) {
+        //check acceptance
+        if (!singleEmployee.teamAccepted) {
             return res.status(400).json({ message: "Employee has not accepted the team request yet" });
         }
+        //Already requested?
         if (team.pendingRequests.includes(empId))
             return res.status(400).json({ message: "Request already sent" });
+        //send request
         team.pendingRequests.push(empId);
         await team.save();
         res.status(200).json({
@@ -129,13 +157,12 @@ exports.requestToAddMember = async (req, res) => {
 }
 
 //Remove a singleEmployee from the logged in MultipleEmployee's team
-
 exports.removeMembersFromTeam = async (req, res) => {
     try {
-        const loggedInEmpId = req.employee;
-        const { empId } = req.body;
+        const loggedInEmpId = req.employee;//Logged in employee
+        const { empId } = req.body; 
         //Check role
-        if (loggedInEmpId.role != 'MultipleEmployee') {
+        if (loggedInEmpId.role != ROLES.MULTIPLE_EMPLOYEE) {
             return res.status(403).json({ message: "Only MultipleEmployee can remove Members" });
         }
         if (!empId) {

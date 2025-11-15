@@ -1,10 +1,13 @@
 const express=require('express');
-const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam } = require('../controllers/multiple.employee.controllers');
+const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam, showSingleEmployee } = require('../controllers/multiple.employee.controllers');
 const { protect } = require('../middleware/auth.middleware');
 const router=express.Router();
 
 
 router.post("/register",multipleEmployeeRegister);
+
+//show Single employees
+router.post("/showSingle-employee",showSingleEmployee);
 
 //Requesting add Member in the Multiple employee
 router.post("/requesttoaddmember",protect,requestToAddMember);
