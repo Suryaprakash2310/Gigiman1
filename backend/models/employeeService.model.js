@@ -9,7 +9,7 @@ const EmployeeServiceSchema=mongoose.Schema({
         type:mongoose.Types.ObjectId,
         ref:"DomainService",
     }],
-},{timeStamps:true});
+},{timestamps:true});
 
 EmployeeServiceSchema.pre('save',async function(next){
     if(this.capableservice.length>3){

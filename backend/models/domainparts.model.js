@@ -19,7 +19,7 @@ const DomainpartSchema=mongoose.Schema({
             required:true,
         }
     }]
-},{timeStamps:true});
+},{timestamps:true});
 //  INDEXES FOR FAST SEARCH + SORTING
 DomainpartSchema.index({ domaintoolname: 1 });       // Searching tool categories
 DomainpartSchema.index({ "parts.partsname": 1 });    // Searching inside parts array
