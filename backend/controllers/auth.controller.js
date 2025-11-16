@@ -27,8 +27,12 @@ exports.sendOtp = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Generate 6-digit OTP
-    const otp = crypto.randomInt(100000, 999999);
-    otpStore[phoneNo] = otp; // save OTP temporarily
+    const otp = crypto.randomInt(1000, 9999);
+    // save OTP temporarily
+     otpStore[phoneNo] = {
+      otp,
+      expiresAt: Date.now() + 5 * 60 * 1000 // OTP valid for 5 mins
+    };
     console.log(`OTP for ${phoneNo} is ${otp}`); // in real app, send via SMS
 
     res.status(200).json({ message: "OTP sent successfully", otp }); // send OTP in response for testing

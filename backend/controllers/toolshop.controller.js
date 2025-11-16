@@ -10,9 +10,9 @@ const generateToken = (id) => {
 
 exports.registerShop = async (req, res) => {
   try {
-    const { shopName, ownerName, gstNo, storeLocation, phoneNo, role, categories } = req.body;
+    let { shopName, ownerName, gstNo, storeLocation, phoneNo, role, categories } = req.body;
      // Clean empty values
-    categories = categories?.filter(id => id);
+    categories = Array.isArray(categories) ? categories.filter(id => id) : [];
     if (!shopName || !ownerName || !gstNo || !storeLocation || !phoneNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
