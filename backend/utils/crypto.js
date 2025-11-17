@@ -1,4 +1,5 @@
 const cryptoJs=require('crypto-js');
+const crypto = require('crypto');
 const SECRET=process.env.PHONE_SECRET_KEY;
 
 exports.encryptPhone=(phone)=>{

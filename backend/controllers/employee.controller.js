@@ -27,7 +27,7 @@ exports.registerEmployee = async (req, res) => {
     if (!fullname || !phoneNo || !address || !aadhaarNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
-    if (role !== ROLES.MULTIPLE_EMPLOYEE) {
+    if (role !== ROLES.SINGLE_EMPLOYEE) {
       return res.status(400).json({ message: "Invalid role" });
     }
 
@@ -41,7 +41,7 @@ exports.registerEmployee = async (req, res) => {
     const phoneHash=hashPhone(phoneNo);
     // 3. Check duplicate employee
     const existingEmployee = await SingleEmployee.findOne({
-      $or: [{ phoneNo:phoneHash }, { aadhaarNo }],
+      $or: [{ phoneHash }, { aadhaarNo }],
     });
 
     if (existingEmployee) {

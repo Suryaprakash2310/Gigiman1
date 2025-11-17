@@ -20,10 +20,6 @@ exports.registerShop = async (req, res) => {
     if (role !== ROLES.TOOL_SHOP) {
       return res.status(400).json({ message: "Invalid role" });
     }
-
-    const encryptedPhone=encryptPhone(phoneNo);
-    const maskedPhone=maskPhone(phoneNo);
-    const phoneHash=hashPhone(phoneNo);
     if(!Array.isArray(categories)){
       return res.status(400).json({message:"Categories must be an array"});
     }
@@ -31,8 +27,12 @@ exports.registerShop = async (req, res) => {
      if (valid.length !== categories.length) {
       return res.status(400).json({ message: "One or more categories are invalid" });
     }
+    // ENCRYPT + MASK + HASH
+    const encryptedPhone=encryptPhone(phoneNo);
+    const maskedPhone=maskPhone(phoneNo);
+    const phoneHash=hashPhone(phoneNo);
     const existingShop = await ToolShop.findOne({
-      $or: [{ gstNo }, { phoneNo:phoneHash }]
+      $or: [{ gstNo }, { phoneHash }]
     });
 
     if (existingShop) {
