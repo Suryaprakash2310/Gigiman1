@@ -16,6 +16,16 @@ const singleEmployeeSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  phoneMasked:{
+    type:String,
+    required:true,
+  },
+  phoneHash:{
+    type:String,
+    required:true,
+    index:true,
+    unique:true,
+  },
   role: {
     type: String,
     enum:Object.values(ROLES),

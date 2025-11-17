@@ -3,7 +3,8 @@ const jwt = require("jsonwebtoken");
 const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const Shop = require("../models/toolshop.model");
-const DomainService=require("../models/domainservice.model")
+const DomainService=require("../models/domainservice.model");
+const { hashPhone } = require("../utils/crypto");
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -15,23 +16,24 @@ const generateToken = (id) => {
 const otpStore = {};
 
 exports.sendOtp = async (req, res) => {
-  const { phoneNo } = req.body;
-  if (!phoneNo) return res.status(400).json({ message: "Phone number is required" });
-
   try {
+     const { phoneNo } = req.body;
+     if (!phoneNo) return res.status(400).json({ message: "Phone number is required" });
+     const phoneHash=hashPhone(phoneNo);
     // Check if user exists in any model
-    let user = await SingleEmployee.findOne({ phoneNo }) ||
-               await MultipleEmployee.findOne({ phoneNo }) ||
-               await Shop.findOne({ phoneNo });
+    let user = await SingleEmployee.findOne({ phoneHash }) ||
+               await MultipleEmployee.findOne({ phoneHash }) ||
+               await Shop.findOne({ phoneHash });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Generate 6-digit OTP
+    // Generate 4-digit OTP
     const otp = crypto.randomInt(1000, 9999);
     // save OTP temporarily
-     otpStore[phoneNo] = {
+     otpStore[phoneHash] = {
       otp,
-      expiresAt: Date.now() + 5 * 60 * 1000 // OTP valid for 5 mins
+      expiresAt: Date.now() + 5 * 60 * 1000,// OTP valid for 5 mins
+      attempts:0//Attempts is verify 
     };
     console.log(`OTP for ${phoneNo} is ${otp}`); // in real app, send via SMS
 
@@ -43,23 +45,35 @@ exports.sendOtp = async (req, res) => {
 };
 
 exports.verifyOtp = async (req, res) => {
+  try {
   const { phoneNo, otp } = req.body;
   if (!phoneNo || !otp) return res.status(400).json({ message: "Phone and OTP required" });
 
-  try {
-    const user = await SingleEmployee.findOne({ phoneNo }) ||
-                 await MultipleEmployee.findOne({ phoneNo }) ||
-                 await Shop.findOne({ phoneNo });
+  const phoneHash=hashPhone(phoneNo);
+    const user = await SingleEmployee.findOne({ phoneHash }) ||
+                 await MultipleEmployee.findOne({ phoneHash }) ||
+                 await Shop.findOne({ phoneHash });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Check OTP
-    if (otpStore[phoneNo] != otp) {
+     const store = otpStore[phoneHash]; // use Redis in prod
+    if (!store) return res.status(400).json({ message: "OTP not found or expired" });
+    if (Date.now() > store.expiresAt) {
+      delete otpStore[phoneHash];
+      return res.status(400).json({ message: "OTP expired" });
+    }
+    if (store.otp.toString() !== otp.toString()) {
+      store.attempts = (store.attempts || 0) + 1;
+      if (store.attempts >= 5) {
+        delete otpStore[phoneHash];
+        return res.status(429).json({ message: "Too many invalid attempts" });
+      }
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
+
     // OTP verified, delete it
-    delete otpStore[phoneNo];
+    delete otpStore[phoneHash];
 
     // Generate JWT token
     const token = generateToken(user._id);
@@ -67,6 +81,7 @@ exports.verifyOtp = async (req, res) => {
     res.status(200).json({
       id: user._id,
       type: user.constructor.modelName,
+      phoneNo: user.phoneMasked,
       data: user,
       token,
       message: "Login successful",

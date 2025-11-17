@@ -41,6 +41,16 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  phoneMasked: {
+    type: String,
+    required: true,
+  },
+  phoneHash: {
+    type: String,
+    required: true,
+    index: true,
+    unique: true,
+  },
   role: {
     type: String,
     enum: Object.values(ROLES),
@@ -48,16 +58,16 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     default: ROLES.MULTIPLE_EMPLOYEE,
   },
   location: {
-  type: {
-    type: String,
-    enum: ["Point"],
-    default: "Point"
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point"
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      required: true
+    }//coordinates
   },
-  coordinates: {
-    type: [Number], // [longitude, latitude]
-    required: true
-  }//coordinates
-},
 }, { timestamps: true });
 
 // Auto-generate TeamId (M1, M2, ...)
@@ -75,7 +85,7 @@ MultipleEmployeeSchema.pre('save', async function (next) {
       counter.seq += 1;                     // Increment sequence
       idNumber = counter.seq;
     }
-    const paddedNumber=idNumber.toString().padStart(4,'0');
+    const paddedNumber = idNumber.toString().padStart(4, '0');
     this.TeamId = `M${paddedNumber}`;
     await counter.save();
   }

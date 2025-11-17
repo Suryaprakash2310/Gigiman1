@@ -4,6 +4,7 @@ const SingleEmployee = require('../models/singleEmployee.model');
 const jwt = require('jsonwebtoken');
 const DomainService = require("../models/domainservice.model");
 const EmployeeService = require("../models/employeeService.model");
+const{encryptPhone,maskPhone, hashPhone}=require("../utils/crypto");
 
 // Generate JWT token
 const generateToken = (user) => {
@@ -26,8 +27,7 @@ exports.registerEmployee = async (req, res) => {
     if (!fullname || !phoneNo || !address || !aadhaarNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
-
-    if (!Object.values(ROLES).includes(role)) {
+    if (role !== ROLES.MULTIPLE_EMPLOYEE) {
       return res.status(400).json({ message: "Invalid role" });
     }
 
@@ -35,10 +35,13 @@ exports.registerEmployee = async (req, res) => {
     if (!address.city || !address.state || !address.pincode) {
       return res.status(400).json({ message: "Address must include city, state, and pincode" });
     }
-
+    //Validate services as you already do...
+    const encryptedPhone=encryptPhone(phoneNo);
+    const maskedPhone=maskPhone(phoneNo);
+    const phoneHash=hashPhone(phoneNo);
     // 3. Check duplicate employee
     const existingEmployee = await SingleEmployee.findOne({
-      $or: [{ phoneNo }, { aadhaarNo }],
+      $or: [{ phoneNo:phoneHash }, { aadhaarNo }],
     });
 
     if (existingEmployee) {
@@ -60,11 +63,12 @@ exports.registerEmployee = async (req, res) => {
     if (validServices.length !== services.length) {
       return res.status(400).json({ message: "One or more services not found" });
     }
-
     // 5. Create new employee
     const employee = await SingleEmployee.create({
       fullname,
-      phoneNo,
+      phoneNo:encryptedPhone,
+      phoneMasked:maskedPhone,
+      phoneHash,
       address,
       aadhaarNo,
       role: ROLES.SINGLE_EMPLOYEE
@@ -81,7 +85,7 @@ exports.registerEmployee = async (req, res) => {
       id: employee._id,
       empId: employee.empId,
       fullname: employee.fullname,
-      phoneNo: employee.phoneNo,
+      phoneNo: employee.phoneMasked,
       address: employee.address,
       role: employee.role,
       verified: employee.verified,

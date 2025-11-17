@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.model');
 const Domainparts = require('../models/domainparts.model');
+const { encryptPhone, maskPhone, hashPhone } = require('../utils/crypto');
 
 // JWT creator
 const generateToken = (id) => {
@@ -19,6 +20,10 @@ exports.registerShop = async (req, res) => {
     if (role !== ROLES.TOOL_SHOP) {
       return res.status(400).json({ message: "Invalid role" });
     }
+
+    const encryptedPhone=encryptPhone(phoneNo);
+    const maskedPhone=maskPhone(phoneNo);
+    const phoneHash=hashPhone(phoneNo);
     if(!Array.isArray(categories)){
       return res.status(400).json({message:"Categories must be an array"});
     }
@@ -27,7 +32,7 @@ exports.registerShop = async (req, res) => {
       return res.status(400).json({ message: "One or more categories are invalid" });
     }
     const existingShop = await ToolShop.findOne({
-      $or: [{ gstNo }, { phoneNo }]
+      $or: [{ gstNo }, { phoneNo:phoneHash }]
     });
 
     if (existingShop) {
@@ -39,7 +44,9 @@ exports.registerShop = async (req, res) => {
       ownerName,
       gstNo,
       storeLocation,
-      phoneNo,
+      phoneNo:encryptedPhone,
+      phoneMasked:maskedPhone,
+      phoneHash,
       role: ROLES.TOOL_SHOP,
       categories
     });
@@ -48,7 +55,7 @@ exports.registerShop = async (req, res) => {
       toolShopId: shop.toolShopId,
       shopName: shop.shopName,
       ownerName: shop.ownerName,
-      phoneNo: shop.phoneNo,
+      phoneNo: shop.phoneMasked,
       gstNo: shop.gstNo,
       role: shop.role,
       categories:shop.categories,

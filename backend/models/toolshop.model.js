@@ -30,9 +30,19 @@ const toolshopSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    phoneMasked: {
+      type: String,
+      required: true,
+    },
+    phoneHash: {
+      type: String,
+      required: true,
+      index: true,
+      unique: true,
+    },
     role: {
       type: String,
-      enum: Object.values(ROLES),  
+      enum: Object.values(ROLES),
       default: ROLES.TOOL_SHOP,
       required: true,
     },
@@ -40,15 +50,15 @@ const toolshopSchema = new mongoose.Schema(
       { type: mongoose.Schema.Types.ObjectId, ref: "Domainparts" }
     ],
 
-    location:{
-      type:{
-        type:String,
-        enum:["Point"],
-        default:"Point"
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point"
       },
-      coordinates:{
-        type:[Number],//[longitude,latitude]
-        required:true,
+      coordinates: {
+        type: [Number],//[longitude,latitude]
+        required: true,
       }
     }
   },
@@ -73,7 +83,7 @@ toolshopSchema.pre("save", async function (next) {
     counter.seq += 1;
     newNumber = counter.seq;
   }
-  const paddedNumber=newNumber.toString().padStart(4,'0');
+  const paddedNumber = newNumber.toString().padStart(4, '0');
   this.toolShopId = `T${paddedNumber}`;
   await counter.save();
   next();
