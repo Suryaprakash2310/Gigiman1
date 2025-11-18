@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
-const Shop = require("../models/toolshop.model");
+const ToolShop = require("../models/toolshop.model");
 const DomainService = require("../models/domainservice.model");
 const { hashPhone } = require("../utils/crypto");
 
@@ -23,7 +23,7 @@ exports.sendOtp = async (req, res) => {
     // Check if user exists in any model
     let user = await SingleEmployee.findOne({ phoneHash }) ||
       await MultipleEmployee.findOne({ phoneHash }) ||
-      await Shop.findOne({ phoneHash });
+      await ToolShop.findOne({ phoneHash });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -52,7 +52,7 @@ exports.verifyOtp = async (req, res) => {
     const phoneHash = hashPhone(phoneNo);
     let user = await SingleEmployee.findOne({ phoneHash }) ||
       await MultipleEmployee.findOne({ phoneHash }) ||
-      await Shop.findOne({ phoneHash });
+      await ToolShop.findOne({ phoneHash });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -80,9 +80,8 @@ exports.verifyOtp = async (req, res) => {
 
     res.status(200).json({
       id: user._id,
-      type: user.constructor.modelName,
+      role: user.role,
       phoneNo: user.phoneMasked,
-      data: user,
       token,
       message: "Login successful",
     });
