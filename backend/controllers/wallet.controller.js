@@ -2,6 +2,7 @@ const razorpay = require("../config/razorpay");
 const Transaction = require("../models/transaction.model");
 const crypto = require('crypto');
 const Wallet = require("../models/wallet.model");
+require('dotenv').config();
 
 //Added the money in the wallet
 exports.addMoneyWallet = async (req, res) => {
