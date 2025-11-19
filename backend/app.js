@@ -10,6 +10,7 @@ const shop = require("./router/toolshop.router");
 const auth = require("./router/auth.router");
 const parts=require("./router/part.router");
 const profile=require("./router/profile.router");
+const wallet=require("./router/wallet.router");
 
 dotenv.config();
 const app = express();
@@ -34,6 +35,7 @@ app.use("/api/toolshop", shop);
 app.use("/api/auth", auth);
 app.use("/api/parts",parts);
 app.use("/api/profile",profile);
+app.use("/api/wallet",wallet);
 
 // ------------------- START SERVER -------------------
 const port = process.env.PORT || 5000;

@@ -5,7 +5,7 @@ const walletSchema = new mongoose.Schema({
     empId: {
         type: mongoose.Types.ObjectId,
         required: true,
-        refPath: "emp-Type",//Dynamic reference
+        refPath: "empType",//Dynamic reference
         unique: true,
     },
     empType: {

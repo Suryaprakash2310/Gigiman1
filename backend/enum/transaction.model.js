@@ -1,0 +1,7 @@
+const TRANSACTION_TYPE={
+    ADD:"ADD",
+    WITHDRAW:"WITHDRAW",
+    REFUND:"REFUND"
+}
+
+module.exports=TRANSACTION_TYPE;
