@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const Counter = require('./counter.model');
-const ROLES = require("../enum/role.model");
+const ROLES = require("../enum/role.enum");
 
 const MultipleEmployeeSchema = new mongoose.Schema({
   TeamId: {

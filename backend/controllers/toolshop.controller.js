@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const ToolShop = require('../models/toolshop.model');
-const ROLES = require('../enum/role.model');
+const ROLES = require('../enum/role.enum');
 const Domainparts = require('../models/domainparts.model');
 const { encryptPhone, maskPhone, hashPhone } = require('../utils/crypto');
 

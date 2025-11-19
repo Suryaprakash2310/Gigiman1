@@ -1,4 +1,4 @@
-const ROLES = require('../enum/role.model');
+const ROLES = require('../enum/role.enum');
 const multipleEmployeeModel = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee.model');
 const jwt = require('jsonwebtoken');

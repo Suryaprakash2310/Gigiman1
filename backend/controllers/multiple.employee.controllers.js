@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const MultipleEmployee = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee.model');
-const ROLES = require('../enum/role.model');
+const ROLES = require('../enum/role.enum');
 const DomainService = require('../models/domainservice.model')
 const EmployeeService = require("../models/employeeService.model");
 const { encryptPhone, maskPhone, hashPhone } = require('../utils/crypto');

@@ -51,6 +51,9 @@ exports.verifyAddMoney = async (req, res) => {
             return res.status(400).json({ message: "EmpId and Emp role is needed" });
         }
         const { orderId, paymentId, signature } = req.body;
+        if(!orderId ||!paymentId ||!signature){
+            return res.status(400).json({message:"orderId,paymentId,signature is required"});
+        }
         const body = orderId + "|" + paymentId;
         const expectedsignature = crypto
             .createHmac("sha256", process.env.RZ_KEY_SECRET)
@@ -86,6 +89,9 @@ exports.withdrawMoney = async (req, res) => {
     try {
         const empId = req.employee._id;
         const empType = req.employee.constructor.modelName;
+        if (!empId || !empType) {
+            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+        }
         const { amount } = req.body;
         if (!amount) {
             return res.status(400).json({ message: "Amount is required" });

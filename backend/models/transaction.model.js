@@ -1,7 +1,7 @@
 const mongoose=require("mongoose");
-const TRANSACTION_TYPE = require("../enum/transaction.model");
-const TRANSACTION_STATUS = require("../enum/transactiontype.model");
-const ROLES = require("../enum/role.model");
+const TRANSACTION_TYPE = require("../enum/transaction.enum");
+const TRANSACTION_STATUS = require("../enum/transactiontype.enum");
+const ROLES = require("../enum/role.enum");
 
 const transactionschema=new mongoose.Schema({
     empId: {

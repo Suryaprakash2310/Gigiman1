@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const ROLES = require("../enum/role.model");
+const ROLES = require("../enum/role.enum");
 const Counter = require("./counter.model");
 
 const toolshopSchema = new mongoose.Schema(
