@@ -51,9 +51,16 @@ const singleEmployeeSchema = new mongoose.Schema({
     },
   },
   aadhaarNo: {
-    type: Number,
-    unique: true,
+    type: String,
     required: true,
+  },
+  aadhaarMasked:{
+    type:String,
+    required:true,
+  },
+  aadhaarHash:{
+    type:String,
+    required:true,
   },
   teamAccepted: {
   type: Boolean,

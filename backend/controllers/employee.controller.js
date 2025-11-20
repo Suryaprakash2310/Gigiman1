@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const DomainService = require("../models/domainservice.model");
 const EmployeeService = require("../models/employeeService.model");
 const{encryptPhone,maskPhone, hashPhone}=require("../utils/crypto");
+const { encryptAadhaar, hashAadhaar, maskAadhaar } = require('../utils/aadharUtils');
 
 // Generate JWT token
 const generateToken = (user) => {
@@ -39,9 +40,13 @@ exports.registerEmployee = async (req, res) => {
     const encryptedPhone=encryptPhone(phoneNo);
     const maskedPhone=maskPhone(phoneNo);
     const phoneHash=hashPhone(phoneNo);
+    //Aadhaar Secure Storage
+    const encryptedAadhaar=encryptAadhaar(aadhaarNo);
+    const aadhaarHash=hashAadhaar(aadhaarNo);
+    const maskedAahaar=maskAadhaar(aadhaarNo);
     // 3. Check duplicate employee
     const existingEmployee = await SingleEmployee.findOne({
-      $or: [{ phoneHash }, { aadhaarNo }],
+      $or: [{ phoneHash }, { aadhaarHash }],
     });
 
     if (existingEmployee) {
@@ -70,7 +75,9 @@ exports.registerEmployee = async (req, res) => {
       phoneMasked:maskedPhone,
       phoneHash,
       address,
-      aadhaarNo,
+      aadhaarNo:encryptAadhaar,
+      aadhaarMasked:maskedAahaar,
+      aadhaarHash,
       role: ROLES.SINGLE_EMPLOYEE
     });
 
@@ -87,6 +94,7 @@ exports.registerEmployee = async (req, res) => {
       fullname: employee.fullname,
       phoneNo: employee.phoneMasked,
       address: employee.address,
+      aadhaarNo: employee.aadhaarMasked, // only last 4 digits
       role: employee.role,
       verified: employee.verified,
       servicesAssigned: services,

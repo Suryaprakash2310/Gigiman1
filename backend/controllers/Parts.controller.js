@@ -1,10 +1,4 @@
-const jwt=require('jsonwebtoken');
 const Domainparts= require('../models/domainparts.model');
-
-// Generate JWT token
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
-};
 
 //Showcategories
 exports.showCategories=async(req,res)=>{
