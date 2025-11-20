@@ -2,15 +2,18 @@ const razorpay = require("../config/razorpay");
 const Transaction = require("../models/transaction.model");
 const crypto = require('crypto');
 const Wallet = require("../models/wallet.model");
+const ROLES = require("../enum/role.enum");
+const roleModelMap = require("../utils/roleModelMap");
 require('dotenv').config();
 
-//Added the money in the wallet
+//Add money in the wallet
 exports.addMoneyWallet = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType = req.employee.constructor.modelName;
-        if (!empId || !empType) {
-            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+        const empType=req.employee.role;
+        const empModel=roleModelMap[empType];
+        if (!empId || !empType ||!empModel) {
+            return res.status(400).json({ message: "Invalid emp type or model" });
         }
         const { amount } = req.body;
         if (!amount) {
@@ -24,13 +27,14 @@ exports.addMoneyWallet = async (req, res) => {
         await Transaction.create({
             empId,
             empType,
+            empModel,
             amount,
             transactionType: "ADD",
             transactionStatus: "PENDING",
             razorpayOrderId: order.id
         });
         res.json({
-            key: process.env.RZP_KEY_ID,
+            key: process.env.RZ_KEY_ID,
             orderId: order.id,
             amount,
         });
@@ -41,20 +45,20 @@ exports.addMoneyWallet = async (req, res) => {
     }
 }
 
-//verify the order
-
+//verify payment
 exports.verifyAddMoney = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType = req.employee.constructor.modelName;
-        if (!empId || !empType) {
-            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+        const empType=req.employee.role;
+        const empModel=roleModelMap[empType];
+        if (!empId || !empType ||!empModel) {
+            return res.status(400).json({ message: "Invalid emp type or model" });
         }
         const { orderId, paymentId, signature } = req.body;
         if(!orderId ||!paymentId ||!signature){
             return res.status(400).json({message:"orderId,paymentId,signature is required"});
         }
-        const body = orderId + "|" + paymentId;
+        const body = `${orderId}|${paymentId}`;
         const expectedsignature = crypto
             .createHmac("sha256", process.env.RZ_KEY_SECRET)
             .update(body)
@@ -70,7 +74,7 @@ exports.verifyAddMoney = async (req, res) => {
         await tx.save();
         let wallet = await Wallet.findOne({ empId, empType });
         if (!wallet) {
-            wallet = await wallet.create({ empId, empType });
+            wallet = await Wallet.create({ empId, empType });
         }
         wallet.balance += tx.amount;
         await wallet.save();
@@ -88,8 +92,9 @@ exports.verifyAddMoney = async (req, res) => {
 exports.withdrawMoney = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType = req.employee.constructor.modelName;
-        if (!empId || !empType) {
+        const empType = req.employee.role;
+        const empModel=roleModelMap[empType]
+        if (!empId || !empType ||!empModel) {
             return res.status(400).json({ message: "EmpId and Emp role is needed" });
         }
         const { amount } = req.body;
@@ -109,6 +114,7 @@ exports.withdrawMoney = async (req, res) => {
         await Transaction.create({
             empId,
             empType,
+            empModel,
             amount,
             transactionType: "WITHDRAW",
             transactionStatus: "SUCCESS",
@@ -126,7 +132,10 @@ exports.withdrawMoney = async (req, res) => {
 
 exports.getWalletBalance = async (req, res) => {
     const empId = req.employee._id;
-    const empType = req.employee.constructor.modelName;
+    const empType = req.employee.role;
+    if (!empId || !empType ) {
+            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+    }
     const wallet = await Wallet.findOne({ empId, empType });
 
     res.json({
@@ -136,8 +145,11 @@ exports.getWalletBalance = async (req, res) => {
 
 exports.getRecentTransactions = async (req, res) => {
     const empId = req.employee._id;
-    const empType = req.employee.constructor.modelName;
-    const tx = await Transaction.find({ empId, empType })
+    const empType = req.employee.role;
+    if (!empId || !empType ) {
+            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+    }
+    const tx = await Transaction.find({ empId, empModel })
     .sort({ createdAt: -1 })
     .limit(30);
 

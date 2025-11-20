@@ -59,7 +59,7 @@ exports.registerShop = async (req, res) => {
       gstNo: shop.gstNo,
       role: shop.role,
       categories:shop.categories,
-      token: generateToken(shop._id),
+      token: generateToken(shop),
     });
 
   } catch (err) {

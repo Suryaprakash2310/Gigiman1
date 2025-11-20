@@ -11,11 +11,7 @@ const walletSchema = new mongoose.Schema({
     empType: {
         type: String,
         required: true,
-        enum: [
-            ROLES.SINGLE_EMPLOYEE,
-            ROLES.MULTIPLE_EMPLOYEE,
-            ROLES.TOOL_SHOP,
-        ]
+        enum: ["SingleEmployee", "MultipleEmployee", "ToolShop"]
     },
     balance: {
         type: String,
