@@ -1,3 +1,4 @@
+const Admin = require("../models/admin.model");
 const multipleEmployee = require("../models/multipleEmployee.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const Shop = require("../models/toolshop.model");
@@ -18,7 +19,8 @@ exports.protect = async (req, res, next) => {
     let employee =
       (await SingleEmployee.findById(decoded.id)) ||
       (await multipleEmployee.findById(decoded.id)) ||
-      (await Shop.findById(decoded.id));
+      (await Shop.findById(decoded.id))||
+      (await Admin.findById(decoded.id));
 
     if (!employee) {
       return res.status(404).json({ message: "User not found" });

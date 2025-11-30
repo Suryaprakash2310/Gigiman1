@@ -10,7 +10,7 @@ const serviceListSchema = mongoose.Schema({
         type: String,
         required: true,
     },
-    description: {
+    serviceName: {
         type: String,
         required: true,
     },
