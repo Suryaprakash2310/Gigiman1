@@ -1,6 +1,6 @@
 const mongoose=require('mongoose');
 
-const UserSchema=mongoose.model({
+const UserSchema=mongoose.Schema({
     fullName:{
         type:String,
         required:true,

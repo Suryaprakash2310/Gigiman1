@@ -10,9 +10,10 @@ const serviceListSchema = mongoose.Schema({
         type: String,
         required: true,
     },
-    serviceName: {
-        type: String,
-        required: true,
+    serviceCategory:[{
+        description:{
+        type:String,
+        required:true,
     },
     price: {
         type: String,
@@ -22,7 +23,7 @@ const serviceListSchema = mongoose.Schema({
         type: Number,
         required: true
     }
-
+    }]
 }, { timestamps: true })
 
 module.exports = mongoose.model("ServiceList", serviceListSchema);

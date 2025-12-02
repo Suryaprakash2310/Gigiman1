@@ -40,7 +40,7 @@ app.use("/api/parts",parts);
 app.use("/api/profile",profile);
 app.use("/api/wallet",wallet);
 app.use("/api/admin",admin);
-app.user('/api/user',user);
+app.use('/api/user',user);
 
 // ------------------- START SERVER -------------------
 const port = process.env.PORT || 5000;
