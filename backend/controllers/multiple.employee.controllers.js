@@ -207,3 +207,45 @@ exports.removeMembersFromTeam = async (req, res) => {
     res.status(500).json({ message: "Error removing member", error: err.message });
   }
 }
+
+// Get team status (members + pending requests)
+exports.getTeamStatus = async (req, res) => {
+  try {
+    const loggedInEmp = req.employee;
+
+    if (loggedInEmp.role !== ROLES.MULTIPLE_EMPLOYEE) {
+      return res.status(403).json({ message: "Only MultipleEmployee can view team status" });
+    }
+
+    // Find the logged-in user's team
+    const team = await MultipleEmployee.findOne({ _id: loggedInEmp._id });
+
+    if (!team) {
+      return res.status(404).json({ message: "Team not found" });
+    }
+
+    // Fetch member details
+    const members = await SingleEmployee.find({
+      empId: { $in: team.members }
+    }).select("empId fullname");
+
+    // Fetch pending request details
+    const pending = await SingleEmployee.find({
+      empId: { $in: team.pendingRequests }
+    }).select("empId fullname");
+
+    return res.status(200).json({
+      success: true,
+      teamId: team.TeamId,
+      members,
+      pendingRequests: pending,
+    });
+
+  } catch (err) {
+    console.error("Team Status Error:", err.message);
+    res.status(500).json({
+      message: "Error fetching team status",
+      error: err.message,
+    });
+  }
+};
