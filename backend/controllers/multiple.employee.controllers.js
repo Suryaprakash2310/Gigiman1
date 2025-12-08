@@ -249,3 +249,33 @@ exports.getTeamStatus = async (req, res) => {
     });
   }
 };
+
+exports.SearchSingleEmployee=async(req,res)=>{
+  try{
+    const loggedInEmp=req.employee;
+    if(!loggedInEmp){
+      return res.status(400).json({message:"Invalid employee Id"});
+    }
+     if (loggedInEmp.role !== ROLES.MULTIPLE_EMPLOYEE) {
+      return res.status(403).json({ message: "Only MultipleEmployee can view team status" });
+    }
+
+    const {q=" "}=req.query;
+    const singleemployee=await SingleEmployee.aggregate([
+      {
+        $match:{
+          empId:{$regex:q,$options:"i"}
+        },
+      },
+      {$sort:{empId:1}},
+    ])
+    res.status(200).json({
+      success:true,
+      count:singleemployee.length,
+      singleemployee,
+    })
+  }
+  catch(err){
+    return res.status(500).json({message:"Server error"});
+  }
+}
