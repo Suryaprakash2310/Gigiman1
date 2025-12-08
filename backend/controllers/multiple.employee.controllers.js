@@ -264,7 +264,8 @@ exports.SearchSingleEmployee=async(req,res)=>{
     const singleemployee=await SingleEmployee.aggregate([
       {
         $match:{
-          empId:{$regex:q,$options:"i"}
+          empId:{$regex:q,$options:"i"},
+          fullname: { $regex: q, $options: "i" } ,
         },
       },
       {$sort:{empId:1}},
