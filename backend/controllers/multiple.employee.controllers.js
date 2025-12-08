@@ -106,7 +106,7 @@ exports.showSingleEmployee = async (req, res) => {
       message: "Registered single employees list",
       employees,
     })
-  }
+  } 
   catch (err) {
     console.error("Error for showSingleEmployee", err.message);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -128,7 +128,8 @@ exports.requestToAddMember = async (req, res) => {
       return res.status(400).json({ message: "empId is required" });
     }
     //Find team
-    const team = await MultipleEmployee.findOne({ TeamId: loggedInemp });
+    const team = await MultipleEmployee.findOne({ empId: loggedInemp.empId });
+
     if (!team) {
       return res.status(400).json({ message: "Team not found" });
     }
@@ -149,7 +150,7 @@ exports.requestToAddMember = async (req, res) => {
     if (team.pendingRequests.includes(empId))
       return res.status(400).json({ message: "Request already sent" });
     //send request
-    team.pendingRequests.push(empId);
+    team.pendingRequests.push(singleEmployee._id);
     await team.save();
     res.status(200).json({
       message: `Request sent to ${empId}. Waiting for approval.`,
@@ -253,9 +254,6 @@ exports.getTeamStatus = async (req, res) => {
 exports.SearchSingleEmployee = async (req, res) => {
   try {
     const loggedInEmp = req.employee;
-    if (!loggedInEmp) {
-      return res.status(400).json({ message: "Invalid employee Id" });
-    }
     if (loggedInEmp.role !== ROLES.MULTIPLE_EMPLOYEE) {
       return res.status(403).json({ message: "Only MultipleEmployee can view team status" });
     }
@@ -280,5 +278,24 @@ exports.SearchSingleEmployee = async (req, res) => {
   }
   catch (err) {
     return res.status(500).json({ message: "Server error" });
+  }
+}
+
+exports.getpendingDetails=async(req,res)=>{
+  try{
+    const loggedInEmp=req.employee;
+    const team=await MultipleEmployee.findOne({_id:loggedInEmp._id})
+    .populate("pendingRequests","fullName empId teamAccepted")
+    .populate("members","fullName empId teamAccepted")
+    if(!team){
+      return res.status(400).json({message:"team not found"});
+    }
+    res.status(200).json({
+      success:true,
+      team,
+    })
+  }
+  catch(err){
+    return res.status(500).json({message:"server Error"});
   }
 }
