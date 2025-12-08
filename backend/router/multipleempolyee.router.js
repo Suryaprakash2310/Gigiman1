@@ -1,5 +1,5 @@
 const express=require('express');
-const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam, showSingleEmployee, getTeamStatus } = require('../controllers/multiple.employee.controllers');
+const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam, showSingleEmployee, getTeamStatus, SearchSingleEmployee } = require('../controllers/multiple.employee.controllers');
 const { protect } = require('../middleware/auth.middleware');
 const router=express.Router();
 
@@ -16,5 +16,7 @@ router.post("/requesttoaddmember",protect,requestToAddMember);
 router.post("/removemembersfromteam",protect,removeMembersFromTeam);
 
 router.get("/team-status", protect, getTeamStatus);
+
+router.get("/search-singleemp",protect,SearchSingleEmployee);
 
 module.exports = router;
