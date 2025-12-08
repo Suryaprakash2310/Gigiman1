@@ -5,6 +5,7 @@ const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
 const DomainService = require("../models/domainservice.model");
 const { hashPhone } = require("../utils/crypto");
+const ServiceList = require("../models/serviceList.model");
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -124,7 +125,7 @@ exports.searchService = async (req, res) => {
     const services = await DomainService.aggregate([
       {
         $match: {
-          domainName: { $regex: q, $options: "i" }
+          domainName: { $regex: "^"+q, $options: "i" }
         }
       },
       { $sort: { domainName: 1 } }
@@ -141,11 +142,108 @@ exports.searchService = async (req, res) => {
   }
 };
 
-
-exports.partrequest = async (req, res) => {
+exports.ShowsubService = async (req, res) => {
   try {
+    const data = await ServiceList.find().sort({ serviceName: 1 });
+
+    if (!data || data.length === 0) {
+      return res.status(400).json({ message: "No SubService" });
+    }
+
+    //  Separate Service Names
+    const serviceNames = data.map(item => item.serviceName);
+
+    //  Separate Category Services (Flattened)
+    let categoryServices = [];
+
+    data.forEach(item => {
+      item.serviceCategory.forEach(sub => {
+        categoryServices.push({ 
+          parentServiceName: item.serviceName,
+          _id: sub._id,
+          serviceCategoryName:sub.serviceCategoryName,
+          description: sub.description,
+          price: sub.price,
+          ServicecategoryImage:sub.ServicecategoryImage,
+          durationInMinutes: sub.durationInMinutes
+        });
+      });
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Sub Services fetched successfully",
+
+      serviceNames,       // Only serviceName list
+      categoryServices,   // Flattened sub-services list
+      countServices: data.length,
+      countCategories: categoryServices.length
+    });
 
   } catch (err) {
-
+    return res.status(500).json({ message: "Server error",error:err.message });
   }
-}
+};
+
+exports.SetSubService = async (req, res) => {
+  try {
+    const { DomainServiceId, serviceName, ServiceCategory } = req.body;
+
+    if (!DomainServiceId || !serviceName) {
+      return res.status(400).json({ message: "All fields required" });
+    }
+
+    if (
+      !ServiceCategory.serviceCategoryName ||
+      !ServiceCategory.description ||
+      !ServiceCategory.price ||
+      !ServiceCategory.durationInMinutes||
+      !ServiceCategory.ServicecategoryImage
+    ) {
+      return res.status(400).json({ message: "Servicecategory field is required" });
+    }
+
+    // Check if the serviceName exists
+    const existingService = await ServiceList.findOne({ serviceName });
+
+    //  If service exists → check if category exists
+    if (existingService) {
+      const categoryExists = existingService.serviceCategory.some(
+        (item) =>
+          item.serviceCategoryName === ServiceCategory.serviceCategoryName
+      );
+
+      if (categoryExists) {
+        return res.status(400).json({
+          message: "This service category already exists",
+        });
+      }
+
+      //  Add category to existing service
+      existingService.serviceCategory.push(ServiceCategory);
+      await existingService.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Category added successfully to existing service",
+        data: existingService,
+      });
+    }
+
+    //  Service does NOT exist → create new service
+    const newService = await ServiceList.create({
+      DomainServiceId,
+      serviceName,
+      serviceCategory: [ServiceCategory],
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "New service created with category",
+      data: newService,
+    });
+
+  } catch (err) {
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
