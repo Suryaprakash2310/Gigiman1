@@ -153,6 +153,7 @@ exports.requestToAddMember = async (req, res) => {
     team.pendingRequests.push(empId);
     await team.save();
     res.status(200).json({
+      success:true,
       message: `Request sent to ${empId}. Waiting for approval.`,
       team,
     });
@@ -176,7 +177,9 @@ exports.removePendingRequest=async(req,res)=>{
       {$pull:{pendingRequests:empId}},
       {new:true},
     )
-    return res.status(200).json({message:"successfully remove the pending request"});
+    return res.status(200).json({
+      success:true,
+      message:"successfully remove the pending request"});
   }
   catch(err){
     console.error("remove pending request erorr",err.message);
@@ -220,6 +223,7 @@ exports.removeMembersFromTeam = async (req, res) => {
     await employee.save();
 
     res.status(200).json({
+      success:true,
       message: `Employee ${empId} removed from your team successfully.`,
       team,
     });
