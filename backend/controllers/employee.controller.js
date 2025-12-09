@@ -75,7 +75,7 @@ exports.registerEmployee = async (req, res) => {
       phoneMasked: maskedPhone,
       phoneHash,
       address,
-      aadhaarNo: encryptAadhaar,
+      aadhaarNo: encryptedAadhaar,
       aadhaarMasked: maskedAahaar,
       aadhaarHash,
       role: ROLES.SINGLE_EMPLOYEE
