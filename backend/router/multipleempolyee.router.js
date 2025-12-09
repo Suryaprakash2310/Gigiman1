@@ -21,6 +21,4 @@ router.get("/search-singleemp",protect,SearchSingleEmployee);
 
 router.get("/get-memberDetails",protect,getpendingDetails);
 
-router.put("/remove-pendingrequest",protect,removePendingRequest);
-
 module.exports = router;

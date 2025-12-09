@@ -113,79 +113,63 @@ exports.showSingleEmployee = async (req, res) => {
   }
 }
 
-//request singleEmployee to members List
+//toglependingrequest
 exports.requestToAddMember = async (req, res) => {
-
   try {
-    const loggedInemp = req.employee; // Logged in employee
+    const loggedInEmp = req.employee;
     const { empId } = req.body;
-    // Check role
-    if (loggedInemp.role !== ROLES.MULTIPLE_EMPLOYEE) {
-      return res.status(403).json({ message: "Only MultipleEmployee can add members" });
-    }
-    //empId required
-    if (!empId) {
-      return res.status(400).json({ message: "empId is required" });
-    }
-    //Find team
-    const team = await MultipleEmployee.findOne({ TeamId: loggedInemp.TeamId });
 
+    if (!empId) {
+      return res.status(400).json({ message: "Employee ID is required" });
+    }
+
+    // Find team of logged-in employee
+    const team = await MultipleEmployee.findOne({ TeamId: loggedInEmp.TeamId });
     if (!team) {
       return res.status(400).json({ message: "Team not found" });
     }
-    //Find single employee
+
+    // Check if empId exists in SingleEmployee collection
     const singleEmployee = await SingleEmployee.findOne({ empId });
     if (!singleEmployee) {
-      return res.status(400).json({ message: "single Employee not found" });
+      return res.status(400).json({ message: "Employee not found" });
     }
-    //Already members
-    if (team.members.includes(empId)) {
-      return res.status(400).json({ message: "Employee already in team" });
+
+    // --- Check if request already exists ---
+    const alreadyRequested = team.pendingRequests.includes(empId);
+
+    if (alreadyRequested) {
+      // REMOVE request (undo request)
+      team.pendingRequests.pull(empId);
+      await team.save();
+
+      return res.status(200).json({
+        success: true,
+        action: "removed",
+        message: "Request removed (undo request)",
+        team,
+      });
     }
-    //check acceptance
-    if (!singleEmployee.teamAccepted) {
-      return res.status(400).json({ message: "Employee has not accepted the team request yet" });
-    }
-    //Already requested?
-    if (team.pendingRequests.includes(empId))
-      return res.status(400).json({ message: "Request already sent" });
-    //send request
+
+    // --- Add request ---
     team.pendingRequests.push(empId);
     await team.save();
-    res.status(200).json({
-      success:true,
-      message: `Request sent to ${empId}. Waiting for approval.`,
+
+    return res.status(200).json({
+      success: true,
+      action: "sent",
+      message: "Request sent successfully",
       team,
     });
-  }
-  catch (err) {
-    console.error("Error adding member:", err.message);
-    res.status(500).json({ message: "Error adding member", error: err.message });
-  }
-}
 
-//if they do the wrong pending request then remove the pending request
-exports.removePendingRequest=async(req,res)=>{
-  try{
-    const loggedInEmp=req.employee;
-    const{empId}=req.body;
-    if(!empId){
-      return res.status(400).json({message:"Employee ID required"});
-    }
-    await MultipleEmployee.findByIdAndUpdate(
-      loggedInEmp._id,
-      {$pull:{pendingRequests:empId}},
-      {new:true},
-    )
-    return res.status(200).json({
-      success:true,
-      message:"successfully remove the pending request"});
+  } catch (err) {
+    console.error("toggle pending request error:", err.message);
+    return res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
   }
-  catch(err){
-    console.error("remove pending request erorr",err.message);
-    return res.status(500).json({message:"Server error",error:err.message});
-  }
-}
+};
 
 //Remove a singleEmployee from the logged in MultipleEmployee's team
 exports.removeMembersFromTeam = async (req, res) => {
