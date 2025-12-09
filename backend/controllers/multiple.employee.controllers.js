@@ -163,6 +163,27 @@ exports.requestToAddMember = async (req, res) => {
   }
 }
 
+//if they do the wrong pending request then remove the pending request
+exports.removePendingRequest=async(req,res)=>{
+  try{
+    const loggedInEmp=req.employee;
+    const{empId}=req.body;
+    if(!empId){
+      return res.status(400).json({message:"Employee ID required"});
+    }
+    await MultipleEmployee.findByIdAndUpdate(
+      loggedInEmp._id,
+      {$pull:{pendingRequests:empId}},
+      {new:true},
+    )
+    return res.status(200).json({message:"successfully remove the pending request"});
+  }
+  catch(err){
+    console.error("remove pending request erorr",err.message);
+    return res.status(500).json({message:"Server error",error:err.message});
+  }
+}
+
 //Remove a singleEmployee from the logged in MultipleEmployee's team
 exports.removeMembersFromTeam = async (req, res) => {
   try {
