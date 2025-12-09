@@ -128,7 +128,7 @@ exports.requestToAddMember = async (req, res) => {
       return res.status(400).json({ message: "empId is required" });
     }
     //Find team
-    const team = await MultipleEmployee.findOne({ TeamId: loggedInemp });
+    const team = await MultipleEmployee.findOne({ TeamId: loggedInemp.TeamId });
 
     if (!team) {
       return res.status(400).json({ message: "Team not found" });
