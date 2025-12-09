@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const Counter = require('./counter.model');
-const ROLES=require("../enum/role.enum");
+const ROLES = require("../enum/role.enum");
 
 const singleEmployeeSchema = new mongoose.Schema({
   empId: {
@@ -16,21 +16,21 @@ const singleEmployeeSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
-  phoneMasked:{
-    type:String,
-    required:true,
+  phoneMasked: {
+    type: String,
+    required: true,
   },
-  phoneHash:{
-    type:String,
-    required:true,
-    index:true,
-    unique:true,
+  phoneHash: {
+    type: String,
+    required: true,
+    index: true,
+    unique: true,
   },
   role: {
     type: String,
-    enum:Object.values(ROLES),
+    enum: Object.values(ROLES),
     required: true,
-    default:ROLES.SINGLE_EMPLOYEE
+    default: ROLES.SINGLE_EMPLOYEE
   },
   verified: {
     type: String,
@@ -54,29 +54,29 @@ const singleEmployeeSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  aadhaarMasked:{
-    type:String,
-    required:true,
+  aadhaarMasked: {
+    type: String,
+    required: true,
   },
-  aadhaarHash:{
-    type:String,
-    required:true,
+  aadhaarHash: {
+    type: String,
+    required: true,
   },
   teamAccepted: {
-  type: Boolean,
-  default: false,
-},
-location: {
-  type: {
-    type: String,
-    enum: ["Point"],
-    default: "Point"
+    type: Boolean,
+    default: false,
   },
-  coordinates: {
-    type: [Number], // [longitude, latitude]
-    required: true
-  }
-},
+  location: {
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point"
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      required: true
+    }
+  },
 
 
 }, { timestamps: true });
@@ -105,7 +105,7 @@ singleEmployeeSchema.pre('save', async function (next) {
   if (isNaN(newNumber)) {
     return next(new Error("Invalid empId generation — newNumber is NaN"));
   }
-  const paddedNumber=newNumber.toString().padStart(4,'0');
+  const paddedNumber = newNumber.toString().padStart(4, '0');
   this.empId = `E${paddedNumber}`;
   await counter.save();
   next();
@@ -114,7 +114,7 @@ singleEmployeeSchema.pre('save', async function (next) {
 
 //  Free up the ID when an employee is deleted
 singleEmployeeSchema.post('findOneAndDelete', async function (doc) {
-  if(!doc || !doc.empId)return;
+  if (!doc || !doc.empId) return;
   if (doc && doc.empId) {
     const counter = await Counter.findOne({ name: 'employee' });
     if (counter) {

@@ -149,33 +149,42 @@ exports.rejectTeamRequest = async (req, res) => {
   try {
     const loggedInEmp = req.employee;
     const { teamId } = req.body;
+
     if (!teamId) {
       return res.status(400).json({ message: "teamId is required" });
     }
+
     const team = await MultipleEmployee.findOne({ TeamId: teamId });
     if (!team) {
       return res.status(400).json({ message: "Team not found" });
     }
+
     await MultipleEmployee.updateOne(
       { TeamId: teamId },
-      { $pull: { pendingRequests: loggedInEmp } },
-    )
-    res.status(200).json({
+      { $pull: { pendingRequests: loggedInEmp.empId } }   
+    );
+
+    return res.status(200).json({
       success: true,
-      message: "Request reject successfully",
+      message: "Request rejected successfully",
       rejectFrom: teamId,
-    })
+    });
+
   } catch (err) {
     console.error("rejectTeamRequest error:", err.message);
-    res.status(500).json({ message: "Error rejecting request", error: err.message });
+    return res.status(500).json({
+      message: "Error rejecting request",
+      error: err.message,
+    });
   }
-}
+};
+
 
 exports.getTeamRequest=async(req,res)=>{
   try{
     const loggedInEmp=req.employee;
     const team=await MultipleEmployee.find(
-      {pendingRequests:loggedInEmp},
+      {pendingRequests:loggedInEmp.empId},
       {teamId:1,storeName:1,ownerName:1,pendingRequests:1},
     );
     return res.status(200).json({message:"successfully fetch the data",team});
