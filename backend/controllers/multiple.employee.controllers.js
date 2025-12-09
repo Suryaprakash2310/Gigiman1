@@ -150,7 +150,7 @@ exports.requestToAddMember = async (req, res) => {
     if (team.pendingRequests.includes(empId))
       return res.status(400).json({ message: "Request already sent" });
     //send request
-    team.pendingRequests.push(singleEmployee._id);
+    team.pendingRequests.push(empId);
     await team.save();
     res.status(200).json({
       message: `Request sent to ${empId}. Waiting for approval.`,
