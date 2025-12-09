@@ -1,10 +1,10 @@
 const ROLES = require('../enum/role.enum');
-const multipleEmployeeModel = require('../models/multipleEmployee.model');
+const MultipleEmployee = require('../models/multipleEmployee.model');
 const SingleEmployee = require('../models/singleEmployee.model');
 const jwt = require('jsonwebtoken');
 const DomainService = require("../models/domainservice.model");
 const EmployeeService = require("../models/employeeService.model");
-const{encryptPhone,maskPhone, hashPhone}=require("../utils/crypto");
+const { encryptPhone, maskPhone, hashPhone } = require("../utils/crypto");
 const { encryptAadhaar, hashAadhaar, maskAadhaar } = require('../utils/aadharUtils');
 
 // Generate JWT token
@@ -37,13 +37,13 @@ exports.registerEmployee = async (req, res) => {
       return res.status(400).json({ message: "Address must include city, state, and pincode" });
     }
     //Validate services as you already do...
-    const encryptedPhone=encryptPhone(phoneNo);
-    const maskedPhone=maskPhone(phoneNo);
-    const phoneHash=hashPhone(phoneNo);
+    const encryptedPhone = encryptPhone(phoneNo);
+    const maskedPhone = maskPhone(phoneNo);
+    const phoneHash = hashPhone(phoneNo);
     //Aadhaar Secure Storage
-    const encryptedAadhaar=encryptAadhaar(aadhaarNo);
-    const aadhaarHash=hashAadhaar(aadhaarNo);
-    const maskedAahaar=maskAadhaar(aadhaarNo);
+    const encryptedAadhaar = encryptAadhaar(aadhaarNo);
+    const aadhaarHash = hashAadhaar(aadhaarNo);
+    const maskedAahaar = maskAadhaar(aadhaarNo);
     // 3. Check duplicate employee
     const existingEmployee = await SingleEmployee.findOne({
       $or: [{ phoneHash }, { aadhaarHash }],
@@ -71,12 +71,12 @@ exports.registerEmployee = async (req, res) => {
     // 5. Create new employee
     const employee = await SingleEmployee.create({
       fullname,
-      phoneNo:encryptedPhone,
-      phoneMasked:maskedPhone,
+      phoneNo: encryptedPhone,
+      phoneMasked: maskedPhone,
       phoneHash,
       address,
-      aadhaarNo:encryptAadhaar,
-      aadhaarMasked:maskedAahaar,
+      aadhaarNo: encryptAadhaar,
+      aadhaarMasked: maskedAahaar,
       aadhaarHash,
       role: ROLES.SINGLE_EMPLOYEE
     });
@@ -110,7 +110,6 @@ exports.registerEmployee = async (req, res) => {
   }
 };
 //Accept request by the singleEmployee
-
 exports.acceptTeamRequest = async (req, res) => {
   try {
     const loggedInEmpId = req.employee.empId;
@@ -126,7 +125,7 @@ exports.acceptTeamRequest = async (req, res) => {
     await employee.save();
 
     //Remove from pending requests in all multipleEmployee
-    await multipleEmployeeModel.updateMany(
+    await MultipleEmployee.updateMany(
       { pendingRequests: loggedInEmpId },
       {
         $pull: { pendingRequests: loggedInEmpId },
@@ -143,5 +142,46 @@ exports.acceptTeamRequest = async (req, res) => {
   catch (err) {
     console.error("acceptTeamRequest error:", err.message);
     res.status(500).json({ message: "Error accepting request", error: err.message });
+  }
+}
+
+exports.rejectTeamRequest = async (req, res) => {
+  try {
+    const loggedInEmp = req.employee;
+    const { teamId } = req.body;
+    if (!teamId) {
+      return res.status(400).json({ message: "teamId is required" });
+    }
+    const team = await MultipleEmployee.findOne({ TeamId: teamId });
+    if (!team) {
+      return res.status(400).json({ message: "Team not found" });
+    }
+    await MultipleEmployee.updateOne(
+      { TeamId: teamId },
+      { $pull: { pendingRequests: loggedInEmp } },
+    )
+    res.status(200).json({
+      success: true,
+      message: "Request reject successfully",
+      rejectFrom: teamId,
+    })
+  } catch (err) {
+    console.error("rejectTeamRequest error:", err.message);
+    res.status(500).json({ message: "Error rejecting request", error: err.message });
+  }
+}
+
+exports.getTeamRequest=async(req,res)=>{
+  try{
+    const loggedInEmp=req.employee;
+    const team=await MultipleEmployee.find(
+      {pendingRequests:loggedInEmp},
+      {teamId:1,storeName:1,ownerName:1,pendingRequests:1},
+    );
+    return res.status(200).json({message:"successfully fetch the data",team});
+  }
+  catch(err){
+    console.error("Get Team request",err.message);
+    res.status(500).json({message:"Error fetching request",error:err.message});
   }
 }
