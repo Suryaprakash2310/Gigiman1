@@ -10,9 +10,8 @@ require('dotenv').config();
 exports.addMoneyWallet = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType=req.employee.role;
-        const empModel=roleModelMap[empType];
-        if (!empId || !empType ||!empModel) {
+        const empType=roleModelMap[empType];
+        if (!empId || !empType) {
             return res.status(400).json({ message: "Invalid emp type or model" });
         }
         const { amount } = req.body;
@@ -27,7 +26,6 @@ exports.addMoneyWallet = async (req, res) => {
         await Transaction.create({
             empId,
             empType,
-            empModel,
             amount,
             transactionType: "ADD",
             transactionStatus: "PENDING",
