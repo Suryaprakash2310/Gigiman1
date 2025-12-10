@@ -1,28 +1,32 @@
-const mongoose=require('mongoose');
+const mongoose = require('mongoose');
 
-const DomainpartSchema=mongoose.Schema({
-    domaintoolname:{
-        type:String,
-        required:true,
+const domainPartSchema = mongoose.Schema({
+    
+    partName: {
+        type: String,
+        required: true,
+        unique: true
     },
-    parts:[{
-        partsname:{
-            type:String,
-            required:true,
-        },
-        price:{
-            type:Number,
-            required:true,
-        },
-        quantity:{
-            type:Number,
-            required:true,
-        }
-    }]
-},{timestamps:true});
-//  INDEXES FOR FAST SEARCH + SORTING
-DomainpartSchema.index({ domaintoolname: 1 });       // Searching tool categories
-DomainpartSchema.index({ "parts.partsname": 1 });    // Searching inside parts array
 
+    categoryName: {
+        type: String, // Example: "Electrical", "AC Parts"
+        required: true,
+    },
 
-module.exports=mongoose.model('Domainparts',DomainpartSchema);
+    price: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    }
+
+}, { timestamps: true });
+
+// FAST SEARCH
+domainPartSchema.index({ partName: "text" });
+domainPartSchema.index({ categoryName: 1 });
+
+module.exports = mongoose.model("Domainparts", domainPartSchema);

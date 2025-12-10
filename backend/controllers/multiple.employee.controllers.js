@@ -308,3 +308,58 @@ exports.getpendingDetails=async(req,res)=>{
     return res.status(500).json({message:"server Error"});
   }
 }
+
+exports.updateTeamMembers = async (req, res) => {
+  try {
+    const loggedInEmp = req.employee;
+
+    const { leaderEmpId, helperEmpIds } = req.body;
+
+    const team = await MultipleEmployee.findOne({ TeamId: loggedInEmp.TeamId });
+
+    if (!team) {
+      return res.status(404).json({ message: "Team not found" });
+    }
+
+    // Validate leader exists
+    let leader = null;
+    if (leaderEmpId) {
+      leader = await SingleEmployee.findOne({ empId: leaderEmpId });
+      if (!leader) {
+        return res.status(404).json({ message: "Leader employee not found" });
+      }
+    }
+
+    // Validate helpers exist
+    let helpers = [];
+    if (helperEmpIds && helperEmpIds.length > 0) {
+      const helperIds = helperEmpIds.map((h) => h); 
+      helpers = await SingleEmployee.find({
+        empId: { $in: helperIds },
+      });
+
+      if (helpers.length !== helperIds.length) {
+        const missing = helperIds.filter(
+          (id) => !helpers.find((h) => h.empId === id)
+        );
+        return res.status(404).json({
+          message: "Some helper employees not found",
+          missing,
+        });
+      }
+    }
+
+    // Update team
+    team.leader = leaderEmpId;
+    team.helpers = helperEmpIds || [];
+    await team.save();
+
+    return res.status(200).json({
+      message: "Team updated successfully",
+      team,
+    });
+  } catch (err) {
+    console.error("updateTeamMembers ERROR:", err.message);
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};

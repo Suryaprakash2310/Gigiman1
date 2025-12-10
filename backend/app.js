@@ -2,7 +2,8 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const connectDb = require("./config/db");
-
+const socketConfig=require('./config/socket');
+const http=require('http');
 // Routers
 const singleemployee = require("./router/singleemployee.router");
 const multipleemployee = require("./router/multipleempolyee.router");
@@ -13,6 +14,7 @@ const profile=require("./router/profile.router");
 const wallet=require("./router/wallet.router");
 const admin=require('./router/admin.router');
 const user=require('./router/user.router');
+const bookingRouter=require('./router/booking.router');
 
 dotenv.config();
 const app = express();
@@ -29,6 +31,9 @@ app.use(cors({
 // ------------------- DATABASE -------------------
 connectDb();
 
+const server=http.createServer(app);
+const io=socketConfig(server);
+
 // ------------------- ROUTES -------------------
 app.get("/", (req, res) => res.send("API is running..."));
 
@@ -41,7 +46,10 @@ app.use("/api/profile",profile);
 app.use("/api/wallet",wallet);
 app.use("/api/admin",admin);
 app.use('/api/user',user);
+app.use('/api/booking',bookingRouter);
 
 // ------------------- START SERVER -------------------
 const port = process.env.PORT || 5000;
 app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
+
+module.exports={app,server,io};

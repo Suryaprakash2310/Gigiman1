@@ -60,7 +60,11 @@ const toolshopSchema = new mongoose.Schema(
         type: [Number],//[longitude,latitude]
         required: true,
       }
-    }
+    },
+    socketId: { 
+        type: String,
+        default: null 
+    },
   },
   { timestamps: true }
 );

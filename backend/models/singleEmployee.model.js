@@ -77,7 +77,10 @@ const singleEmployeeSchema = new mongoose.Schema({
       required: true
     }
   },
-
+  socketId: { 
+        type: String,
+        default: null 
+    },
 
 }, { timestamps: true });
 

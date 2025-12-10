@@ -22,11 +22,11 @@ exports.sendOtp = async (req, res) => {
     if (!phoneNo) return res.status(400).json({ message: "Phone number is required" });
     const phoneHash = hashPhone(phoneNo);
     // Check if user exists in any model
-    let user = await SingleEmployee.findOne({ phoneHash }) ||
+    let emp = await SingleEmployee.findOne({ phoneHash }) ||
       await MultipleEmployee.findOne({ phoneHash }) ||
       await ToolShop.findOne({ phoneHash });
 
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!emp) return res.status(404).json({ message: "employee not found" });
 
     // Generate 4-digit OTP
     const otp = crypto.randomInt(1000, 9999);
@@ -51,11 +51,11 @@ exports.verifyOtp = async (req, res) => {
     if (!phoneNo || !otp) return res.status(400).json({ message: "Phone and OTP required" });
 
     const phoneHash = hashPhone(phoneNo);
-    let user = await SingleEmployee.findOne({ phoneHash }) ||
+    let emp = await SingleEmployee.findOne({ phoneHash }) ||
       await MultipleEmployee.findOne({ phoneHash }) ||
       await ToolShop.findOne({ phoneHash });
 
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!emp) return res.status(404).json({ message: "employee not found" });
 
     const store = otpStore[phoneHash]; // use Redis in prod
     if (!store) return res.status(400).json({ message: "OTP not found or expired" });
@@ -72,17 +72,16 @@ exports.verifyOtp = async (req, res) => {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-
     // OTP verified, delete it
     delete otpStore[phoneHash];
 
     // Generate JWT token
-    const token = generateToken(user);
+    const token = generateToken(emp);
 
     res.status(200).json({
-      id: user._id,
-      role: user.role,
-      phoneNo: user.phoneMasked,
+      id: emp._id,
+      role: emp.role,
+      phoneNo: emp.phoneMasked,
       token,
       message: "Login successful",
     });
