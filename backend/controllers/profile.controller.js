@@ -2,29 +2,77 @@ const jwt=require('jsonwebtoken');
 const SingleEmployee=require('../models/singleEmployee.model');
 const MultipleEmployee=require('../models/multipleEmployee.model');
 const ToolShop = require('../models/toolshop.model');
+const ROLES = require('../enum/role.enum');
 
-exports.getProfile=async(req,res)=>{
-    try{
-    const employeeId=req.employee.id;
-    if(!employeeId){
-        return res.status(400).json({message:"Employee is not register"});
-    }
-    let employee=await SingleEmployee.findById(employeeId)||
-    await MultipleEmployee.findById(employeeId)|| 
-    await ToolShop.findById(employeeId)
+// exports.getProfile=async(req,res)=>{
+//     try{
+//     const employeeId=req.employee.id;
+//     if(!employeeId){
+//         return res.status(400).json({message:"Employee is not register"});
+//     }
+//     let employee=await SingleEmployee.findById(employeeId)||
+//     await MultipleEmployee.findById(employeeId)|| 
+//     await ToolShop.findById(employeeId)
+//     if (!employee) {
+//       return res.status(404).json({ message: "Employee profile not found" });
+//     }
+//     res.status(200).json({
+//         success:true,
+//         employee
+//     })
+//     }
+//     catch(err){
+//         console.error("Getprofile controller error",err.message);
+//         res.status(500).json({message:"server error",error:err.message});
+//     }
+// }
+
+exports.getProfile = async (req, res) => {
+  try {
+    const employeeId = req.employee.id;
+
+    let employee =
+      (await SingleEmployee.findById(employeeId)) ||
+      (await MultipleEmployee.findById(employeeId)) ||
+      (await ToolShop.findById(employeeId));
+
     if (!employee) {
       return res.status(404).json({ message: "Employee profile not found" });
     }
-    res.status(200).json({
-        success:true,
-        employee
-    })
+
+    // 🌟 If MULTIPLE EMPLOYEE → include team details
+    if (employee.role === ROLES.MULTIPLE_EMPLOYEE) {
+
+      const members = await SingleEmployee.find({
+        empId: { $in: employee.members }
+      }).select("empId fullname teamAccepted");
+
+      const pendingRequests = await SingleEmployee.find({
+        empId: { $in: employee.pendingRequests }
+      }).select("empId fullname teamAccepted");
+
+      return res.status(200).json({
+        success: true,
+        employee: {
+          ...employee._doc,
+          members,
+          pendingRequests
+        }
+      });
     }
-    catch(err){
-        console.error("Getprofile controller error",err.message);
-        res.status(500).json({message:"server error",error:err.message});
-    }
-}
+
+    // Normal user (single employee or shop)
+    return res.status(200).json({
+      success: true,
+      employee
+    });
+
+  } catch (err) {
+    console.error("Getprofile error:", err.message);
+    res.status(500).json({ message: "server error", error: err.message });
+  }
+};
+
 
 exports.editprofile=async(req,res)=>{
     try{
