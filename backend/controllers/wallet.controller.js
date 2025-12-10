@@ -10,8 +10,9 @@ require('dotenv').config();
 exports.addMoneyWallet = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType = roleModelMap[req.employee.role];
-        if (!empId || !empType) {
+        const empType=req.employee.role;
+        const empModel=roleModelMap[empType];
+        if (!empId || !empType ||!empModel) {
             return res.status(400).json({ message: "Invalid emp type or model" });
         }
         const { amount } = req.body;
@@ -26,6 +27,7 @@ exports.addMoneyWallet = async (req, res) => {
         await Transaction.create({
             empId,
             empType,
+            empModel,
             amount,
             transactionType: "ADD",
             transactionStatus: "PENDING",
@@ -47,13 +49,14 @@ exports.addMoneyWallet = async (req, res) => {
 exports.verifyAddMoney = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType = roleModelMap[req.employee.role];
-        if (!empId || !empType) {
+        const empType=req.employee.role;
+        const empModel=roleModelMap[empType];
+        if (!empId || !empType ||!empModel) {
             return res.status(400).json({ message: "Invalid emp type or model" });
         }
         const { orderId, paymentId, signature } = req.body;
-        if (!orderId || !paymentId || !signature) {
-            return res.status(400).json({ message: "orderId,paymentId,signature is required" });
+        if(!orderId ||!paymentId ||!signature){
+            return res.status(400).json({message:"orderId,paymentId,signature is required"});
         }
         const body = `${orderId}|${paymentId}`;
         const expectedsignature = crypto
@@ -89,8 +92,9 @@ exports.verifyAddMoney = async (req, res) => {
 exports.withdrawMoney = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType = roleModelMap[req.employee.role];
-        if (!empId || !empType) {
+        const empType = req.employee.role;
+        const empModel=roleModelMap[empType]
+        if (!empId || !empType ||!empModel) {
             return res.status(400).json({ message: "EmpId and Emp role is needed" });
         }
         const { amount } = req.body;
@@ -110,6 +114,7 @@ exports.withdrawMoney = async (req, res) => {
         await Transaction.create({
             empId,
             empType,
+            empModel,
             amount,
             transactionType: "WITHDRAW",
             transactionStatus: "SUCCESS",
@@ -124,46 +129,29 @@ exports.withdrawMoney = async (req, res) => {
         res.status(500).json({ mesage: "server error", error: err.message });
     }
 }
+
 exports.getWalletBalance = async (req, res) => {
-    try {
-        const empId = req.employee._id;
-        const empType = roleModelMap[req.employee.role];
-
-        if (!empId || !empType) {
-            return res.status(400).json({ message: "Invalid employee type" });
-        }
-
-        const wallet = await Wallet.findOne({ empId, empType });
-
-        res.json({
-            balance: wallet ? wallet.balance : 0
-        });
-
-    } catch (err) {
-        console.error("getWalletBalance ERROR:", err.message);
-        res.status(500).json({ message: "Server error", error: err.message });
+    const empId = req.employee._id;
+    const empType = req.employee.role;
+    if (!empId || !empType ) {
+            return res.status(400).json({ message: "EmpId and Emp role is needed" });
     }
+    const wallet = await Wallet.findOne({ empId, empType });
+
+    res.json({
+        balance: wallet ? wallet.balance : 0
+    });
 };
 
-
-
 exports.getRecentTransactions = async (req, res) => {
-    try {
-        const empId = req.employee._id;
-        const empType = roleModelMap[req.employee.role];
-
-        if (!empId || !empType) {
-            return res.status(400).json({ message: "Invalid employee type" });
-        }
-
-        const tx = await Transaction.find({ empId, empType })
-            .sort({ createdAt: -1 })
-            .limit(30);
-
-        res.json(tx);
-
-    } catch (err) {
-        console.error("getRecentTransactions ERROR:", err.message);
-        res.status(500).json({ message: "Server error", error: err.message });
+    const empId = req.employee._id;
+    const empType = req.employee.role;
+    if (!empId || !empType ) {
+            return res.status(400).json({ message: "EmpId and Emp role is needed" });
     }
+    const tx = await Transaction.find({ empId, empModel })
+    .sort({ createdAt: -1 })
+    .limit(30);
+
+    res.json(tx);
 };

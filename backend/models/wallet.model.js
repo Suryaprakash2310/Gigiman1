@@ -5,10 +5,17 @@ const walletSchema = new mongoose.Schema({
     empId: {
         type: mongoose.Types.ObjectId,
         required: true,
-        refPath: "empType",//Dynamic reference
+        refPath: "empType",
         unique: true,
     },
     empType: {
+        type: String,
+        required: true,
+        enum: [ROLES.SINGLE_EMPLOYEE,
+               ROLES.MULTIPLE_EMPLOYEE,
+               ROLES.TOOL_SHOP,]
+    },
+    empModel: {
         type: String,
         required: true,
         enum: ["SingleEmployee", "MultipleEmployee", "ToolShop"]
