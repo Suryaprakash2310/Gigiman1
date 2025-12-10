@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const ROLES = require('../enum/role.enum');
 
 const walletSchema = new mongoose.Schema({
     empId: {
@@ -11,9 +10,6 @@ const walletSchema = new mongoose.Schema({
     empType: {
         type: String,
         required: true,
-        enum: [ROLES.SINGLE_EMPLOYEE,
-               ROLES.MULTIPLE_EMPLOYEE,
-               ROLES.TOOL_SHOP,]
     },
     empModel: {
         type: String,
@@ -25,6 +21,6 @@ const walletSchema = new mongoose.Schema({
         default: 0,
     },
 },
-{ timestamps: true })
+    { timestamps: true })
 
-module.exports=mongoose.model("Wallet",walletSchema);
+module.exports = mongoose.model("Wallet", walletSchema);

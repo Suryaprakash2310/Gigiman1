@@ -1,5 +1,5 @@
 module.exports={
     single_employee:"SingleEmployee",
-    multiple_employee:"MultipleEmployee",
+    multi_employee:"MultipleEmployee",
     tool_shop:"ToolShop",
 }

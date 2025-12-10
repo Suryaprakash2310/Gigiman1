@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 const TRANSACTION_TYPE = require("../enum/transaction.enum");
 const TRANSACTION_STATUS = require("../enum/transactiontype.enum");
-const ROLES = require("../enum/role.enum");
 
 const transactionschema = new mongoose.Schema({
     empId: {
@@ -12,9 +11,6 @@ const transactionschema = new mongoose.Schema({
     empType: {
         type: String,
         required: true,
-        enum: [ROLES.SINGLE_EMPLOYEE,
-               ROLES.MULTIPLE_EMPLOYEE,
-               ROLES.TOOL_SHOP,]
     },
     empModel: {
         type: String,

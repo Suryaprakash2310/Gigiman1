@@ -2,17 +2,18 @@ const razorpay = require("../config/razorpay");
 const Transaction = require("../models/transaction.model");
 const crypto = require('crypto');
 const Wallet = require("../models/wallet.model");
-const ROLES = require("../enum/role.enum");
 const roleModelMap = require("../utils/roleModelMap");
+const TRANSACTION_TYPE = require("../enum/transaction.enum");
+const TRANSACTION_STATUS = require("../enum/transactiontype.enum");
 require('dotenv').config();
 
 //Add money in the wallet
 exports.addMoneyWallet = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType=req.employee.role;
-        const empModel=roleModelMap[empType];
-        if (!empId || !empType ||!empModel) {
+        const empType = req.role;
+        const empModel = roleModelMap[empType];
+        if (!empId || !empType || !empModel) {
             return res.status(400).json({ message: "Invalid emp type or model" });
         }
         const { amount } = req.body;
@@ -29,8 +30,8 @@ exports.addMoneyWallet = async (req, res) => {
             empType,
             empModel,
             amount,
-            transactionType: "ADD",
-            transactionStatus: "PENDING",
+            transactionType: TRANSACTION_TYPE.ADD,
+            transactionStatus: TRANSACTION_STATUS.PENDING,
             razorpayOrderId: order.id
         });
         res.json({
@@ -49,14 +50,14 @@ exports.addMoneyWallet = async (req, res) => {
 exports.verifyAddMoney = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType=req.employee.role;
-        const empModel=roleModelMap[empType];
-        if (!empId || !empType ||!empModel) {
+        const empType = req.role;
+        const empModel = roleModelMap[empType];
+        if (!empId || !empType || !empModel) {
             return res.status(400).json({ message: "Invalid emp type or model" });
         }
         const { orderId, paymentId, signature } = req.body;
-        if(!orderId ||!paymentId ||!signature){
-            return res.status(400).json({message:"orderId,paymentId,signature is required"});
+        if (!orderId || !paymentId || !signature) {
+            return res.status(400).json({ message: "orderId,paymentId,signature is required" });
         }
         const body = `${orderId}|${paymentId}`;
         const expectedsignature = crypto
@@ -92,9 +93,9 @@ exports.verifyAddMoney = async (req, res) => {
 exports.withdrawMoney = async (req, res) => {
     try {
         const empId = req.employee._id;
-        const empType = req.employee.role;
-        const empModel=roleModelMap[empType]
-        if (!empId || !empType ||!empModel) {
+        const empType = req.role;
+        const empModel = roleModelMap[empType]
+        if (!empId || !empType || !empModel) {
             return res.status(400).json({ message: "EmpId and Emp role is needed" });
         }
         const { amount } = req.body;
@@ -132,9 +133,9 @@ exports.withdrawMoney = async (req, res) => {
 
 exports.getWalletBalance = async (req, res) => {
     const empId = req.employee._id;
-    const empType = req.employee.role;
-    if (!empId || !empType ) {
-            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+    const empType = req.role;
+    if (!empId || !empType) {
+        return res.status(400).json({ message: "EmpId and Emp role is needed" });
     }
     const wallet = await Wallet.findOne({ empId, empType });
 
@@ -145,13 +146,16 @@ exports.getWalletBalance = async (req, res) => {
 
 exports.getRecentTransactions = async (req, res) => {
     const empId = req.employee._id;
-    const empType = req.employee.role;
-    if (!empId || !empType ) {
-            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+    const empType = req.role;
+    const empModel = roleModelMap[empType]; 
+
+    if (!empId || !empType || !empModel) {
+        return res.status(400).json({ message: "EmpId and Emp role is needed" });
     }
+
     const tx = await Transaction.find({ empId, empModel })
-    .sort({ createdAt: -1 })
-    .limit(30);
+        .sort({ createdAt: -1 })
+        .limit(30);
 
     res.json(tx);
 };
