@@ -53,7 +53,7 @@ const bookingSchema = mongoose.Schema({
     },
     bookingType:{
         type:String,
-        enum:Object.vaules(BOOKING_TYPE),
+        enum:Object.values(BOOKING_TYPE),
         default:BOOKING_TYPE.ONDEMAND,
     },
     scheduleDateTime:{
@@ -100,7 +100,7 @@ const bookingSchema = mongoose.Schema({
         ref: "ToolShop",
         default: null,
     },
-    
+
     toolOTP: {
         type: Number,
         default: null,
