@@ -77,10 +77,23 @@ const singleEmployeeSchema = new mongoose.Schema({
       required: true
     }
   },
-  socketId: { 
-        type: String,
-        default: null 
-    },
+  socketId: {
+    type: String,
+    default: null
+  },
+  isActive: {
+    type: Boolean,
+  },
+  cancelCount: {
+    type: Number,
+    default: 0,
+  },
+
+  blockedUntil: {
+    type: Date,
+    default: null,
+  }
+
 
 }, { timestamps: true });
 

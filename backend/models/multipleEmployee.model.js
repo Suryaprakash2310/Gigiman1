@@ -13,7 +13,7 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   },
   members: [
     {
-      type:String,
+      type: String,
       ref: "SingleEmployee",
     }
   ],
@@ -57,13 +57,13 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     required: true,
     default: ROLES.MULTIPLE_EMPLOYEE,
   },
-  leader:{
-    type:String,
-    ref:"SingleEmployee",
+  leader: {
+    type: String,
+    ref: "SingleEmployee",
   },
-  helpers:[{
-    type:String,
-    ref:"SingleEmployee",
+  helpers: [{
+    type: String,
+    ref: "SingleEmployee",
   }],
   location: {
     type: {
@@ -76,10 +76,23 @@ const MultipleEmployeeSchema = new mongoose.Schema({
       required: true
     }
   },
-  socketId: { 
-        type: String,
-        default: null 
-    },
+  socketId: {
+    type: String,
+    default: null
+  },
+  isActive: {
+    type: Boolean,
+    default: false,
+  },
+  cancelCount: {
+    type: Number,
+    default: 0,
+  },
+
+  blockedUntil: {
+    type: Date,
+    default: null,
+  },
 }, { timestamps: true });
 
 // Auto-generate TeamId (M1, M2, ...)

@@ -28,6 +28,7 @@ const {
     generateToolOTP,
     verifyToolOTP,
 } = require("../services/booking.service");
+const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 
 module.exports = (io) => {
     io.on("connection", (socket) => {
@@ -46,7 +47,7 @@ module.exports = (io) => {
 
         socket.on("register-employee", async ({ employeeId }) => {
             try {
-                await SingleEmployee.findByIdAndUpdate(employeeId, { socketId: socket.id });
+                await SingleEmployee.findByIdAndUpdate(employeeId, { socketId: socket.id ,isActive:true});
             } catch (err) {
                 console.error("register-employee error:", err.message);
             }
@@ -54,7 +55,7 @@ module.exports = (io) => {
 
         socket.on("register-team", async ({ teamId }) => {
             try {
-                await MultipleEmployee.findByIdAndUpdate(teamId, { socketId: socket.id });
+                await MultipleEmployee.findByIdAndUpdate(teamId, { socketId: socket.id ,isActive:true});
             } catch (err) {
                 console.error("register-team error:", err.message);
             }
@@ -302,7 +303,145 @@ module.exports = (io) => {
             }
         });
 
+        socket.on("servicer-cancel", async ({ bookingId, empId }) => {
+            try {
+                const booking = await Booking.findById(bookingId);
+                if (!booking) return socket.emit("error", { message: "Booking not found" });
+                booking.employees = booking.employees.filter(
+                    (emp) => emp.toString() != employeeId
+                )
+                if (booking.primaryEmployee?.toString() === employeeId) {
+                    booking.primaryEmployee = null;
+                }
 
+                await booking.save();
+
+                const serviceList = booking.employees;
+                await startServicerQueue({
+                    bookingId,
+                    servicers: serviceList,
+                    userSocket: booking.user.socketId,
+                    io
+                });
+
+                //penately
+                const emp = await SingleEmployee.findById(employeeId);
+
+                if (emp) {
+                    emp.cancelCount++;
+
+                    if (emp.cancelCount >= 3) {
+                        emp.blockedUntil = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // block 3 days
+                        emp.cancelCount = 0;
+
+                        if (emp.socketId) {
+                            io.to(emp.socketId).emit("servicer-blocked", {
+                                message: "You have been blocked for 3 days due to repeated cancellations.",
+                                blockedUntil: emp.blockedUntil
+                            });
+                        }
+                    }
+
+                    await emp.save();
+                }
+
+                const user = await User.findById(booking.user);
+                if (user?.socketId) {
+                    io.to(user.socketId).emit("servicer-cancalled", {
+                        bookingId,
+                        employeeId,
+                        message: "Servicer cancelled Searching for new servicer..."
+                    })
+                }
+            }
+            catch (err) {
+                console.error("servicer-cancel ERROR:", err);
+                socket.emit("error", { message: err.message });
+            }
+        })
+
+        socket.on("team-cancel", async ({ bookingId, teamId }) => {
+            try {
+                const team = await MultipleEmployee.findById(teamId);
+                const booking = await Booking.findById(bookingId);
+
+                if (!team || !booking) {
+                    return socket.emit("error", { message: "Team or Booking not found" });
+                }
+
+                // cancellation penalty
+                team.cancelCount++;
+
+                if (team.cancelCount >= 3) {
+                    team.blockedUntil = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3 days block
+                    team.cancelCount = 0;
+
+                    if (team.socketId) {
+                        io.to(team.socketId).emit("team-blocked", {
+                            message: "Team blocked for 3 days due to repeated cancellations",
+                            blockedUntil: team.blockedUntil
+                        });
+                    }
+                }
+
+                await team.save();
+
+                const user = await User.findById(booking.user);
+
+                io.to(user?.socketId).emit("team-cancelled", {
+                    message: "Team canceled. Searching for another team...",
+                    bookingId
+                });
+
+                // Restart auto assign for remaining teams
+                await startTeamQueue({
+                    bookingId,
+                    teams: booking.availableTeams || [],
+                    userSocket: user?.socketId,
+                    io
+                });
+
+            } catch (err) {
+                console.error("team-cancel ERROR:", err.message);
+                socket.emit("error", { message: err.message });
+            }
+        });
+
+
+        socket.on("user-cancel-booking", async ({ bookingId }) => {
+            try {
+                const booking = await Booking.findByIdAndUpdate(
+                    bookingId,
+                    { status: BOOKING_STATUS.CANCALLED },
+                    { new: true }
+                )
+                if (!booking) return socket.emit("error", { message: "booking not found" });
+
+                for (const empId of booking.employees) {
+                    const emp = await SingleEmployee.findById(empId);
+                    if (emp?.socketId) {
+                        io.to(emp.socketId).emit("booking-cancelled-by-user", { bookingId });
+                    }
+                }
+                const user = await User.findById(booking.user);
+                if (user?.socketId) {
+                    io.to(user.socketId).emit("booking-cancelled", {
+                        bookingId,
+                        message: "Booking cancelled succesfully",
+                    })
+                }
+                delete bookingQueue[bookingId];
+                delete teamQueue[bookingId];
+            } catch (err) {
+                console.error("user-cancel-booking ERROR:", err);
+                socket.emit("error", { message: err.message });
+            }
+        })
+        socket.on("update-active-status", async ({ employeeId }) => {
+            await SingleEmployee.findByIdAndUpdate(employeeId, {
+                isActive: true
+            });
+        });
 
         // ========================================================
         // START WORK OTP
@@ -593,8 +732,8 @@ module.exports = (io) => {
         socket.on("disconnect", async () => {
             try {
                 await User.updateOne({ socketId: socket.id }, { socketId: null });
-                await SingleEmployee.updateOne({ socketId: socket.id }, { socketId: null });
-                await MultipleEmployee.updateOne({ socketId: socket.id }, { socketId: null });
+                await SingleEmployee.updateOne({ socketId: socket.id }, { socketId: null ,isActive:false});
+                await MultipleEmployee.updateOne({ socketId: socket.id }, { socketId: null ,isActive:false});
                 await ToolShop.updateOne({ socketId: socket.id }, { socketId: null });
             } catch (err) {
                 console.error("disconnect cleanup error:", err.message);

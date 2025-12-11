@@ -75,6 +75,11 @@ exports.findNearbyTeams = async ({
     if (employeeCount === 1) {
         const singles = await SingleEmployee.find({
             empId: { $in: capableEmployeeIds },
+            isActive: true,
+            $or: [
+                { blockedUntil: null },
+                { blockedUntil: { $lte: new Date() }, }
+            ],
             teamAccepted: false,
             location: {
                 $near: {
@@ -96,6 +101,12 @@ exports.findNearbyTeams = async ({
     const teams = await MultipleEmployee.find({
         members: { $in: capableEmployeeIds },
         $expr: { $gte: [{ $size: "$members" }, employeeCount] },
+
+        isActive:true,
+        $or:[
+            {blockedUntil:null},
+            {$blockedUntil:{$lte:new Date()}},
+        ],
         location: {
             $near: {
                 $geometry: { type: "Point", coordinates: [lng, lat] },
@@ -117,7 +128,7 @@ exports.findNearbyTeams = async ({
 // ----------------------------------------------------------------------
 // 3. AUTO ASSIGN QUEUE FOR SINGLE EMPLOYEES
 // ----------------------------------------------------------------------
-const bookingQueue = {}; 
+const bookingQueue = {};
 
 exports.startServicerQueue = async ({ bookingId, servicers, userSocket, io }) => {
     bookingQueue[bookingId] = {
@@ -144,6 +155,18 @@ exports.assignNextServicer = async (bookingId, io) => {
     }
 
     const servicer = await SingleEmployee.findById(servicerId);
+    // skip if inactive
+    if (!servicer?.isActive) {
+        queue.index++;
+        return exports.assignNextServicer(bookingId, io);
+    }
+
+    // skip if blocked
+    if (servicer.blockedUntil && servicer.blockedUntil > new Date()) {
+        queue.index++;
+        return exports.assignNextServicer(bookingId, io);
+    }
+
     if (servicer?.socketId) {
         io.to(servicer.socketId).emit("new-booking-request", { bookingId });
     }
@@ -206,6 +229,18 @@ exports.assignNextTeam = async (bookingId, io) => {
 
     const team = await MultipleEmployee.findById(teamId).populate("leader");
 
+    if(!team){
+        queue.index++;
+        return exports.assignNextTeam(bookingId,io);
+    }
+    if(!team.isActive){
+        queue.index++;
+        return exports.assignNextTeam(bookingId,io);
+    }
+    if(team.blockedUntil && team.blockedUntil>new Date()){
+        queue.index++;
+        return exports.assignNextTeam(bookingId,io);
+    }
     if (team?.leader?.socketId) {
         io.to(team.leader.socketId).emit("team-booking-request", { bookingId });
     }

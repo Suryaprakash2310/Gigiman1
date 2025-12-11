@@ -15,6 +15,7 @@ const wallet=require("./router/wallet.router");
 const admin=require('./router/admin.router');
 const user=require('./router/user.router');
 const bookingRouter=require('./router/booking.router');
+const activestateRouter=require('./router/activestatus.router');
 
 dotenv.config();
 const app = express();
@@ -47,6 +48,7 @@ app.use("/api/wallet",wallet);
 app.use("/api/admin",admin);
 app.use('/api/user',user);
 app.use('/api/booking',bookingRouter);
+app.use('/api/',activestateRouter);
 
 // ------------------- START SERVER -------------------
 const port = process.env.PORT || 5000;
