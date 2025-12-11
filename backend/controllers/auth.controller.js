@@ -13,10 +13,6 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
 };
 
-// Temporary in-memory OTP store (for demo purposes)
-// In production, store in DB with expiry
-
-
 exports.sendOtp = async (req, res) => {
   try {
     const { phoneNo } = req.body;
