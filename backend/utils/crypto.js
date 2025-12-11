@@ -20,3 +20,6 @@ exports.maskPhone=(phone)=>{
 exports.hashPhone=(phone)=>{
     return crypto.createHash("sha256").update(phone).digest("hex");
 }
+exports.normalizePhone=(phone)=> {
+  return phone.replace(/[^0-9]/g, "").slice(-10); 
+}

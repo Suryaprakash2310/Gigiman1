@@ -4,7 +4,8 @@ const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
 const DomainService = require("../models/domainservice.model");
-const { hashPhone } = require("../utils/crypto");
+const Otp = require('../models/otp.model')
+const { hashPhone, normalizePhone } = require("../utils/crypto");
 const ServiceList = require("../models/serviceList.model");
 
 // Generate JWT token
@@ -14,13 +15,15 @@ const generateToken = (id) => {
 
 // Temporary in-memory OTP store (for demo purposes)
 // In production, store in DB with expiry
-const otpStore = {};
+
 
 exports.sendOtp = async (req, res) => {
   try {
     const { phoneNo } = req.body;
     if (!phoneNo) return res.status(400).json({ message: "Phone number is required" });
-    const phoneHash = hashPhone(phoneNo);
+    const cleanPhone = normalizePhone(phoneNo);
+    const phoneHash = hashPhone(cleanPhone);
+
     // Check if user exists in any model
     let emp = await SingleEmployee.findOne({ phoneHash }) ||
       await MultipleEmployee.findOne({ phoneHash }) ||
@@ -28,17 +31,36 @@ exports.sendOtp = async (req, res) => {
 
     if (!emp) return res.status(404).json({ message: "employee not found" });
 
-    // Generate 4-digit OTP
-    const otp = crypto.randomInt(1000, 9999);
-    // save OTP temporarily
-    otpStore[phoneHash] = {
-      otp,
-      expiresAt: Date.now() + 5 * 60 * 1000,// OTP valid for 5 mins
-      attempts: 0//Attempts is verify 
-    };
-    console.log(`OTP for ${phoneNo} is ${otp}`); // in real app, send via SMS
+    // Check resend limit
+    let existingOtp = await Otp.findOne({ phoneHash });
 
-    res.status(200).json({ message: "OTP sent successfully", otp }); // send OTP in response for testing
+    if (existingOtp && existingOtp.resendCount >= 5) {
+      return res.status(429).json({
+        message: "Maximum OTP limit reached. Try again later."
+      });
+    }
+
+    // Generate OTP
+    const otp = crypto.randomInt(1000, 9999);
+
+    // Save / Update OTP record
+    await Otp.findOneAndUpdate(
+      { phoneHash },
+      {
+        otp,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+        attempts: 0,
+        $inc: { resendCount: 1 }
+      },
+      { upsert: true, new: true }
+    );
+
+    console.log(`OTP for ${cleanPhone}: ${otp}`);
+
+    return res.status(200).json({
+      message: "OTP sent successfully",
+      otp, // REMOVE IN PRODUCTION
+    });
   } catch (err) {
     console.error("OTP error:", err.message);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -57,28 +79,39 @@ exports.verifyOtp = async (req, res) => {
 
     if (!emp) return res.status(404).json({ message: "employee not found" });
 
-    const store = otpStore[phoneHash]; // use Redis in prod
-    if (!store) return res.status(400).json({ message: "OTP not found or expired" });
-    if (Date.now() > store.expiresAt) {
-      delete otpStore[phoneHash];
+    const otpRecord = await Otp.findOne({ phoneHash });
+
+    if (!otpRecord)
+      return res.status(400).json({ message: "OTP not found or expired" });
+
+    // OTP expired
+    if (new Date() > otpRecord.expiresAt) {
+      await Otp.deleteOne({ phoneHash });
       return res.status(400).json({ message: "OTP expired" });
     }
-    if (store.otp.toString() !== otp.toString()) {
-      store.attempts++;
-      if (store.attempts >= 5) {
-        delete otpStore[phoneHash];
-        return res.status(429).json({ message: "Too many invalid attempts" });
+
+    // Incorrect OTP
+    if (otpRecord.otp.toString() !== otp.toString()) {
+      otpRecord.attempts++;
+
+      if (otpRecord.attempts >= 5) {
+        await Otp.deleteOne({ phoneHash });
+        return res
+          .status(429)
+          .json({ message: "Too many failed attempts. Try again later." });
       }
+
+      await otpRecord.save();
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    // OTP verified, delete it
-    delete otpStore[phoneHash];
+    // OTP correct → delete OTP entry
+    await Otp.deleteOne({ phoneHash });
 
-    // Generate JWT token
+    // Generate JWT
     const token = generateToken(emp);
 
-    res.status(200).json({
+    return res.status(200).json({
       id: emp._id,
       role: emp.role,
       phoneNo: emp.phoneMasked,
@@ -124,7 +157,7 @@ exports.searchService = async (req, res) => {
     const services = await DomainService.aggregate([
       {
         $match: {
-          domainName: { $regex: "^"+q, $options: "i" }
+          domainName: { $regex: "^" + q, $options: "i" }
         }
       },
       { $sort: { domainName: 1 } }
@@ -141,46 +174,57 @@ exports.searchService = async (req, res) => {
   }
 };
 
+
 exports.ShowsubService = async (req, res) => {
   try {
-    const data = await ServiceList.find().sort({ serviceName: 1 });
-
+    const data = await ServiceList.find()
+      .populate("DomainServiceId domainServiceName")
+      .sort({ serviceName: 1 });
     if (!data || data.length === 0) {
-      return res.status(400).json({ message: "No SubService" });
+      return res.status(404).json({ message: "Service is empty" });
     }
-
-    //  Separate Service Names
     const serviceNames = data.map(item => item.serviceName);
-
-    //  Separate Category Services (Flattened)
-    let categoryServices = [];
-
-    data.forEach(item => {
-      item.serviceCategory.forEach(sub => {
-        categoryServices.push({ 
-          parentServiceName: item.serviceName,
-          _id: sub._id,
-          serviceCategoryName:sub.serviceCategoryName,
-          description: sub.description,
-          price: sub.price,
-          ServicecategoryImage:sub.ServicecategoryImage,
-          durationInMinutes: sub.durationInMinutes
-        });
-      });
+    const categoriesservices = data.flatMap(item => {
+      item.serviceCategory.map(sub => ({
+        _id: sub._id,
+        parentServiceName: item.serviceName,
+        domainServiceId: item.DomainServiceId?._id,
+        domainServiceName: item.DomainServiceId?.domainServiceName,
+        serviceCategoryName: sub.serviceCategoryName,
+        servicecategroyImage: sub.servicecategroyImage,
+        description: sub.description,
+        price: sub.price,
+        durationInMinutes: sub.durationInMinutes,
+        employeeCount: sub.employeeCount,
+      }))
     });
 
+    const groupedServices = data.map(item => ({
+      serviceName: item.serviceName,
+      domainServiceId: item.DomainSErviceId?._id,
+      categories: item.serviceCategory.map(sub => ({
+        _id: sub._id,
+        serviceCategoryName: sub.serviceCategoryName,
+        servicecategoryImage: sub.servicecategoryImage,
+        descritpion: sub.description,
+        price: sub.price,
+        durationInMinutes: sub.durationInMinutes,
+        employeCount: sub.employeeCount,
+      }))
+    }))
     return res.status(200).json({
       success: true,
-      message: "Sub Services fetched successfully",
-
-      serviceNames,       // Only serviceName list
-      categoryServices,   // Flattened sub-services list
+      message: "showing the subservice",
+      serviceNames,
+      categoriesservices,
+      groupedServices,
       countServices: data.length,
-      countCategories: categoryServices.length
-    });
+      countCategories: categoriesservices.length,
+    })
 
   } catch (err) {
-    return res.status(500).json({ message: "Server error",error:err.message });
+    console.error("showsubservice error", err.message);
+    return res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
@@ -196,7 +240,7 @@ exports.SetSubService = async (req, res) => {
       !ServiceCategory.serviceCategoryName ||
       !ServiceCategory.description ||
       !ServiceCategory.price ||
-      !ServiceCategory.durationInMinutes||
+      !ServiceCategory.durationInMinutes ||
       !ServiceCategory.ServicecategoryImage
     ) {
       return res.status(400).json({ message: "Servicecategory field is required" });

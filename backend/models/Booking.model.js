@@ -2,9 +2,9 @@ const mongoose = require('mongoose');
 const BOOKING_STATUS = require('../enum/bookingstatus.enum');
 const PAYMENT_STATUS = require('../enum/payment.enum');
 const SERVICE_TYPE = require('../enum/bookingservicetype.enum');
+const BOOKING_TYPE = require('../enum/bookingtype.enum');
 
 const bookingSchema = mongoose.Schema({
-
     user: {
         type: mongoose.Types.ObjectId,
         ref: "User",
@@ -30,8 +30,6 @@ const bookingSchema = mongoose.Schema({
         ref: "SingleEmployee",
         default: null
     },
-
-    // employees → array, not employee
     employees: [{
         type: mongoose.Types.ObjectId,
         ref: "SingleEmployee",
@@ -53,7 +51,23 @@ const bookingSchema = mongoose.Schema({
         enum: Object.values(BOOKING_STATUS),
         default: BOOKING_STATUS.PENDING,
     },
-
+    bookingType:{
+        type:String,
+        enum:Object.vaules(BOOKING_TYPE),
+        default:BOOKING_TYPE.ONDEMAND,
+    },
+    scheduleDateTime:{
+        type:Date,
+        default:null
+    },
+    isSchduled:{
+        type:Boolean,
+        default:null,
+    },
+    schdeuleExecuted:{
+        type:Boolean,
+        default:false,
+    },
     address: {
         type: String,
         required: true,
@@ -86,7 +100,7 @@ const bookingSchema = mongoose.Schema({
         ref: "ToolShop",
         default: null,
     },
-
+    
     toolOTP: {
         type: Number,
         default: null,
