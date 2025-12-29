@@ -13,10 +13,10 @@ const generateToken = (id) => {
 //registeration for multiple employee
 exports.multipleEmployeeRegister = async (req, res) => {
   try {
-    const { storeName, ownerName, gstNo, storeLocation, phoneNo, role, services } = req.body;
+    const { storeName, ownerName, storeLocation, phoneNo, role, services } = req.body;
 
     // 1. Required fields
-    if (!storeName || !ownerName || !gstNo || !storeLocation || !phoneNo) {
+    if (!storeName || !ownerName  || !storeLocation || !phoneNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
@@ -28,11 +28,8 @@ exports.multipleEmployeeRegister = async (req, res) => {
     const encryptedphone = encryptPhone(phoneNo);
     const maskedPhone = maskPhone(phoneNo);
     const phoneHash = hashPhone(phoneNo);
-    // 3. Check duplicate phone/gst
-    const existingEmployee = await MultipleEmployee.findOne({
-      $or: [{ phoneHash }, { gstNo }]
-    });
-
+    // 3. Check duplicate phone
+    const existingEmployee = await MultipleEmployee.findOne({phoneHash });
     if (existingEmployee) {
       return res.status(400).json({ message: "Employee already registered" });
     }
@@ -56,7 +53,6 @@ exports.multipleEmployeeRegister = async (req, res) => {
     const employee = await MultipleEmployee.create({
       storeName,
       ownerName,
-      gstNo,
       storeLocation,
       phoneNo: encryptedphone,
       phoneMasked: maskedPhone,

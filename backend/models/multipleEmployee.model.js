@@ -27,11 +27,11 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  gstNo: {
-    type: String,
-    required: true,
-    unique: true,
-  },
+  // gstNo: {
+  //   type: String,
+  //   required: true,
+  //   unique: true,
+  // },
   storeLocation: {
     type: String,
     required: true,
