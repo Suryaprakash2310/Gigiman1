@@ -1,5 +1,5 @@
 const { encryptPhone, maskPhone, hashPhone } = require("../utils/crypto");
-const User=require('../models/user.model');
+const User = require('../models/user.model');
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
 
@@ -15,10 +15,18 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: "All fields required" });
     }
 
-    // Reverse geocoding (Nominatim)
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
-    const geoRes = await axios.get(url);
-    const address = geoRes.data.display_name;
+    // Reverse geocoding (map box)
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json`;
+
+    const geoRes = await axios.get(url, {
+      params: {
+        access_token: MAP_BOX_TOKEN,
+        limit: 1
+      }
+    });
+
+    // Full formatted place name
+    const address = geoRes.data.features[0]?.place_name || null;
 
     // Encrypt + mask + hash
     const encryptedPhone = encryptPhone(phoneNo);
@@ -128,8 +136,8 @@ exports.verifyOtp = async (req, res) => {
 exports.getProfile = async (req, res) => {
   try {
     // user already attached by middleware
-    if(!req.user){
-        return res.status(400).json({message:"User not found"});
+    if (!req.user) {
+      return res.status(400).json({ message: "User not found" });
     }
     res.json({
       success: true,

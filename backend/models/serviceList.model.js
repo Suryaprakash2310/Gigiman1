@@ -35,6 +35,7 @@ const serviceListSchema = mongoose.Schema({
             type:Number,
             required:true,
         },
+        
     }]
 }, { timestamps: true })
 

@@ -111,8 +111,8 @@ exports.Adddomainservice=async(req,res)=>{
 
 exports.AddServiceList=async(req,res)=>{
     try{
-        const{DomainServiceId,serviceName,description,price,durationInMinutes}=req.body;
-        if(!DomainServiceId||!serviceName||!description||!price||!durationInMinutes){
+        const{DomainServiceId,serviceName,serviceCategory,price,durationInMinutes}=req.body;
+        if(!DomainServiceId||!serviceName||!serviceCategory||!price||!durationInMinutes){
             return res.status(400).json({message:"All fields are requried"});
         }
         const existingDomain=DomainService.findOne({DomainServiceId});
@@ -122,7 +122,7 @@ exports.AddServiceList=async(req,res)=>{
         const newService=serviceList.create({
             DomainServiceId,
             serviceName,
-            description,
+            serviceCategory,
             price,
             durationInMinutes
         })
