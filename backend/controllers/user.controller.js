@@ -1,9 +1,9 @@
 const { encryptPhone, maskPhone, hashPhone } = require("../utils/crypto");
 const User = require('../models/user.model');
-const Otp=require('../models/otp.model')
+const Otp = require('../models/otp.model')
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
-const cloudinary=require('../config/cloudinary')
+const cloudinary = require('../config/cloudinary')
 
 //token generation
 const generateToken = (id) => {
@@ -31,20 +31,34 @@ exports.sendOtp = async (req, res) => {
         isVerified: false,
       });
     }
+    const existingOtp = await Otp.findOne({ phoneHash });
+
+    //  Block if OTP still valid
+    if (existingOtp && existingOtp.expiresAt > new Date()) {
+      return res.status(429).json({
+        message: "OTP already sent. Please wait before resending.",
+      });
+    }
+
+    //  Max resend limit
+    if (existingOtp && existingOtp.resendCount >= 3) {
+      return res.status(429).json({
+        message: "Resend limit exceeded. Try later.",
+      });
+    }
 
     const otp = Math.floor(1000 + Math.random() * 9000);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await Otp.findOneAndUpdate(
       { phoneHash },
       {
         otp,
-        expiresAt,
+        attempts: 0,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
         $inc: { resendCount: 1 },
       },
       { upsert: true, new: true }
     );
-
     console.log("OTP sent:", otp); // replace with SMS API
 
     return res.json({ success: true, message: "OTP sent" });
@@ -65,14 +79,19 @@ exports.verifyOtp = async (req, res) => {
     if (!otpDoc) {
       return res.status(400).json({ message: "OTP expired or not found" });
     }
-
-    if (otpDoc.attempts >= 5) {
+    // OTP expired
+    if (new Date() > otpDoc.expiresAt) {
       await Otp.deleteOne({ phoneHash });
-      return res.status(429).json({ message: "Too many attempts" });
+      return res.status(400).json({ message: "OTP expired" });
     }
-
-    if (otpDoc.otp !== Number(otp)) {
+    if (otpDoc.otp.toString() !== otp.toString()) {
       otpDoc.attempts += 1;
+      if (otpDoc.attempts >= 5) {
+        await Otp.deleteOne({ phoneHash });
+        return res
+          .status(429)
+          .json({ message: "Too many failed attempts. Try again later." });
+      }
       await otpDoc.save();
       return res.status(400).json({ message: "Invalid OTP" });
     }
@@ -188,39 +207,39 @@ exports.getProfile = async (req, res) => {
   }
 };
 
-exports.editprofile=async(req,res)=>{
-  try{
-    const userId=req.user.id;
-    const{fullName,latitude,longtitude,avatar}=req.body;
-    const user=await User.findById(userId);
-    if(!user){
-      return res.status(400).json({message:"User not found"});
+exports.editprofile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { fullName, latitude, longtitude, avatar } = req.body;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(400).json({ message: "User not found" });
     }
-    if(fullName){
-      user.fullName=fullName;
+    if (fullName) {
+      user.fullName = fullName;
     }
-    if(latitude&& longtitude){
-      user.location={ 
-        type:"Point",
-        coordinates:[longtitude,latitude]
+    if (latitude && longtitude) {
+      user.location = {
+        type: "Point",
+        coordinates: [longtitude, latitude]
       };
     }
-    if(avatar){
-      const uploadResult=await cloudinary.uploader.upload(avatar,{
-        floder:"user/avatars",
-        transformation:[{widht:300,height:300,crops:"fill"}]
+    if (avatar) {
+      const uploadResult = await cloudinary.uploader.upload(avatar, {
+        floder: "user/avatars",
+        transformation: [{ widht: 300, height: 300, crops: "fill" }]
       })
-      user.avatar=uploadResult.secure_url;
+      user.avatar = uploadResult.secure_url;
     }
     await user.save();
-    
+
     res.json({
-      message:"profile updated",
-      success:true,
+      message: "profile updated",
+      success: true,
       user,
     });
-  }catch(err){
-    console.error("edit profile controller error",err.message);
-    res.status(500).json({message:err.message});
+  } catch (err) {
+    console.error("edit profile controller error", err.message);
+    res.status(500).json({ message: err.message });
   }
 }
