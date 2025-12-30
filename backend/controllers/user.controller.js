@@ -34,7 +34,7 @@ exports.sendOtp = async (req, res) => {
     const otp = Math.floor(1000 + Math.random() * 9000);
 
     user.otp = otp;
-    user.otpExpires = Date.now() + 5 * 60 * 1000;
+    user.expiresAt = Date.now() + 5 * 60 * 1000;
     await user.save();
 
     console.log("OTP sent:", otp); // replace with SMS API
@@ -62,7 +62,7 @@ exports.verifyOtp = async (req, res) => {
     }
 
     user.otp = null;
-    user.otpExpires = null;
+    user.expiresAt = null;
     user.isVerified = true;
     await user.save();
 
