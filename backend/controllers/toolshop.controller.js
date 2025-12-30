@@ -27,12 +27,11 @@ exports.registerShop = async (req, res) => {
      if (valid.length !== categories.length) {
       return res.status(400).json({ message: "One or more categories are invalid" });
     }
-    // ENCRYPT + MASK + HASH
-    const encryptedPhone=encryptPhone(phoneNo);
     const maskedPhone=maskPhone(phoneNo);
-    const phoneHash=hashPhone(phoneNo);
+
+
     const existingShop = await ToolShop.findOne({
-      $or: [{ gstNo }, { phoneHash }]
+      $or: [{ gstNo }, { phoneNo }]
     });
 
     if (existingShop) {
@@ -44,7 +43,7 @@ exports.registerShop = async (req, res) => {
       ownerName,
       gstNo,
       storeLocation,
-      phoneNo:encryptedPhone,
+      phoneNo,
       phoneMasked:maskedPhone,
       phoneHash,
       role: ROLES.TOOL_SHOP,

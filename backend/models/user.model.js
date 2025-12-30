@@ -14,12 +14,6 @@ const UserSchema=mongoose.Schema({
         type:String,
         required:false,
     },
-    phoneHash:{
-        type:String,
-        required:false,
-        index:true,
-        unique:true,
-    },
     location:{
         type:{
             type:String,

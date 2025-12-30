@@ -5,7 +5,7 @@ const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
 const DomainService = require("../models/domainservice.model");
 const Otp = require('../models/otp.model')
-const { hashPhone, normalizePhone } = require("../utils/crypto");
+const {  normalizePhone } = require("../utils/crypto");
 const ServiceList = require("../models/serviceList.model");
 
 // Generate JWT token
@@ -16,37 +16,38 @@ const generateToken = (id) => {
 exports.sendOtp = async (req, res) => {
   try {
     const { phoneNo } = req.body;
-    if (!phoneNo) return res.status(400).json({ message: "Phone number is required" });
+
+    if (!phoneNo)
+      return res.status(400).json({ message: "Phone number is required" });
+
     const cleanPhone = normalizePhone(phoneNo);
-    const phoneHash = hashPhone(cleanPhone);
 
-    // Check if user exists in any model
-    let emp = await SingleEmployee.findOne({ phoneHash }) ||
-      await MultipleEmployee.findOne({ phoneHash }) ||
-      await ToolShop.findOne({ phoneHash });
+    // Check employee existence
+    const emp =
+      (await SingleEmployee.findOne({ phoneNo })) ||
+      (await MultipleEmployee.findOne({ phoneNo })) ||
+      (await ToolShop.findOne({ phoneNo }));
 
-    if (!emp) return res.status(404).json({ message: "employee not found" });
+    if (!emp)
+      return res.status(404).json({ message: "Employee not found" });
 
-    // Check resend limit
-    let existingOtp = await Otp.findOne({ phoneHash });
+    const existingOtp = await Otp.findOne({ cleanPhone });
 
     if (existingOtp && existingOtp.resendCount >= 5) {
       return res.status(429).json({
-        message: "Maximum OTP limit reached. Try again later."
+        message: "Maximum OTP limit reached. Try again later.",
       });
     }
 
-    // Generate OTP
     const otp = crypto.randomInt(1000, 9999);
 
-    // Save / Update OTP record
     await Otp.findOneAndUpdate(
-      { phoneHash },
+      { cleanPhone },
       {
         otp,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
         attempts: 0,
-        $inc: { resendCount: 1 }
+        $inc: { resendCount: 1 },
       },
       { upsert: true, new: true }
     );
@@ -55,56 +56,58 @@ exports.sendOtp = async (req, res) => {
 
     return res.status(200).json({
       message: "OTP sent successfully",
-      otp, // REMOVE IN PRODUCTION
     });
   } catch (err) {
-    console.error("OTP error:", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    console.error("OTP send error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
+
 
 exports.verifyOtp = async (req, res) => {
   try {
     const { phoneNo, otp } = req.body;
-    if (!phoneNo || !otp) return res.status(400).json({ message: "Phone and OTP required" });
 
-    const phoneHash = hashPhone(phoneNo);
-    let emp = await SingleEmployee.findOne({ phoneHash }) ||
-      await MultipleEmployee.findOne({ phoneHash }) ||
-      await ToolShop.findOne({ phoneHash });
+    if (!phoneNo || !otp)
+      return res.status(400).json({ message: "Phone and OTP required" });
 
-    if (!emp) return res.status(404).json({ message: "employee not found" });
+    const cleanPhone = normalizePhone(phoneNo);
 
-    const otpRecord = await Otp.findOne({ phoneHash });
+    const emp =
+      (await SingleEmployee.findOne({ phoneNo })) ||
+      (await MultipleEmployee.findOne({ phoneNo })) ||
+      (await ToolShop.findOne({ phoneNo }));
+
+    if (!emp)
+      return res.status(404).json({ message: "Employee not found" });
+
+    const otpRecord = await Otp.findOne({ cleanPhone });
 
     if (!otpRecord)
       return res.status(400).json({ message: "OTP not found or expired" });
 
-    // OTP expired
     if (new Date() > otpRecord.expiresAt) {
-      await Otp.deleteOne({ phoneHash });
+      await Otp.deleteOne({ cleanPhone });
       return res.status(400).json({ message: "OTP expired" });
     }
 
-    // Incorrect OTP
     if (otpRecord.otp.toString() !== otp.toString()) {
-      otpRecord.attempts++;
+      otpRecord.attempts += 1;
 
       if (otpRecord.attempts >= 5) {
-        await Otp.deleteOne({ phoneHash });
+        await Otp.deleteOne({ cleanPhone });
         return res
           .status(429)
-          .json({ message: "Too many failed attempts. Try again later." });
+          .json({ message: "Too many failed attempts" });
       }
 
       await otpRecord.save();
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    // OTP correct → delete OTP entry
-    await Otp.deleteOne({ phoneHash });
+    // OTP success
+    await Otp.deleteOne({ cleanPhone });
 
-    // Generate JWT
     const token = generateToken(emp);
 
     return res.status(200).json({
@@ -115,10 +118,11 @@ exports.verifyOtp = async (req, res) => {
       message: "Login successful",
     });
   } catch (err) {
-    console.error("OTP verify error:", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    console.error("OTP verify error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
+
 
 //Show the services
 

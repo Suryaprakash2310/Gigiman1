@@ -1,4 +1,3 @@
-const bcrypt = require('bcryptjs');
 const Admin = require('../models/admin.model');
 const jwt = require("jsonwebtoken");
 const SingleEmployee = require('../models/singleEmployee.model');
@@ -181,3 +180,22 @@ exports.SetSubService = async (req, res) => {
     });
   }
 };
+
+exports.getAllEmployee=async(req,res)=>{
+  try{
+    const singleemployee=await SingleEmployee.find().sort({createdAt:-1});
+    const multipleEmployee=await MultipleEmployee.find().sort({createdAt:-1});
+    const toolshop=await ToolShop.find().sort({createdAt:-1});
+
+    const employee=[...singleemployee,...multipleEmployee,...toolshop];
+    employee.sort((a,b)=>b.createdAt - a.createdAt);
+    res.json({success:true,employee});
+  }
+  catch(err){
+    console.error("Get all employees error:", err);
+    return res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
+  }
+}

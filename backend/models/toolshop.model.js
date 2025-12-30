@@ -34,12 +34,6 @@ const toolshopSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    phoneHash: {
-      type: String,
-      required: true,
-      index: true,
-      unique: true,
-    },
     role: {
       type: String,
       enum: Object.values(ROLES),

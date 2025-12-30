@@ -27,11 +27,6 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  // gstNo: {
-  //   type: String,
-  //   required: true,
-  //   unique: true,
-  // },
   storeLocation: {
     type: String,
     required: true,
@@ -44,12 +39,6 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   phoneMasked: {
     type: String,
     required: true,
-  },
-  phoneHash: {
-    type: String,
-    required: true,
-    index: true,
-    unique: true,
   },
   role: {
     type: String,
@@ -72,7 +61,7 @@ const MultipleEmployeeSchema = new mongoose.Schema({
       default: "Point"
     },
     coordinates: {
-      type: [Number], // [longitude, latitude]
+      type: [Number], 
       required: true
     }
   },

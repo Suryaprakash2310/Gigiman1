@@ -4,7 +4,7 @@ const SingleEmployee = require('../models/singleEmployee.model');
 const jwt = require('jsonwebtoken');
 const DomainService = require("../models/domainservice.model");
 const EmployeeService = require("../models/employeeService.model");
-const { encryptPhone, maskPhone, hashPhone } = require("../utils/crypto");
+const { maskPhone } = require("../utils/crypto");
 const { encryptAadhaar, hashAadhaar, maskAadhaar } = require('../utils/aadharUtils');
 
 // Generate JWT token
@@ -36,17 +36,14 @@ exports.registerEmployee = async (req, res) => {
     if (!address.city || !address.state || !address.pincode) {
       return res.status(400).json({ message: "Address must include city, state, and pincode" });
     }
-    //Validate services as you already do...
-    const encryptedPhone = encryptPhone(phoneNo);
     const maskedPhone = maskPhone(phoneNo);
-    const phoneHash = hashPhone(phoneNo);
     //Aadhaar Secure Storage
     const encryptedAadhaar = encryptAadhaar(aadhaarNo);
     const aadhaarHash = hashAadhaar(aadhaarNo);
     const maskedAahaar = maskAadhaar(aadhaarNo);
     // 3. Check duplicate employee
     const existingEmployee = await SingleEmployee.findOne({
-      $or: [{ phoneHash }, { aadhaarHash }],
+      $or: [{ phoneNo }, { aadhaarHash }],
     });
 
     if (existingEmployee) {
@@ -71,9 +68,8 @@ exports.registerEmployee = async (req, res) => {
     // 5. Create new employee
     const employee = await SingleEmployee.create({
       fullname,
-      phoneNo: encryptedPhone,
+      phoneNo,
       phoneMasked: maskedPhone,
-      phoneHash,
       address,
       aadhaarNo: encryptedAadhaar,
       aadhaarMasked: maskedAahaar,

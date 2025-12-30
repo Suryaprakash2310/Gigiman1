@@ -1,12 +1,11 @@
 const mongoose = require("mongoose");
 
 const otpSchema = new mongoose.Schema({
-  phoneHash: {
-    type: String,
-    required: true,
-    index: true,
-    unique: true
-  },
+  cleanPhone: { 
+    type: String, 
+    unique: true, 
+    index: true
+   },
   otp: {
     type: Number,
     required: true,

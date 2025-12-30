@@ -4,7 +4,7 @@ const SingleEmployee = require('../models/singleEmployee.model');
 const ROLES = require('../enum/role.enum');
 const DomainService = require('../models/domainservice.model')
 const EmployeeService = require("../models/employeeService.model");
-const { encryptPhone, maskPhone, hashPhone } = require('../utils/crypto');
+const { maskPhone  } = require('../utils/crypto');
 // Generate JWT token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
@@ -24,12 +24,9 @@ exports.multipleEmployeeRegister = async (req, res) => {
     if (role !== ROLES.MULTIPLE_EMPLOYEE) {
       return res.status(400).json({ message: "Invalid role" });
     }
-    // ENCRYPT + MASK + HASH
-    const encryptedphone = encryptPhone(phoneNo);
     const maskedPhone = maskPhone(phoneNo);
-    const phoneHash = hashPhone(phoneNo);
     // 3. Check duplicate phone
-    const existingEmployee = await MultipleEmployee.findOne({phoneHash });
+    const existingEmployee = await MultipleEmployee.findOne({phoneNo });
     if (existingEmployee) {
       return res.status(400).json({ message: "Employee already registered" });
     }
@@ -54,9 +51,8 @@ exports.multipleEmployeeRegister = async (req, res) => {
       storeName,
       ownerName,
       storeLocation,
-      phoneNo: encryptedphone,
+      phoneNo,
       phoneMasked: maskedPhone,
-      phoneHash,
       role: ROLES.MULTIPLE_EMPLOYEE
     });
 

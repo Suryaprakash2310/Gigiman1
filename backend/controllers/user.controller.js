@@ -1,4 +1,4 @@
-const { encryptPhone, maskPhone, hashPhone } = require("../utils/crypto");
+const {maskPhone } = require("../utils/crypto");
 const User = require('../models/user.model');
 const Otp = require('../models/otp.model')
 const jwt = require("jsonwebtoken");
@@ -19,28 +19,30 @@ exports.sendOtp = async (req, res) => {
       return res.status(400).json({ message: "Phone number required" });
     }
 
-    const phoneHash = hashPhone(phoneNo);
+    const cleanPhone = normalizePhone(phoneNo);
 
     // Ensure user exists (temporary user)
-    let user = await User.findOne({ phoneHash });
+    let user = await User.findOne({ cleanPhone });
+
     if (!user) {
       user = await User.create({
-        phoneNo: encryptPhone(phoneNo),
-        phoneMasked: maskPhone(phoneNo),
-        phoneHash,
+        phoneNo: cleanPhone,
+        phoneMasked: maskPhone(cleanPhone),
+        cleanPhone,
         isVerified: false,
       });
     }
-    const existingOtp = await Otp.findOne({ phoneHash });
 
-    //  Block if OTP still valid
+    const existingOtp = await Otp.findOne({ cleanPhone });
+
+    // Block if OTP still valid
     if (existingOtp && existingOtp.expiresAt > new Date()) {
       return res.status(429).json({
         message: "OTP already sent. Please wait before resending.",
       });
     }
 
-    //  Max resend limit
+    // Max resend limit
     if (existingOtp && existingOtp.resendCount >= 3) {
       return res.status(429).json({
         message: "Resend limit exceeded. Try later.",
@@ -50,56 +52,70 @@ exports.sendOtp = async (req, res) => {
     const otp = Math.floor(1000 + Math.random() * 9000);
 
     await Otp.findOneAndUpdate(
-      { phoneHash },
+      { cleanPhone },
       {
         otp,
         attempts: 0,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 mins
         $inc: { resendCount: 1 },
       },
       { upsert: true, new: true }
     );
+
     console.log("OTP sent:", otp); // replace with SMS API
 
-    return res.json({ success: true, message: "OTP sent" });
-
+    return res.json({
+      success: true,
+      message: "OTP sent",
+    });
   } catch (err) {
+    console.error("Send OTP error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 //verify otp
 exports.verifyOtp = async (req, res) => {
   try {
     const { phoneNo, otp } = req.body;
 
-    const phoneHash = hashPhone(phoneNo);
+    if (!phoneNo || !otp) {
+      return res.status(400).json({ message: "Phone number and OTP required" });
+    }
 
-    const otpDoc = await Otp.findOne({ phoneHash });
+    const cleanPhone = normalizePhone(phoneNo);
+
+    const otpDoc = await Otp.findOne({ cleanPhone });
     if (!otpDoc) {
       return res.status(400).json({ message: "OTP expired or not found" });
     }
+
     // OTP expired
     if (new Date() > otpDoc.expiresAt) {
-      await Otp.deleteOne({ phoneHash });
+      await Otp.deleteOne({ cleanPhone });
       return res.status(400).json({ message: "OTP expired" });
     }
+
+    // OTP mismatch
     if (otpDoc.otp.toString() !== otp.toString()) {
       otpDoc.attempts += 1;
+
       if (otpDoc.attempts >= 5) {
-        await Otp.deleteOne({ phoneHash });
-        return res
-          .status(429)
-          .json({ message: "Too many failed attempts. Try again later." });
+        await Otp.deleteOne({ cleanPhone });
+        return res.status(429).json({
+          message: "Too many failed attempts. Try again later.",
+        });
       }
+
       await otpDoc.save();
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    // OTP verified → remove OTP
-    await Otp.deleteOne({ phoneHash });
+    // OTP verified → delete OTP
+    await Otp.deleteOne({ cleanPhone });
 
-    const user = await User.findOne({ phoneHash });
+    const user = await User.findOne({ cleanPhone });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -107,7 +123,7 @@ exports.verifyOtp = async (req, res) => {
     user.isVerified = true;
     await user.save();
 
-    // NEW USER
+    // New user → complete profile
     if (!user.fullName) {
       return res.json({
         success: true,
@@ -116,15 +132,15 @@ exports.verifyOtp = async (req, res) => {
       });
     }
 
-    // EXISTING USER
+    // Existing user
     return res.json({
       success: true,
       token: generateToken(user._id),
       user,
       message: "Login successful",
     });
-
   } catch (err) {
+    console.error("Verify OTP error:", err);
     res.status(500).json({ error: err.message });
   }
 };
