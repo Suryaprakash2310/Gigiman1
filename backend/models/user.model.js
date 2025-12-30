@@ -3,20 +3,20 @@ const mongoose=require('mongoose');
 const UserSchema=mongoose.Schema({
     fullName:{
         type:String,
-        required:true,
+        required:false,
     },
     phoneNo:{
         type:String,
         required:true,
-        unique:true,
+        unique:false,
     },
     phoneMasked:{
         type:String,
-        required:true,
+        required:false,
     },
     phoneHash:{
         type:String,
-        required:true,
+        required:false,
         index:true,
         unique:true,
     },
@@ -36,11 +36,11 @@ const UserSchema=mongoose.Schema({
     },
     avator:{
         type:String,
-        required:true,
+        required:false,
     },
     isVerified:{
         type:Boolean,
-        required:true,
+        default:false,
     }
     
 },{timestamps:true})
