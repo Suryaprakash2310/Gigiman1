@@ -6,7 +6,7 @@ const MultipleEmployee = require('../models/multipleEmployee.model');
 const ToolShop=require('../models/toolshop.model');
 const DomainService=require("../models/domainservice.model");
 const cloudinary=require('../config/cloudinary');
-const serviceList = require('../models/serviceList.model');
+const ServiceList = require('../models/serviceList.model');
 exports.adminLogin=async(req,res)=>{
     try{
         const {email,password}=req.body;
@@ -109,30 +109,73 @@ exports.Adddomainservice=async(req,res)=>{
     }
 }
 
-exports.AddServiceList=async(req,res)=>{
-    try{
-        const{DomainServiceId,serviceName,serviceCategory,price,durationInMinutes}=req.body;
-        if(!DomainServiceId||!serviceName||!serviceCategory||!price||!durationInMinutes){
-            return res.status(400).json({message:"All fields are requried"});
-        }
-        const existingDomain=DomainService.findOne({DomainServiceId});
-        if(!existingDomain){
-            return res.status(400).json({message:"Domain is not found"});
-        }
-        const newService=serviceList.create({
-            DomainServiceId,
-            serviceName,
-            serviceCategory,
-            price,
-            durationInMinutes
-        })
-        return res.status(200).json({
-            message:"ServiceList is added",
-            service:newService,
-        })
+exports.SetSubService = async (req, res) => {
+  try {
+    const { DomainServiceId, serviceName, ServiceCategory } = req.body;
+
+    if (!DomainServiceId || !serviceName) {
+      return res.status(400).json({ message: "All fields required" });
     }
-    catch(err){
-        console.error("AddServiceList controller error",err.message);
-        res.status(500).json({message:"Server error",error:err.message});
+
+    if (
+      !ServiceCategory.serviceCategoryName ||
+      !ServiceCategory.description ||
+      !ServiceCategory.price ||
+      !ServiceCategory.durationInMinutes ||
+      !ServiceCategory.servicecategoryImage||
+      !ServiceCategory.serviceCount
+    ) {
+      return res.status(400).json({ message: "Servicecategory field is required" });
     }
-}
+
+    // Check if the serviceName exists
+    const existingService = await ServiceList.findOne({ serviceName });
+
+    //upload image to cloudinary
+    const uploadResult=await cloudinary.uploader.upload(serviceCategory.servicecategoryImage,
+        {
+            folder:"service_categories",
+        }
+    );
+    ServiceCategory.serviceCategoryImage=uploadResult.secure_url;
+    //  If service exists → check if category exists
+    if (existingService) {
+      const categoryExists = existingService.serviceCategory.some(
+        (item) =>
+          item.serviceCategoryName === ServiceCategory.serviceCategoryName
+      );
+
+      if (categoryExists) {
+        return res.status(400).json({
+          message: "This service category already exists",
+        });
+      }
+
+      //  Add category to existing service
+      existingService.serviceCategory.push(ServiceCategory);
+      await existingService.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Category added successfully to existing service",
+        data: existingService,
+      });
+    }
+
+    //  Service does NOT exist → create new service
+    const newService = await ServiceList.create({
+      DomainServiceId,
+      serviceName,
+      serviceCategory: [ServiceCategory],
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "New service created with category",
+      data: newService,
+    });
+
+  } catch (err) {
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};

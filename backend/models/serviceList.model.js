@@ -15,7 +15,7 @@ const serviceListSchema = mongoose.Schema({
             type: String,
             required: true,
         },
-        ServicecategoryImage:{
+        servicecategoryImage:{
             type:String,
             default:null,
         },
@@ -35,6 +35,10 @@ const serviceListSchema = mongoose.Schema({
             type:Number,
             required:true,
         },
+        serviceCount:{
+            type:Number,
+            required:true,
+        }
         
     }]
 }, { timestamps: true })

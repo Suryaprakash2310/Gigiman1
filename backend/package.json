@@ -22,7 +22,8 @@
   "description": "Gigiman",
   "main": "app.js",
   "scripts": {
-    "start": "nodemon app.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "author": "Kiran Kumar",
   "license": "ISC"

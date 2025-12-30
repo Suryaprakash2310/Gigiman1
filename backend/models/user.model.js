@@ -38,6 +38,10 @@ const UserSchema=mongoose.Schema({
         type:String,
         required:true,
     },
+    isVerified:{
+        type:Boolean,
+        required:true,
+    }
     
 },{timestamps:true})
 
