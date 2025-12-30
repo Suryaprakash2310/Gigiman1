@@ -1,83 +1,83 @@
-const bcrypt=require('bcryptjs');
-const Admin=require('../models/admin.model');
+const bcrypt = require('bcryptjs');
+const Admin = require('../models/admin.model');
 const jwt = require("jsonwebtoken");
 const SingleEmployee = require('../models/singleEmployee.model');
 const MultipleEmployee = require('../models/multipleEmployee.model');
-const ToolShop=require('../models/toolshop.model');
-const DomainService=require("../models/domainservice.model");
-const cloudinary=require('../config/cloudinary');
+const ToolShop = require('../models/toolshop.model');
+const DomainService = require("../models/domainservice.model");
+const cloudinary = require('../config/cloudinary');
 const ServiceList = require('../models/serviceList.model');
-exports.adminLogin=async(req,res)=>{
-    try{
-        const {email,password}=req.body;
-        const admin=await Admin.findOne({email});
-        if(!admin){
-            return res.status(400).json({message:"Admin not found"});
-        }
-        const match=await admin.comparePassword(password);
-        if(!match){
-            return res.status(400).json({message:"Invalid password"});
-        }
-        const token=jwt.sign(
-            {id:admin._id,role:"admin"},
-            process.env.JWT_KEY,
-            {expiresIn:"7d"}
-        );
-        res.json({
-            message:"Admin login successfully",
-            token,
-            admin:{
-                id:admin._id,
-                fullname:admin.fullname,
-                email:admin.email,
-                role:admin.role,
-            }
-        });
+exports.adminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.status(400).json({ message: "Admin not found" });
     }
-    catch(err){
-        console.error("Admin Login controller error",err.message);
-        res.status(500).json({
-            message:"server Error",
-            error:err.message
-        });
+    const match = await admin.comparePassword(password);
+    if (!match) {
+      return res.status(400).json({ message: "Invalid password" });
     }
-}
-
-exports.checkAuth=async(req,res)=>{
-    if(req.role!='admin'){
-        return res.status(403).json({message:"Access denied"});
-    }
+    const token = jwt.sign(
+      { id: admin._id, role: "admin" },
+      process.env.JWT_KEY,
+      { expiresIn: "7d" }
+    );
     res.json({
-        isAuthenticated:true,
-        admin:req.employee,
+      message: "Admin login successfully",
+      token,
+      admin: {
+        id: admin._id,
+        fullname: admin.fullname,
+        email: admin.email,
+        role: admin.role,
+      }
     });
+  }
+  catch (err) {
+    console.error("Admin Login controller error", err.message);
+    res.status(500).json({
+      message: "server Error",
+      error: err.message
+    });
+  }
 }
 
-exports.getEmployeecounts=async(req,res)=>{
-    try{
-        const SingleEmployeeCount=await SingleEmployee.countDocuments();
-        const MultipleEmployeeCount=await MultipleEmployee.countDocuments();
-        const toolShopCount=await ToolShop.countDocuments();
-
-        const total=SingleEmployeeCount+MultipleEmployeeCount+toolShopCount;
-
-        res.json({
-            singleEmployee:SingleEmployeeCount,
-            mulipleEmplyee:MultipleEmployeeCount,
-            toolshop:toolShopCount,
-            totalemp:total
-        })
-    }catch(err){
-        console.error("Employee count controller error",err.message);
-        res.status(500).json({message:"Sever Error"});
-    }
+exports.checkAuth = async (req, res) => {
+  if (req.role != 'admin') {
+    return res.status(403).json({ message: "Access denied" });
+  }
+  res.json({
+    isAuthenticated: true,
+    admin: req.employee,
+  });
 }
 
-exports.Adddomainservice=async(req,res)=>{
-    try{
-        const {domainName,serviceImage}=req.body;
-        if(!domainName||!serviceImage){
-        return res.status(400).json({message:"All the fields are required"});
+exports.getEmployeecounts = async (req, res) => {
+  try {
+    const SingleEmployeeCount = await SingleEmployee.countDocuments();
+    const MultipleEmployeeCount = await MultipleEmployee.countDocuments();
+    const toolShopCount = await ToolShop.countDocuments();
+
+    const total = SingleEmployeeCount + MultipleEmployeeCount + toolShopCount;
+
+    res.json({
+      singleEmployee: SingleEmployeeCount,
+      mulipleEmplyee: MultipleEmployeeCount,
+      toolshop: toolShopCount,
+      totalemp: total
+    })
+  } catch (err) {
+    console.error("Employee count controller error", err.message);
+    res.status(500).json({ message: "Sever Error" });
+  }
+}
+
+exports.Adddomainservice = async (req, res) => {
+  try {
+    const { domainName, serviceImage } = req.body;
+    if (!domainName || !serviceImage) {
+      return res.status(400).json({ message: "All the fields are required" });
     }
     const existingDomain = await DomainService.findOne({ domainName });
 
@@ -87,11 +87,11 @@ exports.Adddomainservice=async(req,res)=>{
         existing: existingDomain,
       });
     }
-    const uploadImage=await cloudinary.uploader.upload(serviceImage,{
-        folder:"Domain_service",
-        resource_type:"image",
+    const uploadImage = await cloudinary.uploader.upload(serviceImage, {
+      folder: "Domain_service",
+      resource_type: "image",
     });
-// Create new domain
+    // Create new domain
     const domain = await DomainService.create({
       domainName,
       serviceImage: uploadImage.secure_url,
@@ -102,11 +102,11 @@ exports.Adddomainservice=async(req,res)=>{
       domain,
     });
 
-    }
-    catch(err){
-        console.error("Add domain service controller error",err.message);
-        res.status(500).json({message:"Server error",error:err.message});
-    }
+  }
+  catch (err) {
+    console.error("Add domain service controller error", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
 }
 
 exports.SetSubService = async (req, res) => {
@@ -118,27 +118,27 @@ exports.SetSubService = async (req, res) => {
     }
 
     if (
-      !ServiceCategory.serviceCategoryName ||
-      !ServiceCategory.description ||
-      !ServiceCategory.price ||
-      !ServiceCategory.durationInMinutes ||
-      !ServiceCategory.servicecategoryImage||
-      !ServiceCategory.serviceCount
+      !ServiceCategory?.serviceCategoryName ||
+      !ServiceCategory?.description ||
+      !ServiceCategory?.price ||
+      !ServiceCategory?.durationInMinutes ||
+      !ServiceCategory?.servicecategoryImage ||
+      !ServiceCategory?.employeeCount
     ) {
       return res.status(400).json({ message: "Servicecategory field is required" });
     }
 
-    // Check if the serviceName exists
+    // Upload image to Cloudinary
+    const uploadResult = await cloudinary.uploader.upload(
+      ServiceCategory.servicecategoryImage,
+      { folder: "service_categories" }
+    );
+
+    ServiceCategory.servicecategoryImage = uploadResult.secure_url;
+
+    // Check existing service
     const existingService = await ServiceList.findOne({ serviceName });
 
-    //upload image to cloudinary
-    const uploadResult=await cloudinary.uploader.upload(serviceCategory.servicecategoryImage,
-        {
-            folder:"service_categories",
-        }
-    );
-    ServiceCategory.serviceCategoryImage=uploadResult.secure_url;
-    //  If service exists → check if category exists
     if (existingService) {
       const categoryExists = existingService.serviceCategory.some(
         (item) =>
@@ -151,7 +151,6 @@ exports.SetSubService = async (req, res) => {
         });
       }
 
-      //  Add category to existing service
       existingService.serviceCategory.push(ServiceCategory);
       await existingService.save();
 
@@ -162,7 +161,6 @@ exports.SetSubService = async (req, res) => {
       });
     }
 
-    //  Service does NOT exist → create new service
     const newService = await ServiceList.create({
       DomainServiceId,
       serviceName,
@@ -176,6 +174,10 @@ exports.SetSubService = async (req, res) => {
     });
 
   } catch (err) {
-    return res.status(500).json({ message: "Server error", error: err.message });
+    console.error("SetSubService error:", err);
+    return res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
   }
 };

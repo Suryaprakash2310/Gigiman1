@@ -209,8 +209,8 @@ exports.getProfile = async (req, res) => {
 
 exports.editprofile = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { fullName, latitude, longtitude, avatar } = req.body;
+    const userId = req.userId;
+    const { fullName, latitude, longitude, avatar } = req.body;
     const user = await User.findById(userId);
     if (!user) {
       return res.status(400).json({ message: "User not found" });
@@ -218,16 +218,16 @@ exports.editprofile = async (req, res) => {
     if (fullName) {
       user.fullName = fullName;
     }
-    if (latitude && longtitude) {
+    if (latitude && longitude) {
       user.location = {
         type: "Point",
-        coordinates: [longtitude, latitude]
+        coordinates: [longitude, latitude]
       };
     }
     if (avatar) {
       const uploadResult = await cloudinary.uploader.upload(avatar, {
-        floder: "user/avatars",
-        transformation: [{ widht: 300, height: 300, crops: "fill" }]
+        folder: "user/avatars",
+        transformation: [{ width: 300, height: 300, crop: "fill" }]
       })
       user.avatar = uploadResult.secure_url;
     }
