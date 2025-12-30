@@ -1,5 +1,6 @@
 const { encryptPhone, maskPhone, hashPhone } = require("../utils/crypto");
 const User = require('../models/user.model');
+const Otp=require('../models/otp.model')
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
 const cloudinary=require('../config/cloudinary')
@@ -19,9 +20,9 @@ exports.sendOtp = async (req, res) => {
     }
 
     const phoneHash = hashPhone(phoneNo);
-    let user = await User.findOne({ phoneHash });
 
-    // Create temp user if not exists
+    // Ensure user exists (temporary user)
+    let user = await User.findOne({ phoneHash });
     if (!user) {
       user = await User.create({
         phoneNo: encryptPhone(phoneNo),
@@ -32,41 +33,62 @@ exports.sendOtp = async (req, res) => {
     }
 
     const otp = Math.floor(1000 + Math.random() * 9000);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    user.otp = otp;
-    user.expiresAt = Date.now() + 5 * 60 * 1000;
-    await user.save();
+    await Otp.findOneAndUpdate(
+      { phoneHash },
+      {
+        otp,
+        expiresAt,
+        $inc: { resendCount: 1 },
+      },
+      { upsert: true, new: true }
+    );
 
     console.log("OTP sent:", otp); // replace with SMS API
 
-    res.json({ success: true, message: "OTP sent" });
+    return res.json({ success: true, message: "OTP sent" });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 //verify otp
 exports.verifyOtp = async (req, res) => {
   try {
     const { phoneNo, otp } = req.body;
 
     const phoneHash = hashPhone(phoneNo);
-    const user = await User.findOne({ phoneHash });
 
+    const otpDoc = await Otp.findOne({ phoneHash });
+    if (!otpDoc) {
+      return res.status(400).json({ message: "OTP expired or not found" });
+    }
+
+    if (otpDoc.attempts >= 5) {
+      await Otp.deleteOne({ phoneHash });
+      return res.status(429).json({ message: "Too many attempts" });
+    }
+
+    if (otpDoc.otp !== Number(otp)) {
+      otpDoc.attempts += 1;
+      await otpDoc.save();
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    // OTP verified → remove OTP
+    await Otp.deleteOne({ phoneHash });
+
+    const user = await User.findOne({ phoneHash });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    if (user.otp !== otp || user.otpExpires < Date.now()) {
-      return res.status(400).json({ message: "Invalid or expired OTP" });
-    }
-
-    user.otp = null;
-    user.expiresAt = null;
     user.isVerified = true;
     await user.save();
 
-    // NEW USER → profile incomplete
+    // NEW USER
     if (!user.fullName) {
       return res.json({
         success: true,
@@ -75,7 +97,7 @@ exports.verifyOtp = async (req, res) => {
       });
     }
 
-    // EXISTING USER → LOGIN
+    // EXISTING USER
     return res.json({
       success: true,
       token: generateToken(user._id),
@@ -88,9 +110,7 @@ exports.verifyOtp = async (req, res) => {
   }
 };
 
-
 //complete profile registeration
-
 exports.completeProfile = async (req, res) => {
   try {
     const { userId, fullName, latitude, longitude, avatar } = req.body;
