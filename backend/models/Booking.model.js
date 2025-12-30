@@ -11,39 +11,55 @@ const bookingSchema = mongoose.Schema({
         required: true,
     },
 
-    // Only required if the service type = TEAM
     servicerCompany: {
         type: mongoose.Types.ObjectId,
         ref: "MultipleEmployee",
-        default: null
+        default: null,
     },
 
     serviceType: {
         type: String,
-        enum: Object.values(SERVICE_TYPE),  // "single", "team"
+        enum: Object.values(SERVICE_TYPE),
         required: true,
     },
 
-    // For TEAM bookings only
     primaryEmployee: {
         type: mongoose.Types.ObjectId,
         ref: "SingleEmployee",
-        default: null
+        default: null,
     },
+
     employees: [{
         type: mongoose.Types.ObjectId,
         ref: "SingleEmployee",
     }],
-
-    ServiceCategoryName: {
-        type: Number,
+    serviceCategoryName: {
+        type: String,
         required: true,
     },
 
     domainService: {
         type: mongoose.Types.ObjectId,
         ref: "DomainService",
-        required: false
+    },
+
+    //  USER CAN INCREASE THIS
+    serviceCount: {
+        type: Number,
+        default: 1,
+        min: 1,
+    },
+
+    //  PRICE FROM SERVICE CATEGORY
+    pricePerService: {
+        type: Number,
+        required: true,
+    },
+
+    //  FINAL CALCULATED PRICE
+    totalPrice: {
+        type: Number,
+        required: true,
     },
 
     status: {
@@ -51,23 +67,20 @@ const bookingSchema = mongoose.Schema({
         enum: Object.values(BOOKING_STATUS),
         default: BOOKING_STATUS.PENDING,
     },
-    bookingType:{
-        type:String,
-        enum:Object.values(BOOKING_TYPE),
-        default:BOOKING_TYPE.ONDEMAND,
+
+    bookingType: {
+        type: String,
+        enum: Object.values(BOOKING_TYPE),
+        default: BOOKING_TYPE.ONDEMAND,
     },
-    scheduleDateTime:{
-        type:Date,
-        default:null
+
+    scheduleDateTime: Date,
+    isScheduled: Boolean,
+    scheduleExecuted: {
+        type: Boolean,
+        default: false,
     },
-    isSchduled:{
-        type:Boolean,
-        default:null,
-    },
-    schdeuleExecuted:{
-        type:Boolean,
-        default:false,
-    },
+
     address: {
         type: String,
         required: true,
@@ -81,30 +94,20 @@ const bookingSchema = mongoose.Schema({
         },
         coordinates: {
             type: [Number],
-            required: true
-        }
+            required: true,
+        },
     },
 
-    StartWorkOTP: {
-        type: Number,
-        default: null,
-    },
+    StartWorkOTP: Number,
 
-    requestedTool: {
-        type: String,
-        default: null,
-    },
+    requestedTool: String,
 
     selectedToolShop: {
         type: mongoose.Types.ObjectId,
         ref: "ToolShop",
-        default: null,
     },
 
-    toolOTP: {
-        type: Number,
-        default: null,
-    },
+    toolOTP: Number,
 
     paymentStatus: {
         type: String,
@@ -118,7 +121,6 @@ const bookingSchema = mongoose.Schema({
 
 }, { timestamps: true });
 
-// IMPORTANT for mapbox geo
 bookingSchema.index({ location: "2dsphere" });
 
 module.exports = mongoose.model("Booking", bookingSchema);

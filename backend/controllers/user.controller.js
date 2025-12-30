@@ -22,7 +22,7 @@ exports.sendOtp = async (req, res) => {
     const cleanPhone = normalizePhone(phoneNo);
 
     // Ensure user exists (temporary user)
-    let user = await User.findOne({ cleanPhone });
+    let user = await User.findOne({ phoneNo });
 
     if (!user) {
       user = await User.create({

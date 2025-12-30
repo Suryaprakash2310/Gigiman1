@@ -1,28 +1,55 @@
-const { searchNearbyservicer, createBookingFinal, teamAssignMembers, autoAssignServicer, autoAssignToolShop, generateStartOtpcontroller, verifystartOTPcontroller, requestToolController, nearbyToolShops, generateToolOTPcontroller, verifyToolOTPcontroller, paymentSuccess } = require("../controllers/booking.controller");
+const express = require("express");
+const router = express.Router();
 
-const router = require("express").Router();
+const {
+  searchNearbyservicer,
+  autoAssignServicer,
+  createBookingFinal,
+  teamAssignMembers,
+  generateStartOtpcontroller,
+  verifystartOTPcontroller,
+  requestToolController,
+  nearbyToolShops,
+  autoAssignToolShop,
+  verifyToolOTPcontroller,
+  verifyPartOTPcontroller,
+  paymentSuccess,
+} = require("../controllers/booking.controller");
 
+/* ===============================
+   SEARCH & AUTO ASSIGN
+=============================== */
+router.post("/search", searchNearbyservicer);
+router.post("/auto-assign", autoAssignServicer);
 
-router.post("/nearby", searchNearbyservicer);
+/* ===============================
+   BOOKING
+=============================== */
 router.post("/create", createBookingFinal);
-router.post("/team-assign", teamAssignMembers);
+router.post("/team/assign", teamAssignMembers);
 
-// Auto assign single/team
-router.post("/auto-assign-servicer", autoAssignServicer);
+/* ===============================
+   START WORK OTP
+=============================== */
+router.post("/otp/start/generate", generateStartOtpcontroller);
+router.post("/otp/start/verify", verifystartOTPcontroller);
 
-// Auto assign toolshop
-router.post("/auto-assign-toolshop", autoAssignToolShop);
+/* ===============================
+   TOOL REQUEST
+=============================== */
+router.post("/tool/request", requestToolController);
+router.post("/tool/nearby", nearbyToolShops);
+router.post("/tool/auto-assign", autoAssignToolShop);
+router.post("/tool/otp/verify", verifyToolOTPcontroller);
 
+/* ===============================
+   PART OTP
+=============================== */
+router.post("/part/otp/verify", verifyPartOTPcontroller);
 
-router.post("/start-otp",generateStartOtpcontroller);
-router.post("/verify-start-otp", verifystartOTPcontroller);
-
-router.post("/tool-request",requestToolController);
-router.post("/toolshops", nearbyToolShops);
-
-router.post("/tool-otp", generateToolOTPcontroller);
-router.post("/verify-tool-otp", verifyToolOTPcontroller);
-
-router.post("/payment-success", paymentSuccess);
+/* ===============================
+   PAYMENT
+=============================== */
+router.post("/payment/success", paymentSuccess);
 
 module.exports = router;

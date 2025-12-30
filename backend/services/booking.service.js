@@ -8,35 +8,28 @@ const EmployeeService = require("../models/employeeService.model");
 const PartRequest = require("../models/partsrequest.model");
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-const {
-    SEARCH_RADIUS_METERS,
-} = require("../utils/constants");
+const { SEARCH_RADIUS_METERS } = require("../utils/constants");
 
 require("dotenv").config();
 
 const mapboxClient = mbxGeocoding({ accessToken: process.env.MAP_BOX_TOKEN });
 
-
-// ------------------------------------------------------
-// 1. GEOCODE ADDRESS
-// ------------------------------------------------------
+/* ======================================================
+   1. GEOCODE ADDRESS
+====================================================== */
 exports.geocodeAddress = async (address) => {
-    const res = await mapboxClient
-        .forwardGeocode({
-            query: address,
-            limit: 1,
-        })
-        .send();
+    const res = await mapboxClient.forwardGeocode({
+        query: address,
+        limit: 1,
+    }).send();
 
-    const feature = res.body.features[0];
-    return feature ? feature.geometry.coordinates : null; // [lng, lat]
+    const feature = res.body.features?.[0];
+    return feature ? feature.geometry.coordinates : null;
 };
 
-
-
-// ------------------------------------------------------
-// 2. FIND NEARBY SERVICERS (SINGLE / TEAM)
-// ------------------------------------------------------
+/* ======================================================
+   2. FIND NEARBY SERVICERS
+====================================================== */
 exports.findNearbyTeams = async ({
     address,
     coordinates,
@@ -50,10 +43,10 @@ exports.findNearbyTeams = async ({
     if (!serviceList) throw new Error("Service Category not found");
 
     const category = serviceList.serviceCategory.find(
-        (c) => c.serviceCategoryName === serviceCategoryName
+        c => c.serviceCategoryName === serviceCategoryName
     );
 
-    if (!category) throw new Error("Service Category not found in list");
+    if (!category) throw new Error("Invalid service category");
 
     const employeeCount = category.employeeCount;
     const domainServiceId = serviceList.DomainServiceId;
@@ -64,48 +57,56 @@ exports.findNearbyTeams = async ({
 
     const [lng, lat] = lngLat;
 
-    // FETCH ALL EMPLOYEES CAPABLE OF THIS DOMAIN SERVICE
     const capableEmployees = await EmployeeService.find({
-        capableservice: { $in: [domainServiceId] },
+        capableservice: domainServiceId,
     });
 
-    const capableEmployeeIds = capableEmployees.map((e) => e.employeeId);
+    const capableEmployeeIds = capableEmployees.map(e => e.employeeId);
 
-    // CASE A — SINGLE EMPLOYEE REQUIRED
+    /* ---------- SINGLE EMPLOYEE ---------- */
     if (employeeCount === 1) {
-        const singles = await SingleEmployee.find({
-            empId: { $in: capableEmployeeIds },
+        if (singles.length > 0) {
+            return {
+                type: "single",
+                data: singles,
+                employeeCount,
+                coordinates: [lng, lat],
+            };
+        }
+
+        // FALLBACK TO TEAM
+        const teams = await MultipleEmployee.find({
+            members: { $in: capableEmployeeIds },
             isActive: true,
             $or: [
                 { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() }, }
+                { blockedUntil: { $lte: new Date() } }
             ],
-            teamAccepted: false,
             location: {
                 $near: {
                     $geometry: { type: "Point", coordinates: [lng, lat] },
                     $maxDistance: radiusInMeters,
                 },
             },
-        });
+        }).populate("leader");
 
         return {
-            type: "single",
-            data: singles,
+            type: "team",
+            data: teams,
             employeeCount,
             coordinates: [lng, lat],
         };
     }
 
-    // CASE B — TEAM REQUIRED
+
+    /* ---------- TEAM ---------- */
     const teams = await MultipleEmployee.find({
         members: { $in: capableEmployeeIds },
         $expr: { $gte: [{ $size: "$members" }, employeeCount] },
-
-        isActive:true,
-        $or:[
-            {blockedUntil:null},
-            {$blockedUntil:{$lte:new Date()}},
+        isActive: true,
+        $or: [
+            { blockedUntil: null },
+            { blockedUntil: { $lte: new Date() } }
         ],
         location: {
             $near: {
@@ -115,29 +116,16 @@ exports.findNearbyTeams = async ({
         },
     }).populate("leader");
 
-    return {
-        type: "team",
-        data: teams,
-        employeeCount,
-        coordinates: [lng, lat],
-    };
+    return { type: "team", data: teams, employeeCount, coordinates: [lng, lat] };
 };
 
-
-
-// ----------------------------------------------------------------------
-// 3. AUTO ASSIGN QUEUE FOR SINGLE EMPLOYEES
-// ----------------------------------------------------------------------
+/* ======================================================
+   3. SINGLE EMPLOYEE AUTO ASSIGN QUEUE
+====================================================== */
 const bookingQueue = {};
 
 exports.startServicerQueue = async ({ bookingId, servicers, userSocket, io }) => {
-    bookingQueue[bookingId] = {
-        servicers,
-        index: 0,
-        userSocket,
-        timer: null,
-    };
-
+    bookingQueue[bookingId] = { servicers, index: 0, userSocket, timer: null };
     exports.assignNextServicer(bookingId, io);
 };
 
@@ -146,8 +134,6 @@ exports.assignNextServicer = async (bookingId, io) => {
     if (!queue) return;
 
     const servicerId = queue.servicers[queue.index];
-
-    // If no more employees
     if (!servicerId) {
         io.to(queue.userSocket).emit("no-servicer-available");
         delete bookingQueue[bookingId];
@@ -155,23 +141,16 @@ exports.assignNextServicer = async (bookingId, io) => {
     }
 
     const servicer = await SingleEmployee.findById(servicerId);
-    // skip if inactive
-    if (!servicer?.isActive) {
+    if (!servicer || !servicer.isActive ||
+        (servicer.blockedUntil && servicer.blockedUntil > new Date())) {
         queue.index++;
         return exports.assignNextServicer(bookingId, io);
     }
 
-    // skip if blocked
-    if (servicer.blockedUntil && servicer.blockedUntil > new Date()) {
-        queue.index++;
-        return exports.assignNextServicer(bookingId, io);
-    }
-
-    if (servicer?.socketId) {
+    if (servicer.socketId) {
         io.to(servicer.socketId).emit("new-booking-request", { bookingId });
     }
 
-    // Timeout — move to next employee
     queue.timer = setTimeout(() => {
         queue.index++;
         exports.assignNextServicer(bookingId, io);
@@ -197,21 +176,13 @@ exports.servicerReject = async (bookingId, io) => {
     exports.assignNextServicer(bookingId, io);
 };
 
-
-
-// ----------------------------------------------------------------------
-// 4. TEAM AUTO ASSIGN (TEAM LEADER RECEIVES REQUEST)
-// ----------------------------------------------------------------------
-const teamQueue = {}; // { bookingId: { teams, index, userSocket, timer } }
+/* ======================================================
+   4. TEAM AUTO ASSIGN
+====================================================== */
+const teamQueue = {};
 
 exports.startTeamQueue = async ({ bookingId, teams, userSocket, io }) => {
-    teamQueue[bookingId] = {
-        teams,
-        index: 0,
-        userSocket,
-        timer: null,
-    };
-
+    teamQueue[bookingId] = { teams, index: 0, userSocket, timer: null };
     exports.assignNextTeam(bookingId, io);
 };
 
@@ -220,7 +191,6 @@ exports.assignNextTeam = async (bookingId, io) => {
     if (!queue) return;
 
     const teamId = queue.teams[queue.index];
-
     if (!teamId) {
         io.to(queue.userSocket).emit("no-team-available");
         delete teamQueue[bookingId];
@@ -228,20 +198,13 @@ exports.assignNextTeam = async (bookingId, io) => {
     }
 
     const team = await MultipleEmployee.findById(teamId).populate("leader");
+    if (!team || !team.isActive ||
+        (team.blockedUntil && team.blockedUntil > new Date())) {
+        queue.index++;
+        return exports.assignNextTeam(bookingId, io);
+    }
 
-    if(!team){
-        queue.index++;
-        return exports.assignNextTeam(bookingId,io);
-    }
-    if(!team.isActive){
-        queue.index++;
-        return exports.assignNextTeam(bookingId,io);
-    }
-    if(team.blockedUntil && team.blockedUntil>new Date()){
-        queue.index++;
-        return exports.assignNextTeam(bookingId,io);
-    }
-    if (team?.leader?.socketId) {
+    if (team.leader?.socketId) {
         io.to(team.leader.socketId).emit("team-booking-request", { bookingId });
     }
 
@@ -270,81 +233,103 @@ exports.teamReject = async (bookingId, io) => {
     exports.assignNextTeam(bookingId, io);
 };
 
-
-
-// ----------------------------------------------------------------------
-// 5. CREATE BOOKING (ONLY AFTER ACCEPT)
-// ----------------------------------------------------------------------
+/* ======================================================
+   5. CREATE BOOKING
+====================================================== */
+/* ======================================================
+   5. CREATE BOOKING (SINGLE → TEAM FALLBACK + COUNT LOGIC)
+====================================================== */
 exports.createBooking = async ({
     userId,
-    servicerId,            // teamId or single employee _id
+    servicerId,
     serviceCategoryName,
     domainService,
     address,
     coordinates,
+    serviceCount = 1,
 }) => {
 
-    // 1. Get service category
+    // -------------------------
+    // Fetch service category
+    // -------------------------
     const serviceList = await ServiceList.findOne({
         "serviceCategory.serviceCategoryName": serviceCategoryName,
     });
     if (!serviceList) throw new Error("Service category not found");
 
     const category = serviceList.serviceCategory.find(
-        (c) => c.serviceCategoryName === serviceCategoryName
+        c => c.serviceCategoryName === serviceCategoryName
     );
-    if (!category) throw new Error("Invalid serviceCategoryName");
+    if (!category) throw new Error("Invalid service category");
 
     const employeeCount = category.employeeCount;
+    const pricePerService = category.price;
 
-    // ------------------------------------------------------------
-    // CASE A — SINGLE EMPLOYEE SERVICE
-    // ------------------------------------------------------------
-    if (employeeCount === 1) {
-        const single = await SingleEmployee.findById(servicerId);
-        if (!single) throw new Error("Single employee not found");
+    // -------------------------
+    // PRICE CALCULATION
+    // -------------------------
+    const totalPrice = pricePerService * serviceCount;
 
-        const booking = await Booking.create({
-            user: userId,
-            serviceType: "single",
-            primaryEmployee: single._id,
-            employees: [single._id],
-            ServiceCategoryName: serviceCategoryName,
-            domainService,
-            status: BOOKING_STATUS.PENDING,
-            address,
-            location: { type: "Point", coordinates },
+    // -------------------------
+    // FORCE TEAM RULE
+    // -------------------------
+    const forceTeam =
+        serviceCount > 5 || employeeCount > 1;
+
+    /* ======================================================
+       CASE A — TRY SINGLE EMPLOYEE
+    ====================================================== */
+    if (!forceTeam) {
+        const single = await SingleEmployee.findOne({
+            _id: servicerId,
+            isActive: true,
+            $or: [
+                { blockedUntil: null },
+                { blockedUntil: { $lte: new Date() } }
+            ]
         });
 
-        return {
-            booking,
-            assignedEmployees: [single._id],
-            primaryEmployee: single._id,
-            helpers: [],
-            employeeCount,
-            serviceType: "single",
-        };
+        if (single) {
+            const booking = await Booking.create({
+                user: userId,
+                serviceType: "single",
+                primaryEmployee: single._id,
+                employees: [single._id],
+                serviceCategoryName,
+                domainService,
+                serviceCount,
+                pricePerService,
+                totalPrice,
+                status: BOOKING_STATUS.PENDING,
+                address,
+                location: { type: "Point", coordinates },
+            });
+
+            return {
+                booking,
+                assignedEmployees: [single._id],
+                primaryEmployee: single._id,
+                helpers: [],
+                employeeCount: 1,
+                serviceType: "single",
+            };
+        }
     }
 
-    // ------------------------------------------------------------
-    // CASE B — TEAM SERVICE (MANUAL ASSIGN — NO AUTO SELECTION)
-    // ------------------------------------------------------------
-    const team = await MultipleEmployee.findById(servicerId);
-    if (!team) throw new Error("Team not found");
-
-    if (team.members.length < employeeCount) {
-        throw new Error("Team does not have enough members for this service");
-    }
-
-    // DO NOT ASSIGN ANY MEMBER HERE — WAIT FOR SOCKET ASSIGN
+    /* ======================================================
+       CASE B — TEAM BOOKING (FALLBACK / FORCE)
+    ====================================================== */
     const booking = await Booking.create({
         user: userId,
-        servicerCompany: servicerId,     // team _id
+        servicerCompany: servicerId || null,
         serviceType: "team",
-        primaryEmployee: null,           // assigned later
-        employees: [],                   // assigned later
-        ServiceCategoryName: serviceCategoryName,
+        primaryEmployee: null,
+        employees: [],
+        serviceCategoryName,
         domainService,
+        serviceCount,
+        pricePerService,
+        totalPrice,
         status: BOOKING_STATUS.PENDING,
         address,
         location: { type: "Point", coordinates },
@@ -361,28 +346,24 @@ exports.createBooking = async ({
 };
 
 
-
-
-// ----------------------------------------------------------------------
-// 6. START WORK OTP
-// ----------------------------------------------------------------------
+/* ======================================================
+   6. START WORK OTP
+====================================================== */
 exports.generateStartOTP = async (bookingId) => {
     const otp = Math.floor(1000 + Math.random() * 9000);
-
     const booking = await Booking.findByIdAndUpdate(
         bookingId,
         { StartWorkOTP: otp },
         { new: true }
     );
-
     return { booking, otp };
 };
 
 exports.verifyStartOTP = async (bookingId, otp) => {
     const booking = await Booking.findById(bookingId);
-    if (!booking) return { success: false };
-
-    if (booking.StartWorkOTP !== Number(otp)) return { success: false };
+    if (!booking || booking.StartWorkOTP !== Number(otp)) {
+        return { success: false };
+    }
 
     booking.StartWorkOTP = null;
     booking.status = BOOKING_STATUS.IN_PROGRESS;
@@ -391,39 +372,13 @@ exports.verifyStartOTP = async (bookingId, otp) => {
     return { success: true, booking };
 };
 
-
-exports.findNearbyToolShops = async ({ coordinates, radiusInMeters = SEARCH_RADIUS_METERS }) => {
-    if (!coordinates || coordinates.length !== 2) {
-        throw new Error("Invalid coordinates for toolshop search");
-    }
-
-    const [lng, lat] = coordinates;
-
-    const shops = await ToolShop.find({
-        location: {
-            $near: {
-                $geometry: { type: "Point", coordinates: [lng, lat] },
-                $maxDistance: radiusInMeters,
-            },
-        },
-    });
-
-    return shops;
-};
-
-// ----------------------------------------------------------------------
-// 7. TOOLSHOP AUTO ASSIGN
-// ----------------------------------------------------------------------
-const toolshopQueue = {}; // { requestId: { shops, index, employeeSocket, timer } }
+/* ======================================================
+   7. TOOLSHOP FLOW
+====================================================== */
+const toolshopQueue = {};
 
 exports.startToolShopQueue = ({ requestId, shops, employeeSocket, io }) => {
-    toolshopQueue[requestId] = {
-        shops,
-        index: 0,
-        employeeSocket,
-        timer: null,
-    };
-
+    toolshopQueue[requestId] = { shops, index: 0, employeeSocket, timer: null };
     exports.assignNextToolshop(requestId, io);
 };
 
@@ -432,7 +387,6 @@ exports.assignNextToolshop = async (requestId, io) => {
     if (!queue) return;
 
     const shopId = queue.shops[queue.index];
-
     if (!shopId) {
         io.to(queue.employeeSocket).emit("no-toolshop-available");
         delete toolshopQueue[requestId];
@@ -440,7 +394,6 @@ exports.assignNextToolshop = async (requestId, io) => {
     }
 
     const shop = await ToolShop.findById(shopId);
-
     if (shop?.socketId) {
         io.to(shop.socketId).emit("toolshop-booking-request", { requestId });
     }
@@ -451,21 +404,6 @@ exports.assignNextToolshop = async (requestId, io) => {
     }, 30000);
 };
 
-// ----------------------------------------------------------------------
-// 8. TOOL REQUEST (EMPLOYEE → USER)
-// ----------------------------------------------------------------------
-exports.requestTool = async (bookingId, toolName) => {
-    const booking = await Booking.findById(bookingId);
-
-    if (!booking) throw new Error("Booking not found");
-
-    booking.requestedTool = toolName;
-    await booking.save();
-
-    return booking;
-};
-
-
 exports.toolshopAccept = async (requestId, shopId, io) => {
     const queue = toolshopQueue[requestId];
     if (!queue) return;
@@ -473,12 +411,10 @@ exports.toolshopAccept = async (requestId, shopId, io) => {
     clearTimeout(queue.timer);
     delete toolshopQueue[requestId];
 
-    const otp = Math.floor(1000 + Math.random() * 9000);
-
-    io.to(queue.employeeSocket).emit("toolshop-accepted", { requestId, shopId, otp });
+    io.to(queue.employeeSocket).emit("toolshop-accepted", { requestId, shopId });
 };
 
-exports.toolshopReject = (requestId, io) => {
+exports.toolshopReject = async (requestId, io) => {
     const queue = toolshopQueue[requestId];
     if (!queue) return;
 
@@ -487,12 +423,11 @@ exports.toolshopReject = (requestId, io) => {
     exports.assignNextToolshop(requestId, io);
 };
 
-
-// ----------------------------------------------------------------------
-// 10. PART REQUEST FLOW
-// ----------------------------------------------------------------------
+/* ======================================================
+   8. PART REQUEST
+====================================================== */
 exports.createPartRequest = async ({ bookingId, employeeId, parts, totalCost }) => {
-    const req = await PartRequest.create({
+    return PartRequest.create({
         bookingId,
         employeeId,
         parts,
@@ -501,53 +436,13 @@ exports.createPartRequest = async ({ bookingId, employeeId, parts, totalCost }) 
         approvalByUser: false,
         otp: null
     });
-
-    return req;
 };
 
-
-// ----------------------------------------------------------------------
-//   generate OTP
-// ----------------------------------------------------------------------
-exports.generateToolOTP = async (requestId) => {
-    const otp = Math.floor(1000 + Math.random() * 9000);
-
-    const req = await PartRequest.findByIdAndUpdate(
-        requestId,
-        {
-            status: "approved",
-            approvalByUser: true,
-            otp
-        },
-        { new: true }
-    );
-
-    return { req, otp };
-};
-
-
-// ----------------------------------------------------------------------
-// TOOLSHOP accepts part pickup request (optional)
-// ----------------------------------------------------------------------
-exports.assignPartShop = async (requestId, shopId) => {
-    const req = await PartRequest.findByIdAndUpdate(
-        requestId,
-        { shopId },
-        { new: true }
-    );
-
-    return req;
-};
-
-
-// ----------------------------------------------------------------------
-// Verify OTP → Mark part as collected
-// ----------------------------------------------------------------------
 exports.verifyPartOTP = async (requestId, otp) => {
     const req = await PartRequest.findById(requestId);
-
-    if (!req) return { success: false, message: "Request not found" };
-    if (req.otp !== Number(otp)) return { success: false, message: "Invalid OTP" };
+    if (!req || req.otp !== Number(otp)) {
+        return { success: false };
+    }
 
     req.status = "collected";
     req.otp = null;
@@ -555,5 +450,3 @@ exports.verifyPartOTP = async (requestId, otp) => {
 
     return { success: true, req };
 };
-
-

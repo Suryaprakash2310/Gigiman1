@@ -1,255 +1,373 @@
+const mongoose = require("mongoose");
+
 const Booking = require("../models/Booking.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
 const ToolShop = require("../models/toolshop.model");
 
-const { findNearbyTeams, createBooking, generateStartOTP, verifyStartOTP, requestTool, startServicerQueue, startTeamQueue, findNearbyToolShops, startToolShopQueue, verifyPartOTP } = require("../services/booking.service");
+const {
+  findNearbyTeams,
+  createBooking,
+  generateStartOTP,
+  verifyStartOTP,
+  requestTool,
+  startServicerQueue,
+  startTeamQueue,
+  findNearbyToolShops,
+  startToolShopQueue,
+  verifyToolOTP,
+  verifyPartOTP,
+} = require("../services/booking.service");
 
+const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+const PAYMENT_STATUS = require("../enum/payment.enum");
+
+/* ======================================================
+   SEARCH NEARBY SERVICERS
+====================================================== */
 exports.searchNearbyservicer = async (req, res) => {
   try {
-    const { address, coordinates, servicerCategoryName } = req.body;
+    const { address, coordinates, serviceCategoryName } = req.body;
+
     const result = await findNearbyTeams({
       address,
       coordinates,
-      servicerCategoryName
+      serviceCategoryName,
     });
-    res.status(200).json({
+
+    return res.status(200).json({
       success: true,
       result,
     });
+  } catch (err) {
+    console.error("searchNearbyservicer ERROR:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
-  catch (err) {
-    console.error("searchnearbyservicer controller error", err.message);
-    res.status(500).json({ message: "server error", error: err.message });
-  }
-}
+};
+
+/* ======================================================
+   AUTO ASSIGN SERVICER (SINGLE / TEAM)
+====================================================== */
 exports.autoAssignServicer = async (req, res) => {
   try {
-    const { userId, serviceCategoryName, coordinates, address } = req.body;
+    const {
+      userId,
+      serviceCategoryName,
+      coordinates,
+      address,
+      serviceCount = 1,
+    } = req.body;
 
-    // 1. Get user socket ID
     const user = await User.findById(userId);
     if (!user || !user.socketId) {
-      return res.status(400).json({ message: "User socket not registered" });
+      return res.status(400).json({
+        message: "User socket not registered",
+      });
     }
 
-    // 2. Find nearby single employees or teams
     const result = await findNearbyTeams({
       serviceCategoryName,
       coordinates,
-      address
+      address,
     });
 
     if (!result.data || result.data.length === 0) {
-      return res.status(404).json({ message: "No nearby servicers found" });
+      return res.status(404).json({
+        message: "No nearby servicers found",
+      });
     }
 
-    // TEMP booking ID (random)
-    const tempBookingId = "B" + Date.now();
+    // SAFE TEMP BOOKING ID
+    const tempBookingId = new mongoose.Types.ObjectId().toString();
 
-    // 3. Assign SINGLE EMPLOYEE
+    // SINGLE AUTO ASSIGN
     if (result.type === "single") {
       startServicerQueue({
         bookingId: tempBookingId,
-        servicers: result.data.map(e => e._id),
+        servicers: result.data.map((e) => e._id),
         userSocket: user.socketId,
-        io: req.io
+        io: req.io,
       });
 
       return res.status(200).json({
         message: "Single employee auto-assign started",
-        bookingId: tempBookingId
+        bookingId: tempBookingId,
       });
     }
 
-    // 4. Assign TEAM
+    // TEAM AUTO ASSIGN
     startTeamQueue({
       bookingId: tempBookingId,
-      teams: result.data.map(t => t._id),
+      teams: result.data.map((t) => t._id),
       userSocket: user.socketId,
-      io: req.io
+      io: req.io,
     });
 
     return res.status(200).json({
       message: "Team auto-assign started",
-      bookingId: tempBookingId
+      bookingId: tempBookingId,
     });
-
   } catch (err) {
-    console.error("autoAssignServicer ERROR:", err);
-    res.status(500).json({ message: err.message });
+    console.error("autoAssignServicer ERROR:", err.message);
+    return res.status(500).json({
+      message: err.message,
+    });
   }
 };
 
-
+/* ======================================================
+   FINAL BOOKING CREATION
+====================================================== */
 exports.createBookingFinal = async (req, res) => {
   try {
-    const result = await createBooking(req.body);
-    res.status(200).json(
-      {
-        success: true,
-        result,
-      }
-    );
-  }
-  catch (err) {
-    res.status(500).json({ message: "server error", error: err.message });
-    console.error("createbooking error", err.message);
-  }
-}
+    const {
+      serviceCount = 1,
+      serviceCategoryName,
+    } = req.body;
 
+    if (!serviceCategoryName) {
+      return res.status(400).json({
+        message: "serviceCategoryName is required",
+      });
+    }
+
+    const result = await createBooking({
+      ...req.body,
+      serviceCount,
+    });
+
+    return res.status(200).json({
+      success: true,
+      result,
+    });
+  } catch (err) {
+    console.error("createBookingFinal ERROR:", err.message);
+    return res.status(500).json({
+      message: err.message,
+    });
+  }
+};
+
+/* ======================================================
+   TEAM ASSIGN MEMBERS
+====================================================== */
 exports.teamAssignMembers = async (req, res) => {
   try {
-    const { bookingId, primaryEmployee, helpers } = req.body;
+    const { bookingId, primaryEmployee, helpers = [] } = req.body;
 
     const booking = await Booking.findByIdAndUpdate(
       bookingId,
       {
         primaryEmployee,
-        employees: [primaryEmployee, ...helpers]
+        employees: [primaryEmployee, ...helpers],
       },
       { new: true }
-    )
-    if (!booking) return res.status(404).json({ message: "Booking not found" });
-    res.status(200).json({
+    );
+
+    if (!booking) {
+      return res.status(404).json({
+        message: "Booking not found",
+      });
+    }
+
+    return res.status(200).json({
       success: true,
-      message: "Team assigned",
-      booking
+      message: "Team assigned successfully",
+      booking,
+    });
+  } catch (err) {
+    console.error("teamAssignMembers ERROR:", err.message);
+    return res.status(500).json({
+      message: err.message,
     });
   }
-  catch (err) {
-    console.error("team Assignmembers controller error", err.message);
-    res.status(500).json({ message: 'server error', error: err.message });
-  }
-}
+};
 
+/* ======================================================
+   START WORK OTP
+====================================================== */
 exports.generateStartOtpcontroller = async (req, res) => {
   try {
     const { bookingId } = req.body;
     const { booking, otp } = await generateStartOTP(bookingId);
 
-    res.status(200).json({ booking, otp });
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      booking,
+      otp,
+    });
+  } catch (err) {
+    console.error("generateStartOtp ERROR:", err.message);
+    return res.status(500).json({ message: err.message });
   }
-  catch (err) {
-    console.error("generate start otp controller", err.message);
-    res.status(500).json({ message: "server error", error: err.message });
-  }
-}
+};
 
 exports.verifystartOTPcontroller = async (req, res) => {
   try {
     const { bookingId, otp } = req.body;
     const result = await verifyStartOTP(bookingId, otp);
-    if (!result.success) return res.status(400).json({ message: "Invalid OTP" });
-  }
-  catch (err) {
-    console.error("verify start otp controller error", err.message);
-    res.status(500).json({ message: "server error", error: err.message });
-  }
-}
 
+    if (!result.success) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      booking: result.booking,
+    });
+  } catch (err) {
+    console.error("verifyStartOTP ERROR:", err.message);
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/* ======================================================
+   TOOL REQUEST
+====================================================== */
 exports.requestToolController = async (req, res) => {
   try {
     const { bookingId, toolName } = req.body;
     const booking = await requestTool(bookingId, toolName);
-    res.status(200).json({ message: "Tool permission request", booking });
-  }
-  catch (err) {
-    console.error("request tool controller error", err.message);
-    res.status(500).json({ message: "server error", error: err.message });
-  }
-}
 
+    return res.status(200).json({
+      success: true,
+      message: "Tool request sent",
+      booking,
+    });
+  } catch (err) {
+    console.error("requestTool ERROR:", err.message);
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/* ======================================================
+   NEARBY TOOL SHOPS
+====================================================== */
 exports.nearbyToolShops = async (req, res) => {
   try {
     const { coordinates } = req.body;
     const shops = await findNearbyToolShops({ coordinates });
-    res.json(shops);
-  }
-  catch (err) {
-    res.status(500).json({ message: "server error", error: err.message });
-  }
-}
-exports.autoAssignToolShop = async (req, res) => {
-  try {
-    const { bookingId, coordinates, employeeSocket } = req.body;
 
-    // 1. Find tool shops near employee
-    const shops = await findNearbyToolShops({ coordinates });
-
-    if (!shops || shops.length === 0) {
-      return res.status(404).json({ message: "No toolshops found" });
-    }
-
-    const shopIds = shops.map(s => s._id.toString());
-
-    // 2. Start auto-assign queue for toolshops
-    startToolShopQueue({
-      requestId: bookingId,
-      shops: shopIds,
-      employeeSocket,
-      io: req.io
-    });
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Toolshop auto-assign started",
-      bookingId,
-      shops
+      shops,
     });
-
   } catch (err) {
-    console.error("autoAssignToolShop ERROR:", err);
-    res.status(500).json({ message: err.message });
+    return res.status(500).json({ message: err.message });
   }
 };
 
-exports.generateToolOTPcontroller = async (req, res) => {
+/* ======================================================
+   AUTO ASSIGN TOOL SHOP
+====================================================== */
+exports.autoAssignToolShop = async (req, res) => {
   try {
-    const { bookingId, shopId } = req.body;
-    const { booking, otp } = await generateToolOTP(bookingId, shopId);
+    const { bookingId, coordinates } = req.body;
 
-    res.status(200).json({
-      message: "otp is send successfully",
-      booking,
-      otp,
-    })
-  }
-  catch (err) {
-    console.error("generate tool otp error", err.message);
-    res.status(500).json({ message: "server error", error: err.message });
-  }
-}
+    const booking = await Booking.findById(bookingId);
+    if (!booking || !booking.employees.length) {
+      return res.status(404).json({ message: "Invalid booking" });
+    }
 
+    const employee = await SingleEmployee.findById(booking.employees[0]);
+    if (!employee?.socketId) {
+      return res.status(400).json({ message: "Employee socket not found" });
+    }
+
+    const shops = await findNearbyToolShops({ coordinates });
+    if (!shops.length) {
+      return res.status(404).json({ message: "No toolshops found" });
+    }
+
+    startToolShopQueue({
+      requestId: bookingId,
+      shops: shops.map((s) => s._id.toString()),
+      employeeSocket: employee.socketId,
+      io: req.io,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Toolshop auto-assign started",
+    });
+  } catch (err) {
+    console.error("autoAssignToolShop ERROR:", err.message);
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/* ======================================================
+   VERIFY TOOL OTP
+====================================================== */
 exports.verifyToolOTPcontroller = async (req, res) => {
   try {
     const { bookingId, otp } = req.body;
-    const result = await verifyPartOTP(bookingId, otp);
+    const result = await verifyToolOTP(bookingId, otp);
+
     if (!result.success) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
-    res.status(200).json({message:"otp is verified",result});
-  }
-  catch(err){
-    console.error("verifyotp error",err.message);
-    res.status(500).json({message:"server error",error:err.message});
-  }
-}
 
+    return res.status(200).json({
+      success: true,
+      booking: result.booking,
+    });
+  } catch (err) {
+    console.error("verifyToolOTP ERROR:", err.message);
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/* ======================================================
+   VERIFY PART OTP
+====================================================== */
+exports.verifyPartOTPcontroller = async (req, res) => {
+  try {
+    const { requestId, otp } = req.body;
+    const result = await verifyPartOTP(requestId, otp);
+
+    if (!result.success) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      result,
+    });
+  } catch (err) {
+    console.error("verifyPartOTP ERROR:", err.message);
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/* ======================================================
+   PAYMENT SUCCESS
+====================================================== */
 exports.paymentSuccess = async (req, res) => {
   try {
     const { bookingId } = req.body;
 
     const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
 
-    if (!booking) return res.status(404).json({ message: "Booking not found" });
-
-    booking.paymentStatus = "paid";
+    booking.paymentStatus = PAYMENT_STATUS.PAID;
     await booking.save();
 
-    res.json({ message: "Payment recorded", booking });
-
+    return res.status(200).json({
+      success: true,
+      message: "Payment recorded successfully",
+      booking,
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.status(500).json({ message: err.message });
   }
 };
