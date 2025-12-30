@@ -1,4 +1,4 @@
-const {maskPhone } = require("../utils/crypto");
+const {maskPhone, normalizePhone } = require("../utils/crypto");
 const User = require('../models/user.model');
 const Otp = require('../models/otp.model')
 const jwt = require("jsonwebtoken");
@@ -115,7 +115,7 @@ exports.verifyOtp = async (req, res) => {
     // OTP verified → delete OTP
     await Otp.deleteOne({ cleanPhone });
 
-    const user = await User.findOne({ cleanPhone });
+    const user = await User.findOne({ phoneNo });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
