@@ -7,11 +7,11 @@ const {
   ShowServices,
   searchService,
   ShowsubserviceId,
-  getServiceListByDomain,
+  ShowsubService,
 } = require("../controllers/auth.controller");
 const { protect } = require("../middleware/auth.middleware");
 
-//  OTP Login (common to SingleEmployee / MultipleEmployee / ToolShop)
+//  OTP Login (common to SingleEmplkoyee / MultipleEmployee / ToolShop)
 router.post("/send-otp", sendOtp);
 router.post("/verify-otp", verifyOtp);
 
@@ -21,7 +21,9 @@ router.get("/services", ShowServices);
 //  Search services by name
 router.get("/services/search", searchService);
 
-router.post("/sub-service",ShowsubserviceId);
+router.get("/sub-service",ShowsubserviceId);
+
+router.get("/showServices", ShowsubService);
 
 router.get("/showsubservice/:id",ShowsubserviceId);
 

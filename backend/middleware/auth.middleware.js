@@ -29,7 +29,7 @@ exports.protect = async (req, res, next) => {
     // Attach to request
     req.employee = employee;          // full user data
     req.employeeId = decoded.employeeId; // empId, TeamId, or shopId
-     req.role = employee.role; 
+    req.role = employee.role; 
 
     next();
 

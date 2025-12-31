@@ -1,7 +1,6 @@
 const jwt=require('jsonwebtoken');
 
 require('dotenv').config();
-
 module.exports = (userId) => {
   return jwt.sign(
     {
@@ -9,6 +8,6 @@ module.exports = (userId) => {
       stage: "PROFILE_PENDING",
     },
     process.env.JWT_KEY,
-    { expiresIn: "10m" }
+    { expiresIn: "60m" }
   );
 };

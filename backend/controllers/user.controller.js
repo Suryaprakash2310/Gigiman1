@@ -5,7 +5,7 @@ const jwt = require("jsonwebtoken");
 const axios = require("axios");
 const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
-
+require('dotenv').config();
 //token generation
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
@@ -160,6 +160,7 @@ exports.completeProfile = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+    const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 
     // Reverse geocoding (optional)
     let address = null;
@@ -207,6 +208,7 @@ exports.completeProfile = async (req, res) => {
     });
 
   } catch (err) {
+    console.error("Complete profile error:", err);
     res.status(500).json({ error: err.message });
   }
 };
