@@ -228,6 +228,28 @@ exports.ShowsubService = async (req, res) => {
   }
 };
 
+exports.getServiceListByDomain=async(req,res)=>{
+  try{
+    const {domainServiceId}=req.params;
+    if(!domainServiceId){
+      return res.status(400).json({message:"domain Service Id is required"});
+    }
+    const serviceList=await ServiceList.find({
+      DomainServiceId:domainServiceId,
+    });
+    if(!serviceList.length){
+      return res.status(400).json({message:"No service found for this domain"});
+    }
+    res.json({
+      success:true,
+      serviceList,
+    });
+  }
+  catch(err){
+    console.error("service List error",err.message);
+    res.status(500).json({message:"Server error",error:err.message});
+  }
+}
 exports.ShowsubserviceId = async (req, res) => {
   try {
     const { id } = req.params;

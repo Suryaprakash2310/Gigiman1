@@ -7,6 +7,7 @@ const {
   ShowServices,
   searchService,
   ShowsubserviceId,
+  getServiceListByDomain,
 } = require("../controllers/auth.controller");
 const { protect } = require("../middleware/auth.middleware");
 
@@ -21,4 +22,11 @@ router.get("/services", ShowServices);
 router.get("/services/search", searchService);
 
 router.post("/sub-service",ShowsubserviceId);
+
+router.get("/showsubservice/:id",ShowsubserviceId);
+
+
+router.get("/service-list/:domainServiceId",getServiceListByDomain)
+
+
 module.exports = router;
