@@ -6,6 +6,7 @@ const {
   verifyOtp,
   ShowServices,
   searchService,
+  ShowsubserviceId,
 } = require("../controllers/auth.controller");
 const { protect } = require("../middleware/auth.middleware");
 
@@ -19,4 +20,5 @@ router.get("/services", ShowServices);
 //  Search services by name
 router.get("/services/search", searchService);
 
+router.post("/sub-service",ShowsubserviceId);
 module.exports = router;

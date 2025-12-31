@@ -4,7 +4,7 @@ const { userProtect } = require('../middleware/user.middleware');
 
 const router=express.Router();
 
-router.post("/register",completeProfile);
+router.post("/register",userProtect,completeProfile);
 
 router.post("/send-otp",sendOtp);
 router.post("/verify-otp",verifyOtp);

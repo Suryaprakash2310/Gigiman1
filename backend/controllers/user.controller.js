@@ -1,9 +1,10 @@
-const {maskPhone, normalizePhone } = require("../utils/crypto");
+const { maskPhone, normalizePhone } = require("../utils/crypto");
 const User = require('../models/user.model');
 const Otp = require('../models/otp.model')
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
-const cloudinary = require('../config/cloudinary')
+const cloudinary = require('../config/cloudinary');
+const generateTempToken = require("../utils/generateTempToken");
 
 //token generation
 const generateToken = (id) => {
@@ -128,7 +129,7 @@ exports.verifyOtp = async (req, res) => {
       return res.json({
         success: true,
         next: "COMPLETE_PROFILE",
-        userId: user._id,
+        tempToken: generateTempToken(user._id),
       });
     }
 
@@ -148,7 +149,8 @@ exports.verifyOtp = async (req, res) => {
 //complete profile registeration
 exports.completeProfile = async (req, res) => {
   try {
-    const { userId, fullName, latitude, longitude, avatar } = req.body;
+    const userId = req.userId;
+    const { fullName, latitude, longitude, avatar } = req.body;
 
     if (!userId || !fullName) {
       return res.status(400).json({ message: "Required fields missing" });
@@ -193,13 +195,14 @@ exports.completeProfile = async (req, res) => {
     }
     user.address = address;
     user.isVerified = true;
+    const finalToken = generateToken(user._id);
 
     await user.save();
 
     return res.json({
       success: true,
       user,
-      token: generateToken(user._id),
+      token: finalToken,
       message: "Profile completed successfully",
     });
 

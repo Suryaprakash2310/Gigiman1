@@ -228,4 +228,26 @@ exports.ShowsubService = async (req, res) => {
   }
 };
 
+exports.ShowsubserviceId = async (req, res) => {
+  try {
+    const { id } = req.params;
 
+    const service = await ServiceList.findById(id);
+
+    if (!service) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Show service categories",
+      serviceCategory: service.serviceCategory,
+    });
+  } catch (err) {
+    console.error("ShowSubServiceId error controller", err.message);
+    return res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
