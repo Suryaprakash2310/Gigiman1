@@ -228,28 +228,48 @@ exports.ShowsubService = async (req, res) => {
   }
 };
 
-exports.getServiceListByDomain=async(req,res)=>{
-  try{
-    const {domainServiceId}=req.params;
-    if(!domainServiceId){
-      return res.status(400).json({message:"domain Service Id is required"});
+exports.getServiceCategoryById = async (req, res) => {
+  try {
+    const { serviceCategoryId } = req.params;
+
+    if (!serviceCategoryId) {
+      return res.status(400).json({
+        message: "serviceCategoryId is required",
+      });
     }
-    const serviceList=await ServiceList.find({
-      DomainServiceId:domainServiceId,
+
+    const service = await ServiceList.findOne(
+      { "serviceCategory._id": serviceCategoryId },
+      {
+        serviceName: 1,
+        DomainServiceId: 1,
+        serviceCategory: {
+          $elemMatch: { _id: serviceCategoryId },
+        },
+      }
+    );
+
+    if (!service) {
+      return res.status(404).json({
+        message: "Service category not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      serviceName: service.serviceName,
+      domainServiceId: service.DomainServiceId,
+      serviceCategory: service.serviceCategory[0],
     });
-    if(!serviceList.length){
-      return res.status(400).json({message:"No service found for this domain"});
-    }
-    res.json({
-      success:true,
-      serviceList,
+  } catch (err) {
+    console.error("getServiceCategoryById error", err.message);
+    res.status(500).json({
+      message: "Server error",
+      error: err.message,
     });
   }
-  catch(err){
-    console.error("service List error",err.message);
-    res.status(500).json({message:"Server error",error:err.message});
-  }
-}
+};
+
 exports.ShowsubserviceId = async (req, res) => {
   try {
     const { id } = req.params;

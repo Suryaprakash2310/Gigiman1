@@ -8,6 +8,7 @@ const {
   searchService,
   ShowsubserviceId,
   ShowsubService,
+  getServiceCategoryById,
 } = require("../controllers/auth.controller");
 const { protect } = require("../middleware/auth.middleware");
 
@@ -28,7 +29,7 @@ router.get("/showServices", ShowsubService);
 router.get("/showsubservice/:id",ShowsubserviceId);
 
 
-router.get("/service-list/:domainServiceId",getServiceListByDomain)
+router.get("/service-list/:servicecategoryId",getServiceCategoryById)
 
 
 module.exports = router;
