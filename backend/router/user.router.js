@@ -1,10 +1,11 @@
 const express=require('express');
 const { completeProfile, sendOtp, verifyOtp, getProfile, editprofile } = require('../controllers/user.controller');
 const { userProtect } = require('../middleware/user.middleware');
+const { tempProtect } = require('../middleware/temp.middleware');
 
 const router=express.Router();
 
-router.post("/register",userProtect,completeProfile);
+router.post("/register",tempProtect,completeProfile);
 
 router.post("/send-otp",sendOtp);
 router.post("/verify-otp",verifyOtp);
