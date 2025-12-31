@@ -178,13 +178,13 @@ exports.searchService = async (req, res) => {
 exports.ShowsubService = async (req, res) => {
   try {
     const data = await ServiceList.find()
-      .populate("DomainServiceId domainServiceName")
+      .populate("DomainServiceId", "domainName serviceImage")
       .sort({ serviceName: 1 });
     if (!data || data.length === 0) {
       return res.status(404).json({ message: "Service is empty" });
     }
     const serviceNames = data.map(item => item.serviceName);
-    const categoriesservices = data.flatMap(item => {
+    const categoriesservices = data.flatMap(item => 
       item.serviceCategory.map(sub => ({
         _id: sub._id,
         parentServiceName: item.serviceName,
@@ -197,11 +197,11 @@ exports.ShowsubService = async (req, res) => {
         durationInMinutes: sub.durationInMinutes,
         employeeCount: sub.employeeCount,
       }))
-    });
+    );
 
     const groupedServices = data.map(item => ({
       serviceName: item.serviceName,
-      domainServiceId: item.DomainSErviceId?._id,
+      domainServiceId: item.DomainServiceId?._id,
       categories: item.serviceCategory.map(sub => ({
         _id: sub._id,
         serviceCategoryName: sub.serviceCategoryName,
