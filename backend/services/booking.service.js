@@ -12,7 +12,8 @@ const { SEARCH_RADIUS_METERS } = require("../utils/constants");
 
 require("dotenv").config();
 
-const mapboxClient = mbxGeocoding({ accessToken: process.env.MAP_BOX_TOKEN });
+const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
+const mapboxClient = mbxGeocoding({ accessToken: MAP_BOX_TOKEN });
 
 /* ======================================================
    1. GEOCODE ADDRESS
@@ -34,6 +35,7 @@ exports.findNearbyTeams = async ({
     address,
     coordinates,
     serviceCategoryName,
+    serviceCount = 1,
     radiusInMeters = SEARCH_RADIUS_METERS,
 }) => {
     const serviceList = await ServiceList.findOne({
@@ -57,30 +59,25 @@ exports.findNearbyTeams = async ({
 
     const [lng, lat] = lngLat;
 
+    // employees capable of this domain
     const capableEmployees = await EmployeeService.find({
-        capableservice: domainServiceId,
+        capableservice: { $in: [domainServiceId] },
     });
 
     const capableEmployeeIds = capableEmployees.map(e => e.employeeId);
 
-    /* ---------- SINGLE EMPLOYEE ---------- */
-    if (employeeCount === 1) {
-        if (singles.length > 0) {
-            return {
-                type: "single",
-                data: singles,
-                employeeCount,
-                coordinates: [lng, lat],
-            };
-        }
-
-        // FALLBACK TO TEAM
-        const teams = await MultipleEmployee.find({
-            members: { $in: capableEmployeeIds },
+    /* ======================================================
+       SINGLE EMPLOYEE — STRICT CONDITION
+       serviceCount < 2 AND employeeCount === 1
+    ====================================================== */
+    if (serviceCount < 2 && employeeCount === 1) {
+        const singles = await SingleEmployee.find({
+            empId: { $in: capableEmployeeIds },
             isActive: true,
+            teamAccepted: false,
             $or: [
                 { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } }
+                { blockedUntil: { $lte: new Date() } },
             ],
             location: {
                 $near: {
@@ -88,25 +85,26 @@ exports.findNearbyTeams = async ({
                     $maxDistance: radiusInMeters,
                 },
             },
-        }).populate("leader");
+        });
 
         return {
-            type: "team",
-            data: teams,
-            employeeCount,
+            type: "single",
+            data: singles,
+            employeeCount: 1,
             coordinates: [lng, lat],
         };
     }
 
-
-    /* ---------- TEAM ---------- */
+    /* ======================================================
+       TEAM ONLY (NO SINGLE SEARCH)
+    ====================================================== */
     const teams = await MultipleEmployee.find({
         members: { $in: capableEmployeeIds },
         $expr: { $gte: [{ $size: "$members" }, employeeCount] },
         isActive: true,
         $or: [
             { blockedUntil: null },
-            { blockedUntil: { $lte: new Date() } }
+            { blockedUntil: { $lte: new Date() } },
         ],
         location: {
             $near: {
@@ -116,8 +114,14 @@ exports.findNearbyTeams = async ({
         },
     }).populate("leader");
 
-    return { type: "team", data: teams, employeeCount, coordinates: [lng, lat] };
+    return {
+        type: "team",
+        data: teams,
+        employeeCount,
+        coordinates: [lng, lat],
+    };
 };
+
 
 /* ======================================================
    3. SINGLE EMPLOYEE AUTO ASSIGN QUEUE
@@ -236,9 +240,6 @@ exports.teamReject = async (bookingId, io) => {
 /* ======================================================
    5. CREATE BOOKING
 ====================================================== */
-/* ======================================================
-   5. CREATE BOOKING (SINGLE → TEAM FALLBACK + COUNT LOGIC)
-====================================================== */
 exports.createBooking = async ({
     userId,
     servicerId,
@@ -248,6 +249,13 @@ exports.createBooking = async ({
     coordinates,
     serviceCount = 1,
 }) => {
+
+    // -------------------------
+    // Validate serviceCount
+    // -------------------------
+    if (!Number.isInteger(serviceCount) || serviceCount < 1) {
+        throw new Error("Invalid service count");
+    }
 
     // -------------------------
     // Fetch service category
@@ -264,75 +272,68 @@ exports.createBooking = async ({
 
     const employeeCount = category.employeeCount;
     const pricePerService = category.price;
-
-    // -------------------------
-    // PRICE CALCULATION
-    // -------------------------
     const totalPrice = pricePerService * serviceCount;
 
-    // -------------------------
-    // FORCE TEAM RULE
-    // -------------------------
-    const forceTeam =
-        serviceCount > 5 || employeeCount > 1;
-
     /* ======================================================
-       CASE A — TRY SINGLE EMPLOYEE
+       SINGLE EMPLOYEE — STRICT RULE
+       serviceCount < 2 AND employeeCount === 1
     ====================================================== */
-    if (!forceTeam) {
+    if (serviceCount < 2 && employeeCount === 1) {
+
         const single = await SingleEmployee.findOne({
             _id: servicerId,
             isActive: true,
             $or: [
                 { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } }
-            ]
+                { blockedUntil: { $lte: new Date() } },
+            ],
         });
 
-        if (single) {
-            const booking = await Booking.create({
-                user: userId,
-                serviceType: "single",
-                primaryEmployee: single._id,
-                employees: [single._id],
-                serviceCategoryName,
-                domainService,
-                serviceCount,
-                pricePerService,
-                totalPrice,
-                status: BOOKING_STATUS.PENDING,
-                address,
-                location: { type: "Point", coordinates },
-            });
-
-            return {
-                booking,
-                assignedEmployees: [single._id],
-                primaryEmployee: single._id,
-                helpers: [],
-                employeeCount: 1,
-                serviceType: "single",
-            };
+        if (!single) {
+            throw new Error("Single employee unavailable");
         }
+
+        const booking = await Booking.create({
+            user: userId,
+            serviceType: "single",
+            primaryEmployee: single._id,
+            employees: [single._id],
+            serviceCategoryName,
+            domainService,
+            serviceCount,
+            pricePerService,
+            totalPrice,
+            status: BOOKING_STATUS.PENDING,
+            address,
+            location: { type: "Point", coordinates },
+            StartWorkOTP: null,
+        });
+
+        return {
+            booking,
+            serviceType: "single",
+            employeeCount: 1,
+        };
     }
 
     /* ======================================================
-       CASE B — TEAM BOOKING (FALLBACK / FORCE)
+       TEAM ONLY — NO SINGLE FALLBACK
     ====================================================== */
     const booking = await Booking.create({
         user: userId,
-        servicerCompany: servicerId || null,
+        servicerCompany: servicerId || null, // team/company id
         serviceType: "team",
-        primaryEmployee: null,
-        employees: [],
+        primaryEmployee: null,               // assigned after accept
+        employees: [],                       // filled after assignment
         serviceCategoryName,
         domainService,
         serviceCount,
         pricePerService,
         totalPrice,
-        status: BOOKING_STATUS.PENDING,
+        status: BOOKING_STATUS.PENDING,      // OTP not verified yet
         address,
         location: { type: "Point", coordinates },
+        StartWorkOTP: null,
     });
 
     return {
@@ -341,6 +342,36 @@ exports.createBooking = async ({
         primaryEmployee: null,
         helpers: [],
         employeeCount,
+        serviceType: "team",
+    };
+
+};
+
+exports.teamAcceptBooking = async ({ bookingId, teamId }) => {
+    const booking = await Booking.findById(bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    const team = await MultipleEmployee.findById(teamId).populate("members leader");
+    if (!team) throw new Error("Team not found");
+
+    // select employees (example logic)
+    const primaryEmployee = team.leader._id;
+    const helpers = team.members
+        .filter(m => m._id.toString() !== primaryEmployee.toString())
+        .slice(0, booking.employeeCount - 1);
+
+    const assignedEmployees = [primaryEmployee, ...helpers.map(h => h._id)];
+
+    booking.primaryEmployee = primaryEmployee;
+    booking.employees = assignedEmployees;
+
+    await booking.save();
+
+    return {
+        booking,
+        assignedEmployees,
+        primaryEmployee,
+        helpers,
         serviceType: "team",
     };
 };

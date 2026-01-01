@@ -59,6 +59,10 @@ const toolshopSchema = new mongoose.Schema(
         type: String,
         default: null 
     },
+    blockedUntil:{
+    type:String,
+    default:null
+    }
   },
   { timestamps: true }
 );

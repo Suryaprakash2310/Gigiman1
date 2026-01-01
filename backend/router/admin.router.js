@@ -1,6 +1,6 @@
 const express=require('express');
 const { protect } = require('../middleware/auth.middleware');
-const { adminLogin, checkAuth, getEmployeecounts, Adddomainservice, AddServiceList, SetSubService, getAllUser, getAllEmployee } = require('../controllers/admin.controller');
+const { adminLogin, checkAuth, getEmployeecounts, Adddomainservice, SetSubService, getAllEmployee, DeleteDomainService } = require('../controllers/admin.controller');
 const { allowRoles } = require('../middleware/role.middleware');
 const router=express.Router();
 
@@ -19,5 +19,7 @@ router.get("/get-all-employee",protect,allowRoles("admin"),getAllEmployee);
 router.post("/add-domain-service",protect,allowRoles("admin"),Adddomainservice);
 
 router.post("/add-service-list",protect,allowRoles("admin"),SetSubService);
+
+router.delete("/delete-domain-service/:id",protect,allowRoles("admin"),DeleteDomainService);
 
 module.exports=router;

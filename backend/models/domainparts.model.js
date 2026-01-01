@@ -9,7 +9,7 @@ const domainPartSchema = mongoose.Schema({
     },
 
     categoryName: {
-        type: String, // Example: "Electrical", "AC Parts"
+        type: String,
         required: true,
     },
 

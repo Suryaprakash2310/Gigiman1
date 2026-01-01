@@ -1,7 +1,6 @@
 const express=require('express');
 const router=express.Router();
-const { showCategories, showParts, searchDomainCategories, searchParts } = require('../controllers/Parts.controller');
-
+const { showCategories, showParts, searchDomainCategories, searchParts, createPartRequest } = require('../controllers/parts.controller');
 router.get("/categories",showCategories);
 
 //  Show parts for a selected category
@@ -13,4 +12,5 @@ router.get("/search-domain", searchDomainCategories);
 //  Search parts inside selected domain (second page search)
 router.get("/search-parts", searchParts);
 
+router.post("/create-parts-request",createPartRequest);
 module.exports=router;

@@ -29,7 +29,7 @@ router.get("/showServices", ShowsubService);
 router.get("/showsubservice/:id",ShowsubserviceId);
 
 
-router.get("/service-list/:servicecategoryId",getServiceCategoryById)
+router.get("/service-list/:serviceCategoryId",getServiceCategoryById)
 
 
 module.exports = router;

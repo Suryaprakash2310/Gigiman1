@@ -3,7 +3,6 @@ const mongoose = require("mongoose");
 const Booking = require("../models/Booking.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
-const ToolShop = require("../models/toolshop.model");
 
 const {
   findNearbyTeams,
@@ -11,9 +10,9 @@ const {
   generateStartOTP,
   verifyStartOTP,
   requestTool,
+  findNearbyToolShops,
   startServicerQueue,
   startTeamQueue,
-  findNearbyToolShops,
   startToolShopQueue,
   verifyToolOTP,
   verifyPartOTP,
@@ -27,130 +26,95 @@ const PAYMENT_STATUS = require("../enum/payment.enum");
 ====================================================== */
 exports.searchNearbyservicer = async (req, res) => {
   try {
-    const { address, coordinates, serviceCategoryName } = req.body;
+    const { address, coordinates, serviceCategoryName, serviceCount = 1 } = req.body;
 
     const result = await findNearbyTeams({
       address,
       coordinates,
       serviceCategoryName,
+      serviceCount,
     });
 
-    return res.status(200).json({
-      success: true,
-      result,
-    });
+    return res.status(200).json({ success: true, result });
   } catch (err) {
-    console.error("searchNearbyservicer ERROR:", err.message);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    console.error("searchNearbyservicer error:", err.message);
+    return res.status(500).json({ message: err.message });
   }
 };
 
 /* ======================================================
-   AUTO ASSIGN SERVICER (SINGLE / TEAM)
+   AUTO ASSIGN SERVICER (NO TEMP ID)
 ====================================================== */
 exports.autoAssignServicer = async (req, res) => {
   try {
-    const {
-      userId,
-      serviceCategoryName,
-      coordinates,
-      address,
-      serviceCount = 1,
-    } = req.body;
+    const { userId, serviceCategoryName, coordinates, address, serviceCount = 1 } = req.body;
 
     const user = await User.findById(userId);
-    if (!user || !user.socketId) {
-      return res.status(400).json({
-        message: "User socket not registered",
-      });
+    if (!user?.socketId) {
+      return res.status(400).json({ message: "User socket not registered" });
     }
 
     const result = await findNearbyTeams({
       serviceCategoryName,
       coordinates,
       address,
+      serviceCount,
     });
 
-    if (!result.data || result.data.length === 0) {
-      return res.status(404).json({
-        message: "No nearby servicers found",
-      });
+    if (!result.data?.length) {
+      return res.status(404).json({ message: "No nearby servicers found" });
     }
 
-    // SAFE TEMP BOOKING ID
-    const tempBookingId = new mongoose.Types.ObjectId().toString();
+    // Create booking FIRST
+    const { booking } = await createBooking(req.body);
+    const bookingId = booking._id.toString();
 
-    // SINGLE AUTO ASSIGN
     if (result.type === "single") {
       startServicerQueue({
-        bookingId: tempBookingId,
-        servicers: result.data.map((e) => e._id),
+        bookingId,
+        servicers: result.data.map(e => e._id),
         userSocket: user.socketId,
         io: req.io,
       });
 
       return res.status(200).json({
         message: "Single employee auto-assign started",
-        bookingId: tempBookingId,
+        bookingId,
       });
     }
 
-    // TEAM AUTO ASSIGN
     startTeamQueue({
-      bookingId: tempBookingId,
-      teams: result.data.map((t) => t._id),
+      bookingId,
+      teams: result.data.map(t => t._id),
       userSocket: user.socketId,
       io: req.io,
     });
 
     return res.status(200).json({
       message: "Team auto-assign started",
-      bookingId: tempBookingId,
+      bookingId,
     });
+
   } catch (err) {
-    console.error("autoAssignServicer ERROR:", err.message);
-    return res.status(500).json({
-      message: err.message,
-    });
+    console.error("autoAssignServicer error:", err.message);
+    return res.status(500).json({ message: err.message });
   }
 };
-
-/* ======================================================
-   FINAL BOOKING CREATION
-====================================================== */
 exports.createBookingFinal = async (req, res) => {
   try {
-    const {
-      serviceCount = 1,
-      serviceCategoryName,
-    } = req.body;
-
-    if (!serviceCategoryName) {
-      return res.status(400).json({
-        message: "serviceCategoryName is required",
-      });
-    }
-
-    const result = await createBooking({
-      ...req.body,
-      serviceCount,
-    });
+    const result = await createBooking(req.body);
 
     return res.status(200).json({
       success: true,
       result,
     });
   } catch (err) {
-    console.error("createBookingFinal ERROR:", err.message);
+    console.error("createBookingFinal error:", err.message);
     return res.status(500).json({
       message: err.message,
     });
   }
 };
-
 /* ======================================================
    TEAM ASSIGN MEMBERS
 ====================================================== */
@@ -168,9 +132,7 @@ exports.teamAssignMembers = async (req, res) => {
     );
 
     if (!booking) {
-      return res.status(404).json({
-        message: "Booking not found",
-      });
+      return res.status(404).json({ message: "Booking not found" });
     }
 
     return res.status(200).json({
@@ -179,10 +141,8 @@ exports.teamAssignMembers = async (req, res) => {
       booking,
     });
   } catch (err) {
-    console.error("teamAssignMembers ERROR:", err.message);
-    return res.status(500).json({
-      message: err.message,
-    });
+    console.error("teamAssignMembers error:", err.message);
+    return res.status(500).json({ message: err.message });
   }
 };
 
@@ -198,13 +158,9 @@ exports.generateStartOtpcontroller = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    return res.status(200).json({
-      success: true,
-      booking,
-      otp,
-    });
+    return res.status(200).json({ success: true, booking, otp });
   } catch (err) {
-    console.error("generateStartOtp ERROR:", err.message);
+    console.error("generateStartOtp error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };
@@ -223,7 +179,7 @@ exports.verifystartOTPcontroller = async (req, res) => {
       booking: result.booking,
     });
   } catch (err) {
-    console.error("verifyStartOTP ERROR:", err.message);
+    console.error("verifyStartOtp error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };
@@ -242,7 +198,7 @@ exports.requestToolController = async (req, res) => {
       booking,
     });
   } catch (err) {
-    console.error("requestTool ERROR:", err.message);
+    console.error("requestTool error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };
@@ -255,10 +211,7 @@ exports.nearbyToolShops = async (req, res) => {
     const { coordinates } = req.body;
     const shops = await findNearbyToolShops({ coordinates });
 
-    return res.status(200).json({
-      success: true,
-      shops,
-    });
+    return res.status(200).json({ success: true, shops });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -272,8 +225,8 @@ exports.autoAssignToolShop = async (req, res) => {
     const { bookingId, coordinates } = req.body;
 
     const booking = await Booking.findById(bookingId);
-    if (!booking || !booking.employees.length) {
-      return res.status(404).json({ message: "Invalid booking" });
+    if (!booking?.employees?.length) {
+      return res.status(400).json({ message: "Invalid booking" });
     }
 
     const employee = await SingleEmployee.findById(booking.employees[0]);
@@ -288,7 +241,7 @@ exports.autoAssignToolShop = async (req, res) => {
 
     startToolShopQueue({
       requestId: bookingId,
-      shops: shops.map((s) => s._id.toString()),
+      shops: shops.map(s => s._id.toString()),
       employeeSocket: employee.socketId,
       io: req.io,
     });
@@ -298,7 +251,7 @@ exports.autoAssignToolShop = async (req, res) => {
       message: "Toolshop auto-assign started",
     });
   } catch (err) {
-    console.error("autoAssignToolShop ERROR:", err.message);
+    console.error("autoAssignToolShop error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };
@@ -320,7 +273,7 @@ exports.verifyToolOTPcontroller = async (req, res) => {
       booking: result.booking,
     });
   } catch (err) {
-    console.error("verifyToolOTP ERROR:", err.message);
+    console.error("verifyToolOtp error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };
@@ -337,12 +290,9 @@ exports.verifyPartOTPcontroller = async (req, res) => {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    return res.status(200).json({
-      success: true,
-      result,
-    });
+    return res.status(200).json({ success: true, result });
   } catch (err) {
-    console.error("verifyPartOTP ERROR:", err.message);
+    console.error("verifyPartOtp error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };

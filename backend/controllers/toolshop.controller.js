@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
 const Domainparts = require('../models/domainparts.model');
-const { encryptPhone, maskPhone, hashPhone } = require('../utils/crypto');
+const { maskPhone} = require('../utils/crypto');
 
 // JWT creator
 const generateToken = (id) => {
@@ -45,7 +45,6 @@ exports.registerShop = async (req, res) => {
       storeLocation,
       phoneNo,
       phoneMasked:maskedPhone,
-      phoneHash,
       role: ROLES.TOOL_SHOP,
       categories
     });

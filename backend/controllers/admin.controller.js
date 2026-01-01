@@ -187,7 +187,11 @@ exports.getAllEmployee=async(req,res)=>{
     const multipleEmployee=await MultipleEmployee.find().sort({createdAt:-1});
     const toolshop=await ToolShop.find().sort({createdAt:-1});
 
-    const employee=[...singleemployee,...multipleEmployee,...toolshop];
+    const employee=[
+      ...singleemployee.map(e=>({...e.toObject(),employeeType:"single_employee"})),
+      ...multipleEmployee.map(e=>({...e.toObject(),employeeType:"multiple_employee"})),
+      ...toolshop.map(e=>({...e.toObject(),employeeType:"tool_shop"}))
+    ]
     employee.sort((a,b)=>b.createdAt - a.createdAt);
     res.json({success:true,employee});
   }
@@ -199,3 +203,23 @@ exports.getAllEmployee=async(req,res)=>{
     });
   }
 }
+
+exports.DeleteDomainService=async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const service = await DomainService.findById(id);
+    if (!service) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+    if (service.serviceImagePublicId) {
+      await cloudinary.uploader.destroy(service.serviceImagePublicId);
+    }
+
+    await service.deleteOne();
+
+    res.json({ success: true, message: "Service deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
