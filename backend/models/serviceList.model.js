@@ -11,6 +11,10 @@ const serviceListSchema = mongoose.Schema({
         required: true,
     },
     serviceCategory: [{
+        _id: {
+            type: mongoose.Schema.Types.ObjectId,
+            auto: true
+        },
         serviceCategoryName: {
             type: String,
             required: true,
