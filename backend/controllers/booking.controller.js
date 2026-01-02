@@ -47,74 +47,101 @@ exports.searchNearbyservicer = async (req, res) => {
 ====================================================== */
 exports.autoAssignServicer = async (req, res) => {
   try {
-    const { userId, serviceCategoryName, coordinates, address, serviceCount = 1 } = req.body;
+    const {
+      userId,
+      serviceCategoryName,
+      domainService,
+      address,
+      coordinates,
+      serviceCount = 1,
+    } = req.body;
 
+    /* -------------------------
+       Validate user + socket
+    ------------------------- */
     const user = await User.findById(userId);
-    if (!user?.socketId) {
-      return res.status(400).json({ message: "User socket not registered" });
+    if (!user || !user.socketId) {
+      return res.status(400).json({
+        success: false,
+        message: "User socket not registered",
+      });
     }
 
-    const result = await findNearbyTeams({
+    /* ======================================================
+        CREATE BOOKING (ALWAYS FIRST)
+    ====================================================== */
+    const { booking, serviceType } = await createBooking({
+      userId,
       serviceCategoryName,
-      coordinates,
+      domainService,
       address,
+      coordinates,
       serviceCount,
     });
 
-    if (!result.data?.length) {
-      return res.status(404).json({ message: "No nearby servicers found" });
+    /* ======================================================
+        FIND NEARBY SERVICERS / TEAMS
+    ====================================================== */
+    const result = await findNearbyTeams({
+      serviceCategoryName,
+      address,
+      coordinates,
+      serviceCount,
+    });
+
+    /* -------------------------
+       No servicers available
+    ------------------------- */
+    if (!result.data || result.data.length === 0) {
+      await Booking.findByIdAndUpdate(booking._id, {
+        status: BOOKING_STATUS.NO_PROVIDER,
+      });
+
+      return res.status(404).json({
+        success: false,
+        message: "No servicers available at the moment",
+        bookingId: booking._id,
+      });
     }
 
-    // Create booking FIRST
-    const { booking } = await createBooking(req.body);
-    const bookingId = booking._id.toString();
-
+    /* ======================================================
+        START AUTO-ASSIGN QUEUE
+    ====================================================== */
     if (result.type === "single") {
       startServicerQueue({
-        bookingId,
+        bookingId: booking._id.toString(),
         servicers: result.data.map(e => e._id),
         userSocket: user.socketId,
         io: req.io,
       });
-
-      return res.status(200).json({
-        message: "Single employee auto-assign started",
-        bookingId,
+    } else {
+      startTeamQueue({
+        bookingId: booking._id.toString(),
+        teams: result.data.map(t => t._id),
+        userSocket: user.socketId,
+        io: req.io,
       });
     }
 
-    startTeamQueue({
-      bookingId,
-      teams: result.data.map(t => t._id),
-      userSocket: user.socketId,
-      io: req.io,
-    });
-
-    return res.status(200).json({
-      message: "Team auto-assign started",
-      bookingId,
-    });
-
-  } catch (err) {
-    console.error("autoAssignServicer error:", err.message);
-    return res.status(500).json({ message: err.message });
-  }
-};
-exports.createBookingFinal = async (req, res) => {
-  try {
-    const result = await createBooking(req.body);
-
+    /* -------------------------
+       Success response
+    ------------------------- */
     return res.status(200).json({
       success: true,
-      result,
+      bookingId: booking._id,
+      assignType: result.type,
+      message: "Booking created and auto-assign started",
     });
+
   } catch (err) {
-    console.error("createBookingFinal error:", err.message);
+    console.error("autoAssignServicer error:", err);
     return res.status(500).json({
+      success: false,
       message: err.message,
     });
   }
 };
+
 /* ======================================================
    TEAM ASSIGN MEMBERS
 ====================================================== */
@@ -122,29 +149,48 @@ exports.teamAssignMembers = async (req, res) => {
   try {
     const { bookingId, primaryEmployee, helpers = [] } = req.body;
 
-    const booking = await Booking.findByIdAndUpdate(
-      bookingId,
-      {
-        primaryEmployee,
-        employees: [primaryEmployee, ...helpers],
-      },
-      { new: true }
-    );
-
+    //  Fetch booking
+    const booking = await Booking.findById(bookingId);
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
+
+    //  Validate booking state
+    if (booking.status !== BOOKING_STATUS.PENDING) {
+      return res.status(400).json({
+        message: "Team assignment not allowed in current booking state",
+      });
+    }
+
+    if (booking.serviceType !== "team") {
+      return res.status(400).json({
+        message: "Not a team booking",
+      });
+    }
+
+    //  Assign team members atomically
+    booking.primaryEmployee = primaryEmployee;
+    booking.employees = [primaryEmployee, ...helpers];
+    await booking.save();
+
+    //  Mark all assigned employees BUSY
+    await SingleEmployee.updateMany(
+      { _id: { $in: [primaryEmployee, ...helpers] } },
+      { availabilityStatus: "BUSY" }
+    );
 
     return res.status(200).json({
       success: true,
       message: "Team assigned successfully",
       booking,
     });
+
   } catch (err) {
     console.error("teamAssignMembers error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };
+
 
 /* ======================================================
    START WORK OTP
@@ -152,13 +198,27 @@ exports.teamAssignMembers = async (req, res) => {
 exports.generateStartOtpcontroller = async (req, res) => {
   try {
     const { bookingId } = req.body;
-    const { booking, otp } = await generateStartOTP(bookingId);
 
+    const booking = await Booking.findById(bookingId);
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    return res.status(200).json({ success: true, booking, otp });
+    if (!booking.primaryEmployee) {
+      return res.status(400).json({
+        message: "Cannot generate OTP before employee assignment",
+      });
+    }
+
+    const { booking: updatedBooking, otp } =
+      await generateStartOTP(bookingId);
+
+    return res.status(200).json({
+      success: true,
+      booking: updatedBooking,
+      otp,
+    });
+
   } catch (err) {
     console.error("generateStartOtp error:", err.message);
     return res.status(500).json({ message: err.message });
@@ -168,6 +228,7 @@ exports.generateStartOtpcontroller = async (req, res) => {
 exports.verifystartOTPcontroller = async (req, res) => {
   try {
     const { bookingId, otp } = req.body;
+
     const result = await verifyStartOTP(bookingId, otp);
 
     if (!result.success) {
@@ -177,7 +238,9 @@ exports.verifystartOTPcontroller = async (req, res) => {
     return res.status(200).json({
       success: true,
       booking: result.booking,
+      message: "Work started successfully",
     });
+
   } catch (err) {
     console.error("verifyStartOtp error:", err.message);
     return res.status(500).json({ message: err.message });

@@ -59,22 +59,21 @@ exports.findNearbyTeams = async ({
 
     const [lng, lat] = lngLat;
 
-    // employees capable of this domain
+    // Employees capable of this domain
     const capableEmployees = await EmployeeService.find({
-        capableservice: { $in: [domainServiceId] },
+        capableservice: domainServiceId,
     });
 
     const capableEmployeeIds = capableEmployees.map(e => e.employeeId);
 
     /* ======================================================
-       SINGLE EMPLOYEE — STRICT CONDITION
-       serviceCount < 2 AND employeeCount === 1
+       SINGLE EMPLOYEE
     ====================================================== */
     if (serviceCount < 2 && employeeCount === 1) {
         const singles = await SingleEmployee.find({
             empId: { $in: capableEmployeeIds },
             isActive: true,
-            teamAccepted: false,
+            availabilityStatus: "AVAILABLE",
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
@@ -96,7 +95,7 @@ exports.findNearbyTeams = async ({
     }
 
     /* ======================================================
-       TEAM ONLY (NO SINGLE SEARCH)
+       TEAM ONLY
     ====================================================== */
     const teams = await MultipleEmployee.find({
         members: { $in: capableEmployeeIds },
@@ -127,9 +126,14 @@ exports.findNearbyTeams = async ({
    3. SINGLE EMPLOYEE AUTO ASSIGN QUEUE
 ====================================================== */
 const bookingQueue = {};
-
 exports.startServicerQueue = async ({ bookingId, servicers, userSocket, io }) => {
-    bookingQueue[bookingId] = { servicers, index: 0, userSocket, timer: null };
+    bookingQueue[bookingId] = {
+        servicers,
+        index: 0,
+        userSocket,
+        timer: null,
+    };
+
     exports.assignNextServicer(bookingId, io);
 };
 
@@ -144,9 +148,24 @@ exports.assignNextServicer = async (bookingId, io) => {
         return;
     }
 
-    const servicer = await SingleEmployee.findById(servicerId);
-    if (!servicer || !servicer.isActive ||
-        (servicer.blockedUntil && servicer.blockedUntil > new Date())) {
+    // Atomically lock employee as OFFERED
+    const servicer = await SingleEmployee.findOneAndUpdate(
+        {
+            _id: servicerId,
+            isActive: true,
+            availabilityStatus: "AVAILABLE",
+            $or: [
+                { blockedUntil: null },
+                { blockedUntil: { $lte: new Date() } },
+            ],
+        },
+        {
+            $set: { availabilityStatus: "OFFERED" },
+        },
+        { new: true }
+    );
+
+    if (!servicer) {
         queue.index++;
         return exports.assignNextServicer(bookingId, io);
     }
@@ -155,7 +174,12 @@ exports.assignNextServicer = async (bookingId, io) => {
         io.to(servicer.socketId).emit("new-booking-request", { bookingId });
     }
 
-    queue.timer = setTimeout(() => {
+    // Timeout → revert OFFERED → AVAILABLE
+    queue.timer = setTimeout(async () => {
+        await SingleEmployee.findByIdAndUpdate(servicerId, {
+            availabilityStatus: "AVAILABLE",
+        });
+
         queue.index++;
         exports.assignNextServicer(bookingId, io);
     }, 30000);
@@ -168,14 +192,61 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
     clearTimeout(queue.timer);
     delete bookingQueue[bookingId];
 
-    io.to(queue.userSocket).emit("servicer-accepted", { bookingId, employeeId });
+    // Atomic booking assignment
+    const booking = await Booking.findOneAndUpdate(
+        {
+            _id: bookingId,
+            primaryEmployee: null,
+            status: BOOKING_STATUS.PENDING,
+        },
+        {
+            $set: {
+                primaryEmployee: employeeId,
+                employees: [employeeId],
+                serviceType: "single",
+            },
+        },
+        { new: true }
+    );
+
+    // Someone else already accepted
+    if (!booking) {
+        await SingleEmployee.findByIdAndUpdate(employeeId, {
+            availabilityStatus: "AVAILABLE",
+        });
+        return;
+    }
+
+    // Mark employee BUSY
+    await SingleEmployee.findByIdAndUpdate(employeeId, {
+        availabilityStatus: "BUSY",
+    });
+
+    // Notify user
+    io.to(queue.userSocket).emit("servicer-accepted", {
+        bookingId,
+        employeeId,
+        booking,
+    });
+
+    // Notify employee
+    const employee = await SingleEmployee.findById(employeeId);
+    if (employee?.socketId) {
+        io.to(employee.socketId).emit("booking-confirmed", booking);
+    }
 };
 
-exports.servicerReject = async (bookingId, io) => {
+
+exports.servicerReject = async (bookingId, employeeId, io) => {
     const queue = bookingQueue[bookingId];
     if (!queue) return;
 
     clearTimeout(queue.timer);
+
+    await SingleEmployee.findByIdAndUpdate(employeeId, {
+        availabilityStatus: "AVAILABLE",
+    });
+
     queue.index++;
     exports.assignNextServicer(bookingId, io);
 };
@@ -242,7 +313,6 @@ exports.teamReject = async (bookingId, io) => {
 ====================================================== */
 exports.createBooking = async ({
     userId,
-    servicerId,
     serviceCategoryName,
     domainService,
     address,
@@ -250,16 +320,16 @@ exports.createBooking = async ({
     serviceCount = 1,
 }) => {
 
-    // -------------------------
-    // Validate serviceCount
-    // -------------------------
+    /* -------------------------
+       Validate serviceCount
+    ------------------------- */
     if (!Number.isInteger(serviceCount) || serviceCount < 1) {
         throw new Error("Invalid service count");
     }
 
-    // -------------------------
-    // Fetch service category
-    // -------------------------
+    /* -------------------------
+       Fetch service category
+    ------------------------- */
     const serviceList = await ServiceList.findOne({
         "serviceCategory.serviceCategoryName": serviceCategoryName,
     });
@@ -275,29 +345,14 @@ exports.createBooking = async ({
     const totalPrice = pricePerService * serviceCount;
 
     /* ======================================================
-       SINGLE EMPLOYEE — STRICT RULE
-       serviceCount < 2 AND employeeCount === 1
+       SINGLE SERVICE (NO EMPLOYEE YET)
     ====================================================== */
     if (serviceCount < 2 && employeeCount === 1) {
-
-        const single = await SingleEmployee.findOne({
-            _id: servicerId,
-            isActive: true,
-            $or: [
-                { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } },
-            ],
-        });
-
-        if (!single) {
-            throw new Error("Single employee unavailable");
-        }
-
         const booking = await Booking.create({
             user: userId,
             serviceType: "single",
-            primaryEmployee: single._id,
-            employees: [single._id],
+            primaryEmployee: null,     // 🔑 assigned after accept
+            employees: [],
             serviceCategoryName,
             domainService,
             serviceCount,
@@ -317,20 +372,20 @@ exports.createBooking = async ({
     }
 
     /* ======================================================
-       TEAM ONLY — NO SINGLE FALLBACK
+       TEAM SERVICE
     ====================================================== */
     const booking = await Booking.create({
         user: userId,
-        servicerCompany: servicerId || null, // team/company id
         serviceType: "team",
-        primaryEmployee: null,               // assigned after accept
-        employees: [],                       // filled after assignment
+        servicerCompany: null,
+        primaryEmployee: null,
+        employees: [],
         serviceCategoryName,
         domainService,
         serviceCount,
         pricePerService,
         totalPrice,
-        status: BOOKING_STATUS.PENDING,      // OTP not verified yet
+        status: BOOKING_STATUS.PENDING,
         address,
         location: { type: "Point", coordinates },
         StartWorkOTP: null,
@@ -338,14 +393,11 @@ exports.createBooking = async ({
 
     return {
         booking,
-        assignedEmployees: [],
-        primaryEmployee: null,
-        helpers: [],
-        employeeCount,
         serviceType: "team",
+        employeeCount,
     };
-
 };
+
 
 exports.teamAcceptBooking = async ({ bookingId, teamId }) => {
     const booking = await Booking.findById(bookingId);
@@ -381,21 +433,49 @@ exports.teamAcceptBooking = async ({ bookingId, teamId }) => {
    6. START WORK OTP
 ====================================================== */
 exports.generateStartOTP = async (bookingId) => {
+    const booking = await Booking.findById(bookingId);
+
+    if (!booking) {
+        throw new Error("Booking not found");
+    }
+
+    //  Employee must be assigned first
+    if (!booking.primaryEmployee) {
+        throw new Error("Cannot generate OTP before employee assignment");
+    }
+
+    // OTP only allowed before work starts
+    if (booking.status !== BOOKING_STATUS.PENDING) {
+        throw new Error("OTP can only be generated before work starts");
+    }
+
     const otp = Math.floor(1000 + Math.random() * 9000);
-    const booking = await Booking.findByIdAndUpdate(
-        bookingId,
-        { StartWorkOTP: otp },
-        { new: true }
-    );
+
+    booking.StartWorkOTP = otp;
+    await booking.save();
+
     return { booking, otp };
 };
 
-exports.verifyStartOTP = async (bookingId, otp) => {
-    const booking = await Booking.findById(bookingId);
-    if (!booking || booking.StartWorkOTP !== Number(otp)) {
-        return { success: false };
-    }
 
+exports.verifyStartOTP = async (bookingId, otp) => {
+  const booking = await Booking.findById(bookingId);
+    if (!booking) {
+        return { success: false, message: "Booking not found" };
+    }
+    //  OTP must exist
+    if (!booking.StartWorkOTP) {
+        return { success: false, message: "OTP not generated or already used" };
+    }
+    //  Status must be correct
+    if (booking.status !== BOOKING_STATUS.PENDING) {
+        return { success: false, message: "Invalid booking state" };
+    }
+    //  OTP validation
+    if (booking.StartWorkOTP !== Number(otp)) {
+        return { success: false, message: "Invalid OTP" };
+    }
+    //  OTP verified → start work
     booking.StartWorkOTP = null;
     booking.status = BOOKING_STATUS.IN_PROGRESS;
     await booking.save();

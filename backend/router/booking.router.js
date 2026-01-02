@@ -12,7 +12,6 @@ router.post("/auto-assign", bookingController.autoAssignServicer);
 /* ===============================
    BOOKING
 =============================== */
-router.post("/create", bookingController.createBookingFinal);
 router.post("/team/assign", bookingController.teamAssignMembers);
 
 /* ===============================

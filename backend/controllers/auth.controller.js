@@ -5,9 +5,9 @@ const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
 const DomainService = require("../models/domainservice.model");
 const Otp = require('../models/otp.model')
-const {  normalizePhone } = require("../utils/crypto");
+const { normalizePhone } = require("../utils/crypto");
 const ServiceList = require("../models/serviceList.model");
-
+const mongoose = require('mongoose');
 // Generate JWT token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
@@ -183,14 +183,14 @@ exports.ShowsubService = async (req, res) => {
       return res.status(404).json({ message: "Service is empty" });
     }
     const serviceNames = data.map(item => item.serviceName);
-    const categoriesservices = data.flatMap(item => 
+    const categoriesservices = data.flatMap(item =>
       item.serviceCategory.map(sub => ({
         _id: sub._id,
         parentServiceName: item.serviceName,
         domainServiceId: item.DomainServiceId?._id,
         domainServiceName: item.DomainServiceId?.domainServiceName,
+        subserviceImage: item.subserviceImage,
         serviceCategoryName: sub.serviceCategoryName,
-        servicecategroyImage: sub.servicecategroyImage,
         description: sub.description,
         price: sub.price,
         durationInMinutes: sub.durationInMinutes,
@@ -201,10 +201,10 @@ exports.ShowsubService = async (req, res) => {
     const groupedServices = data.map(item => ({
       serviceName: item.serviceName,
       domainServiceId: item.DomainServiceId?._id,
+      subserviceImage: item.subserviceImage,
       categories: item.serviceCategory.map(sub => ({
         _id: sub._id,
         serviceCategoryName: sub.serviceCategoryName,
-        servicecategoryImage: sub.servicecategoryImage,
         descritpion: sub.description,
         price: sub.price,
         durationInMinutes: sub.durationInMinutes,
@@ -237,16 +237,11 @@ exports.getServiceCategoryById = async (req, res) => {
       });
     }
 
+    const categoryObjectId = new mongoose.Types.ObjectId(serviceCategoryId);
+
     const service = await ServiceList.findOne(
-      { "serviceCategory._id": serviceCategoryId },
-      {
-        serviceName: 1,
-        DomainServiceId: 1,
-        serviceCategory: {
-          $elemMatch: { _id: serviceCategoryId },
-        },
-      }
-    );
+      { "serviceCategory._id": categoryObjectId }
+    ).lean();
 
     if (!service) {
       return res.status(404).json({
@@ -254,35 +249,46 @@ exports.getServiceCategoryById = async (req, res) => {
       });
     }
 
+    const category = service.serviceCategory.find(
+      (cat) => cat._id.toString() === serviceCategoryId
+    );
+
     res.status(200).json({
       success: true,
       serviceName: service.serviceName,
       domainServiceId: service.DomainServiceId,
-      serviceCategory: service.serviceCategory[0],
+      serviceCategory: category,
     });
+
   } catch (err) {
-    console.error("getServiceCategoryById error", err.message);
+    console.error("getServiceCategoryById error:", err);
     res.status(500).json({
       message: "Server error",
       error: err.message,
     });
   }
 };
-
 exports.ShowsubserviceId = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const service = await ServiceList.findById(id);
+    const service = await ServiceList.findById(
+      id,
+      { serviceCategory: 1, serviceName: 1 }
+    );
 
     if (!service) {
-      return res.status(404).json({ message: "Service not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Service not found",
+      });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Show service categories",
-      serviceCategory: service.serviceCategory,
+      message: "Service categories fetched successfully",
+      serviceName: service.serviceName,
+      serviceCategory: service.serviceCategory || [],
     });
   } catch (err) {
     console.error("ShowSubServiceId error controller", err.message);

@@ -86,7 +86,13 @@ const singleEmployeeSchema = new mongoose.Schema({
   blockedUntil: {
     type: Date,
     default: null,
-  }
+  },
+  availabilityStatus: {
+  type: String,
+  enum: ["AVAILABLE", "OFFERED", "BUSY"],
+  default: "AVAILABLE",
+  index: true
+}
 
 
 }, { timestamps: true });

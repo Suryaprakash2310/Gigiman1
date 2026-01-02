@@ -108,62 +108,112 @@ exports.Adddomainservice = async (req, res) => {
   }
 }
 
-exports.SetSubService = async (req, res) => {
+exports.setServiceList = async (req, res) => {
   try {
-    const { DomainServiceId, serviceName, ServiceCategory } = req.body;
+    const {
+      DomainServiceId,
+      serviceId,                 // 👈 IMPORTANT
+      serviceName,
+      serviceCategoryName,
+      description,
+      price,
+      durationInMinutes,
+      employeeCount,
+      servicecategoryImage
+    } = req.body;
 
-    if (!DomainServiceId || !serviceName) {
-      return res.status(400).json({ message: "All fields required" });
+    // ================= VALIDATION =================
+    if (!DomainServiceId) {
+      return res.status(400).json({ message: "DomainServiceId is required" });
     }
 
     if (
-      !ServiceCategory?.serviceCategoryName ||
-      !ServiceCategory?.description ||
-      !ServiceCategory?.price ||
-      !ServiceCategory?.durationInMinutes ||
-      !ServiceCategory?.servicecategoryImage ||
-      !ServiceCategory?.employeeCount
+      !serviceCategoryName ||
+      !description ||
+      !price ||
+      !durationInMinutes ||
+      !employeeCount
     ) {
-      return res.status(400).json({ message: "Servicecategory field is required" });
+      return res.status(400).json({
+        message: "Service category fields are required",
+      });
     }
 
-    // Upload image to Cloudinary
-    const uploadResult = await cloudinary.uploader.upload(
-      ServiceCategory.servicecategoryImage,
-      { folder: "service_categories" }
-    );
-
-    ServiceCategory.servicecategoryImage = uploadResult.secure_url;
-
-    // Check existing service
-    const existingService = await ServiceList.findOne({ serviceName });
-
-    if (existingService) {
-      const categoryExists = existingService.serviceCategory.some(
-        (item) =>
-          item.serviceCategoryName === ServiceCategory.serviceCategoryName
+    // ================= IMAGE UPLOAD =================
+    let imageUrl = null;
+    if (servicecategoryImage) {
+      const upload = await cloudinary.uploader.upload(
+        servicecategoryImage,
+        { folder: "service_categories" }
       );
+      imageUrl = upload.secure_url;
+    }
 
-      if (categoryExists) {
-        return res.status(400).json({
-          message: "This service category already exists",
+    // =================================================
+    // CASE 1️⃣ : ADD CATEGORY TO EXISTING SERVICE
+    // =================================================
+    if (serviceId) {
+      const service = await ServiceList.findById(serviceId);
+
+      if (!service) {
+        return res.status(404).json({
+          message: "Service not found",
         });
       }
 
-      existingService.serviceCategory.push(ServiceCategory);
-      await existingService.save();
+      // Prevent duplicate category name
+      const duplicate = service.serviceCategory.some(
+        (cat) =>
+          cat.serviceCategoryName.toLowerCase() ===
+          serviceCategoryName.toLowerCase()
+      );
+
+      if (duplicate) {
+        return res.status(400).json({
+          message: "Service category already exists",
+        });
+      }
+
+      service.serviceCategory.push({
+        serviceCategoryName,
+        description,
+        price,
+        durationInMinutes,
+        employeeCount,
+        servicecategoryImage: imageUrl,
+      });
+
+      await service.save();
 
       return res.status(200).json({
         success: true,
-        message: "Category added successfully to existing service",
-        data: existingService,
+        message: "Category added to existing service",
+        data: service,
+      });
+    }
+
+    // =================================================
+    // CASE 2️⃣ : CREATE NEW SERVICE + CATEGORY
+    // =================================================
+    if (!serviceName) {
+      return res.status(400).json({
+        message: "serviceName is required to create new service",
       });
     }
 
     const newService = await ServiceList.create({
       DomainServiceId,
       serviceName,
-      serviceCategory: [ServiceCategory],
+      serviceCategory: [
+        {
+          serviceCategoryName,
+          description,
+          price,
+          durationInMinutes,
+          employeeCount,
+          servicecategoryImage: imageUrl,
+        },
+      ],
     });
 
     return res.status(201).json({
@@ -173,29 +223,30 @@ exports.SetSubService = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("SetSubService error:", err);
-    return res.status(500).json({
+    console.error("setServiceList error:", err);
+    res.status(500).json({
       message: "Server error",
       error: err.message,
     });
   }
 };
 
-exports.getAllEmployee=async(req,res)=>{
-  try{
-    const singleemployee=await SingleEmployee.find().sort({createdAt:-1});
-    const multipleEmployee=await MultipleEmployee.find().sort({createdAt:-1});
-    const toolshop=await ToolShop.find().sort({createdAt:-1});
 
-    const employee=[
-      ...singleemployee.map(e=>({...e.toObject(),employeeType:"single_employee"})),
-      ...multipleEmployee.map(e=>({...e.toObject(),employeeType:"multiple_employee"})),
-      ...toolshop.map(e=>({...e.toObject(),employeeType:"tool_shop"}))
+exports.getAllEmployee = async (req, res) => {
+  try {
+    const singleemployee = await SingleEmployee.find().sort({ createdAt: -1 });
+    const multipleEmployee = await MultipleEmployee.find().sort({ createdAt: -1 });
+    const toolshop = await ToolShop.find().sort({ createdAt: -1 });
+
+    const employee = [
+      ...singleemployee.map(e => ({ ...e.toObject(), employeeType: "single_employee" })),
+      ...multipleEmployee.map(e => ({ ...e.toObject(), employeeType: "multiple_employee" })),
+      ...toolshop.map(e => ({ ...e.toObject(), employeeType: "tool_shop" }))
     ]
-    employee.sort((a,b)=>b.createdAt - a.createdAt);
-    res.json({success:true,employee});
+    employee.sort((a, b) => b.createdAt - a.createdAt);
+    res.json({ success: true, employee });
   }
-  catch(err){
+  catch (err) {
     console.error("Get all employees error:", err);
     return res.status(500).json({
       message: "Server error",
@@ -204,7 +255,7 @@ exports.getAllEmployee=async(req,res)=>{
   }
 }
 
-exports.DeleteDomainService=async (req, res) => {
+exports.DeleteDomainService = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -221,5 +272,30 @@ exports.DeleteDomainService=async (req, res) => {
     res.json({ success: true, message: "Service deleted successfully" });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getServiceCategories = async (req, res) => {
+  try {
+    const { serviceName } = req.params;
+
+    const service = await ServiceList.findOne(
+      { serviceName },
+      { serviceCategory: 1 }
+    );
+
+    if (!service) {
+      return res.json({ categories: [] });
+    }
+
+    return res.json({
+      categories: service.serviceCategory.map(cat => ({
+        _id: cat._id,
+        serviceCategoryName: cat.serviceCategoryName
+      }))
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
   }
 };
