@@ -70,21 +70,26 @@ exports.findNearbyTeams = async ({
        SINGLE EMPLOYEE
     ====================================================== */
     if (serviceCount < 2 && employeeCount === 1) {
-        const singles = await SingleEmployee.find({
-            empId: { $in: capableEmployeeIds },
-            isActive: true,
-            availabilityStatus: "AVAILABLE",
-            $or: [
-                { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } },
-            ],
-            location: {
-                $near: {
-                    $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: radiusInMeters,
-                },
-            },
-        });
+        const singles = await SingleEmployee.aggregate([
+            {
+                $geoNear: {
+                    near: { type: "Point", coordinates: [lng, lat] },
+                    key: "location",
+                    distanceField: "distance",
+                    maxDistance: radiusInMeters,
+                    spherical: true,
+                    query: {
+                        _id: { $in: capableEmployeeIds },
+                        isActive: true,
+                        availabilityStatus: "AVAILABLE",
+                        $or: [
+                            { blockedUntil: null },
+                            { blockedUntil: { $lte: new Date() } }
+                        ]
+                    }
+                }
+            }
+        ]);
 
         return {
             type: "single",
@@ -343,6 +348,14 @@ exports.createBooking = async ({
     const employeeCount = category.employeeCount;
     const pricePerService = category.price;
     const totalPrice = pricePerService * serviceCount;
+    if (
+        !Array.isArray(coordinates) ||
+        coordinates.length !== 2 ||
+        typeof coordinates[0] !== "number" ||
+        typeof coordinates[1] !== "number"
+    ) {
+        throw new Error("Invalid or missing coordinates");
+    }
 
     /* ======================================================
        SINGLE SERVICE (NO EMPLOYEE YET)
@@ -459,7 +472,7 @@ exports.generateStartOTP = async (bookingId) => {
 
 
 exports.verifyStartOTP = async (bookingId, otp) => {
-  const booking = await Booking.findById(bookingId);
+    const booking = await Booking.findById(bookingId);
     if (!booking) {
         return { success: false, message: "Booking not found" };
     }
