@@ -31,18 +31,8 @@ const singleEmployeeSchema = new mongoose.Schema({
     default: "No",
   },
   address: {
-    city: {
-      type: String,
-      required: true,
-    },
-    state: {
-      type: String,
-      required: true,
-    },
-    pincode: {
-      type: Number,
-      required: true,
-    },
+    type:String,
+    required:true,
   },
   aadhaarNo: {
     type: String,
