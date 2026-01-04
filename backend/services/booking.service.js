@@ -130,74 +130,64 @@ exports.findNearbyTeams = async ({
 /* ======================================================
    3. SINGLE EMPLOYEE AUTO ASSIGN QUEUE
 ====================================================== */
-const bookingQueue = {};
-exports.startServicerQueue = async ({ bookingId, servicers, userSocket, io }) => {
-    bookingQueue[bookingId] = {
-        servicers,
-        index: 0,
-        userSocket,
-        timer: null,
-    };
 
-    exports.assignNextServicer(bookingId, io);
-};
 
-exports.assignNextServicer = async (bookingId, io) => {
-    const queue = bookingQueue[bookingId];
-    if (!queue) return;
+exports.assignNextServicer = async ({ bookingId, coordinates, userSocket, io }) => {
+    const [lng, lat] = coordinates;
 
-    const servicerId = queue.servicers[queue.index];
-    if (!servicerId) {
-        io.to(queue.userSocket).emit("no-servicer-available");
-        delete bookingQueue[bookingId];
-        return;
-    }
-
-    // Atomically lock employee as OFFERED
+    //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
-            _id: servicerId,
             isActive: true,
             availabilityStatus: "AVAILABLE",
-            $or: [
-                { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } },
-            ],
+            blockedUntil: { $lte: new Date() },
+            location: {
+                $near: {
+                    $geometry: { type: "Point", coordinates: [lng, lat] },
+                    $maxDistance: SEARCH_RADIUS_METERS,
+                },
+            },
         },
         {
-            $set: { availabilityStatus: "OFFERED" },
+            $set: {
+                availabilityStatus: "OFFERED",
+                offerBookingId: bookingId,
+            },
         },
         { new: true }
     );
-
+    //  No provider
     if (!servicer) {
-        queue.index++;
-        return exports.assignNextServicer(bookingId, io);
+        io.to(userSocket).emit("no-servicer-available");
+        return;
     }
 
+    //  Emit immediately (FAST)
     if (servicer.socketId) {
         io.to(servicer.socketId).emit("new-booking-request", { bookingId });
     }
 
-    // Timeout → revert OFFERED → AVAILABLE
-    queue.timer = setTimeout(async () => {
-        await SingleEmployee.findByIdAndUpdate(servicerId, {
-            availabilityStatus: "AVAILABLE",
+    //  Single timeout (retry, NOT loop)
+    setTimeout(async () => {
+        const stillOffered = await SingleEmployee.findOne({
+            _id: servicer._id,
+            offerBookingId: bookingId,
+            availabilityStatus: "OFFERED",
         });
 
-        queue.index++;
-        exports.assignNextServicer(bookingId, io);
-    }, 30000);
+        if (!stillOffered) return;
+
+        await SingleEmployee.findByIdAndUpdate(servicer._id, {
+            availabilityStatus: "AVAILABLE",
+            offerBookingId: null,
+        });
+
+        //  retry (event-driven, not loop)
+        exports.assignNextServicer({ bookingId, coordinates, userSocket, io });
+    }, 15000);
 };
 
-exports.servicerAccept = async (bookingId, employeeId, io) => {
-    const queue = bookingQueue[bookingId];
-    if (!queue) return;
-
-    clearTimeout(queue.timer);
-    delete bookingQueue[bookingId];
-
-    // Atomic booking assignment
+exports.servicerAccept = async (bookingId, employeeId, io, userSocket) => {
     const booking = await Booking.findOneAndUpdate(
         {
             _id: bookingId,
@@ -208,52 +198,36 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
             $set: {
                 primaryEmployee: employeeId,
                 employees: [employeeId],
-                serviceType: "single",
             },
         },
         { new: true }
     );
 
-    // Someone else already accepted
     if (!booking) {
         await SingleEmployee.findByIdAndUpdate(employeeId, {
             availabilityStatus: "AVAILABLE",
+            offerBookingId: null,
         });
         return;
     }
 
-    // Mark employee BUSY
     await SingleEmployee.findByIdAndUpdate(employeeId, {
         availabilityStatus: "BUSY",
+        offerBookingId: null,
     });
 
-    // Notify user
-    io.to(queue.userSocket).emit("servicer-accepted", {
-        bookingId,
-        employeeId,
-        booking,
-    });
-
-    // Notify employee
-    const employee = await SingleEmployee.findById(employeeId);
-    if (employee?.socketId) {
-        io.to(employee.socketId).emit("booking-confirmed", booking);
-    }
+    io.to(userSocket).emit("servicer-accepted", booking);
 };
 
 
-exports.servicerReject = async (bookingId, employeeId, io) => {
-    const queue = bookingQueue[bookingId];
-    if (!queue) return;
 
-    clearTimeout(queue.timer);
-
+exports.servicerReject = async ({ bookingId, employeeId, coordinates, userSocket, io }) => {
     await SingleEmployee.findByIdAndUpdate(employeeId, {
         availabilityStatus: "AVAILABLE",
+        offerBookingId: null,
     });
 
-    queue.index++;
-    exports.assignNextServicer(bookingId, io);
+    exports.assignNextServicer({ bookingId, coordinates, userSocket, io });
 };
 
 /* ======================================================

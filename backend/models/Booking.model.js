@@ -73,6 +73,33 @@ const bookingSchema = mongoose.Schema({
         enum: Object.values(BOOKING_TYPE),
         default: BOOKING_TYPE.ONDEMAND,
     },
+    assignmentStatus: {
+        type: String,
+        enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED"],
+        default: "SEARCHING",
+    },
+
+    offeredEmployee: {
+        type: mongoose.Types.ObjectId,
+        ref: "SingleEmployee",
+        default: null,
+    },
+
+    assignmentExpiresAt: {
+        type: Date,
+        default: null,
+    },
+
+    dispatchAttempts: {
+        type: Number,
+        default: 0,
+    },
+
+    userSocketId: {
+        type: String,
+        default: null,
+    },
+
 
     scheduleDateTime: Date,
     isScheduled: Boolean,

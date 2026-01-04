@@ -108,12 +108,13 @@ exports.autoAssignServicer = async (req, res) => {
         START AUTO-ASSIGN QUEUE
     ====================================================== */
     if (result.type === "single") {
-      startServicerQueue({
+      assignNextServicer({
         bookingId: booking._id.toString(),
-        servicers: result.data.map(e => e._id),
+        coordinates: result.coordinates,
         userSocket: user.socketId,
         io: req.io,
       });
+
     } else {
       startTeamQueue({
         bookingId: booking._id.toString(),
