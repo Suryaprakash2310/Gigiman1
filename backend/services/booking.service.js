@@ -132,7 +132,7 @@ exports.findNearbyTeams = async ({
 ====================================================== */
 
 
-exports.assignNextServicer = async ({ bookingId, coordinates, userSocket, io }) => {
+exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
 
     //  Pick + lock ONE provider atomically
@@ -140,7 +140,10 @@ exports.assignNextServicer = async ({ bookingId, coordinates, userSocket, io }) 
         {
             isActive: true,
             availabilityStatus: "AVAILABLE",
-            blockedUntil: { $lte: new Date() },
+            $or: [
+                { blockedUntil: null },
+                { blockedUntil: { $lte: new Date() } }
+            ],
             location: {
                 $near: {
                     $geometry: { type: "Point", coordinates: [lng, lat] },
@@ -158,8 +161,12 @@ exports.assignNextServicer = async ({ bookingId, coordinates, userSocket, io }) 
     );
     //  No provider
     if (!servicer) {
-        io.to(userSocket).emit("no-servicer-available");
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId) {
+            io.to(booking.user.socketId).emit("no-servicer-available");
+        }
         return;
+
     }
 
     //  Emit immediately (FAST)
@@ -183,11 +190,18 @@ exports.assignNextServicer = async ({ bookingId, coordinates, userSocket, io }) 
         });
 
         //  retry (event-driven, not loop)
-        exports.assignNextServicer({ bookingId, coordinates, userSocket, io });
-    }, 15000);
+        exports.assignNextServicer({ bookingId, coordinates, io });
+    }, 150000);
 };
 
-exports.servicerAccept = async (bookingId, employeeId, io, userSocket) => {
+exports.servicerAccept = async (bookingId, employeeId, io) => {
+    const employee = await SingleEmployee.findOne({
+        _id: employeeId,
+        offerBookingId: bookingId,
+        availabilityStatus: "OFFERED",
+    });
+
+    if (!employee) return;
     const booking = await Booking.findOneAndUpdate(
         {
             _id: bookingId,
@@ -216,18 +230,36 @@ exports.servicerAccept = async (bookingId, employeeId, io, userSocket) => {
         offerBookingId: null,
     });
 
-    io.to(userSocket).emit("servicer-accepted", booking);
+    const user = await User.findById(booking.user).select("socketId");
+    if (user?.socketId) {
+        io.to(user.socketId).emit("servicer-accepted", booking);
+    }
 };
 
 
 
-exports.servicerReject = async ({ bookingId, employeeId, coordinates, userSocket, io }) => {
+exports.servicerReject = async ({ bookingId, employeeId, coordinates, io }) => {
+    const employee = await SingleEmployee.findOne({
+        _id: employeeId,
+        offerBookingId: bookingId,
+        availabilityStatus: "OFFERED",
+    });
+
+    if (!employee) return;
     await SingleEmployee.findByIdAndUpdate(employeeId, {
         availabilityStatus: "AVAILABLE",
         offerBookingId: null,
     });
 
-    exports.assignNextServicer({ bookingId, coordinates, userSocket, io });
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return;
+
+    // Retry assignment (fast, loop-free)
+    exports.assignNextServicer({
+        bookingId,
+        coordinates: booking.location.coordinates,
+        io,
+    });
 };
 
 /* ======================================================

@@ -111,7 +111,6 @@ exports.autoAssignServicer = async (req, res) => {
       assignNextServicer({
         bookingId: booking._id.toString(),
         coordinates: result.coordinates,
-        userSocket: user.socketId,
         io: req.io,
       });
 
