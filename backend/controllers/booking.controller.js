@@ -16,6 +16,9 @@ const {
   startToolShopQueue,
   verifyToolOTP,
   verifyPartOTP,
+  assignNextTeam,
+  assignNextToolshop,
+  assignNextServicer,
 } = require("../services/booking.service");
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
@@ -115,10 +118,10 @@ exports.autoAssignServicer = async (req, res) => {
       });
 
     } else {
-      startTeamQueue({
+      assignNextTeam({
         bookingId: booking._id.toString(),
-        teams: result.data.map(t => t._id),
-        userSocket: user.socketId,
+        coordinates: result.coordinates,
+        employeeCount: result.employeeCount,
         io: req.io,
       });
     }
@@ -285,27 +288,16 @@ exports.nearbyToolShops = async (req, res) => {
 ====================================================== */
 exports.autoAssignToolShop = async (req, res) => {
   try {
-    const { bookingId, coordinates } = req.body;
+    const { requestId } = req.body;
 
-    const booking = await Booking.findById(bookingId);
-    if (!booking?.employees?.length) {
-      return res.status(400).json({ message: "Invalid booking" });
+    const partRequest = await PartRequest.findById(requestId).populate("bookingId");
+    if (!partRequest) {
+      return res.status(404).json({ message: "Part request not found" });
     }
 
-    const employee = await SingleEmployee.findById(booking.employees[0]);
-    if (!employee?.socketId) {
-      return res.status(400).json({ message: "Employee socket not found" });
-    }
-
-    const shops = await findNearbyToolShops({ coordinates });
-    if (!shops.length) {
-      return res.status(404).json({ message: "No toolshops found" });
-    }
-
-    startToolShopQueue({
-      requestId: bookingId,
-      shops: shops.map(s => s._id.toString()),
-      employeeSocket: employee.socketId,
+    await assignNextToolshop({
+      requestId,
+      coordinates: partRequest.bookingId.location.coordinates,
       io: req.io,
     });
 
@@ -313,33 +305,43 @@ exports.autoAssignToolShop = async (req, res) => {
       success: true,
       message: "Toolshop auto-assign started",
     });
+
   } catch (err) {
     console.error("autoAssignToolShop error:", err.message);
     return res.status(500).json({ message: err.message });
   }
 };
 
-/* ======================================================
-   VERIFY TOOL OTP
-====================================================== */
-exports.verifyToolOTPcontroller = async (req, res) => {
-  try {
-    const { bookingId, otp } = req.body;
-    const result = await verifyToolOTP(bookingId, otp);
+//* ======================================================
+//   GENERATE TOOL OTP        
+//* ======================================================    
 
-    if (!result.success) {
-      return res.status(400).json({ message: "Invalid OTP" });
+exports.generateToolOTPController = async (req, res) => {
+  try {
+    const { requestId } = req.body;
+
+    if (!requestId) {
+      return res.status(400).json({ message: "requestId is required" });
     }
+
+    const result = await generateToolOTP(requestId);
 
     return res.status(200).json({
       success: true,
-      booking: result.booking,
+      message: "OTP generated successfully",
+      data: result,
     });
+
   } catch (err) {
-    console.error("verifyToolOtp error:", err.message);
-    return res.status(500).json({ message: err.message });
+    console.error("generateToolOTP error:", err.message);
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
+
+
 
 /* ======================================================
    VERIFY PART OTP

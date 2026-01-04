@@ -55,14 +55,25 @@ const toolshopSchema = new mongoose.Schema(
         required: true,
       }
     },
-    socketId: { 
-        type: String,
-        default: null 
+    socketId: {
+      type: String,
+      default: null
     },
-    blockedUntil:{
-    type:String,
-    default:null
-    }
+    blockedUntil: {
+      type: String,
+      default: null
+    }, 
+    shopStatus: {
+      type: String,
+      enum: ["AVAILABLE", "OFFERED", "BUSY"],
+      default: "AVAILABLE",
+    },
+
+    offerRequestId: {
+      type: mongoose.Types.ObjectId,
+      ref: "PartRequest",
+      default: null,
+    },
   },
   { timestamps: true }
 );

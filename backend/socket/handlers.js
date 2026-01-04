@@ -6,29 +6,23 @@ const PartRequest = require("../models/partsrequest.model");
 const Booking = require("../models/Booking.model");
 
 const {
-  startServicerQueue,
   servicerAccept,
   servicerReject,
-
-  startTeamQueue,
   teamAccept,
   teamReject,
-
   generateStartOTP,
   verifyStartOTP,
-
   requestTool,
-  findNearbyToolShops,
-
-  startToolShopQueue,
   toolshopAccept,
   toolshopReject,
-
-  verifyToolOTP,
   verifyPartOTP,
 } = require("../services/booking.service");
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+const mongoose = require("mongoose");
+
+const isValidId = id =>
+  id && mongoose.Types.ObjectId.isValid(id);
 
 module.exports = (io) => {
   io.on("connection", (socket) => {
@@ -42,6 +36,7 @@ module.exports = (io) => {
     });
 
     socket.on("register-employee", async ({ employeeId }) => {
+      if (!mongoose.Types.ObjectId.isValid(employeeId)) return;
       await SingleEmployee.findByIdAndUpdate(employeeId, {
         socketId: socket.id,
         isActive: true,
@@ -49,7 +44,7 @@ module.exports = (io) => {
     });
 
     socket.on("register-team", async ({ teamId }) => {
-      await MultipleEmployee.findByIdAndUpdate(teamId, {
+      await MultipleEmployee.findByIdAndUpdate({ _id: teamId }, {
         socketId: socket.id,
         isActive: true,
       });
@@ -58,37 +53,6 @@ module.exports = (io) => {
     socket.on("register-toolshop", async ({ shopId }) => {
       await ToolShop.findByIdAndUpdate(shopId, { socketId: socket.id });
     });
-
-    /* ===============================
-       AUTO ASSIGN (SINGLE / TEAM)
-       bookingId MUST be real
-    =============================== */
-    socket.on("start-auto-assign", async ({ bookingId, type, candidates }) => {
-      const booking = await Booking.findById(bookingId);
-      if (!booking) return;
-
-      const user = await User.findById(booking.user);
-      if (!user?.socketId) return;
-
-      if (type === "single") {
-        return startServicerQueue({
-          bookingId,
-          servicers: candidates,
-          userSocket: user.socketId,
-          io,
-        });
-      }
-
-      if (type === "team") {
-        return startTeamQueue({
-          bookingId,
-          teams: candidates,
-          userSocket: user.socketId,
-          io,
-        });
-      }
-    });
-
     /* ===============================
        ACCEPT / REJECT
     =============================== */
@@ -111,30 +75,79 @@ module.exports = (io) => {
     /* ===============================
        TEAM ASSIGN MEMBERS
     =============================== */
-    socket.on("team-assign-members", async ({ bookingId, primaryEmployee, helpers = [] }) => {
-      const booking = await Booking.findByIdAndUpdate(
-        bookingId,
-        {
-          primaryEmployee,
-          employees: [primaryEmployee, ...helpers],
-        },
-        { new: true }
-      );
-      if (!booking) return;
+    socket.on("team-assign-members", async ({ bookingId, teamId, primaryEmployee, helpers = [] }) => {
+      try {
+        /* ============================
+           1. Fetch & validate booking
+        ============================ */
+        const booking = await Booking.findOne({
+          _id: bookingId,
+          serviceType: "team",
+          status: BOOKING_STATUS.PENDING,
+          servicerCompany: teamId,
+        });
 
-      const user = await User.findById(booking.user);
-      user?.socketId &&
-        io.to(user.socketId).emit("team-assigned", booking);
+        if (!booking) return;
 
-      const employees = await SingleEmployee.find({
-        _id: { $in: booking.employees },
-      });
+        /* ============================
+           2. Fetch & validate team
+        ============================ */
+        const team = await MultipleEmployee.findOne({
+          _id: teamId,
+          teamStatus: "BUSY", // must be BUSY after team-accept
+        });
 
-      employees.forEach(emp => {
-        emp.socketId &&
-          io.to(emp.socketId).emit("team-member-assigned", booking);
-      });
-    });
+        if (!team) return;
+
+        /* ============================
+           3. Validate members
+        ============================ */
+        const teamMemberIds = team.members.map(id => id.toString());
+
+        if (!teamMemberIds.includes(primaryEmployee)) return;
+
+        for (const helper of helpers) {
+          if (!teamMemberIds.includes(helper)) return;
+        }
+
+        /* ============================
+           4. Assign employees atomically
+        ============================ */
+        booking.primaryEmployee = primaryEmployee;
+        booking.employees = [primaryEmployee, ...helpers];
+        await booking.save();
+
+        /* ============================
+           5. Mark employees BUSY
+        ============================ */
+        await SingleEmployee.updateMany(
+          { _id: { $in: booking.employees } },
+          {
+            availabilityStatus: "BUSY",
+            offerBookingId: null,
+          }
+        );
+        const user = await User.findById(booking.user).select("socketId");
+        if (user?.socketId) {
+          io.to(user.socketId).emit("team-assigned", booking);
+        }
+
+        const employees = await SingleEmployee.find({
+          _id: { $in: booking.employees },
+        }).select("socketId");
+
+        employees.forEach(emp => {
+          if (emp.socketId) {
+            io.to(emp.socketId).emit("team-member-assigned", booking);
+          }
+        });
+
+      } catch (err) {
+        console.error("team-assign-members error:", err);
+      }
+    }
+    );
+
 
     /* ===============================
        START WORK OTP
@@ -166,64 +179,98 @@ module.exports = (io) => {
     });
 
     /* ===============================
-       TOOL REQUEST FLOW
+    TOOL / PART REQUEST FLOW
     =============================== */
+
+    // Employee requests a tool / part
     socket.on("tool-request", async ({ bookingId, toolName }) => {
-      const booking = await requestTool(bookingId, toolName);
-      const user = await User.findById(booking.user);
+      try {
+        const partRequest = await requestTool(bookingId, toolName);
 
-      user?.socketId &&
-        io.to(user.socketId).emit("tool-permission-request", booking);
-    });
+        const booking = await Booking.findById(bookingId);
+        const user = await User.findById(booking.user).select("socketId");
 
-    socket.on("tool-permission-approved", async ({ bookingId, coordinates }) => {
-      const shops = await findNearbyToolShops({ coordinates });
-      if (!shops.length) return;
-
-      startToolShopQueue({
-        requestId: bookingId,
-        shops: shops.map(s => s._id.toString()),
-        employeeSocket: socket.id,
-        io,
-      });
-    });
-
-    socket.on("toolshop-accept", ({ requestId, shopId }) =>
-      toolshopAccept(requestId, shopId, io)
-    );
-
-    socket.on("toolshop-reject", ({ requestId }) =>
-      toolshopReject(requestId, io)
-    );
-
-    socket.on("verify-tool-otp", async ({ bookingId, otp }) => {
-      const result = await verifyToolOTP(bookingId, otp);
-      if (!result.success) {
-        return socket.emit("otp-failed");
+        if (user?.socketId) {
+          io.to(user.socketId).emit("tool-approval-required", {
+            requestId: partRequest._id,
+            toolName,
+          });
+        }
+      } catch (err) {
+        socket.emit("tool-request-failed", err.message);
       }
-
-      socket.emit("tool-otp-success", result.booking);
     });
 
-    /* ===============================
-       PART REQUEST FLOW
-    =============================== */
-    socket.on("parts-request", async (data) => {
-      const req = await PartRequest.create(data);
-      const booking = await Booking.findById(data.bookingId);
-      const user = await User.findById(booking.user);
 
-      user?.socketId &&
-        io.to(user.socketId).emit("parts-approval-request", req);
+    // User approves tool request
+    socket.on("tool-permission-approved", async ({ requestId }) => {
+      try {
+        const req = await PartRequest.findOneAndUpdate(
+          {
+            _id: requestId,
+            status: "requested",
+          },
+          {
+            $set: {
+              status: "approved",
+              approvalByUser: true,
+            },
+          },
+          { new: true }
+        );
+
+        if (!req) return;
+
+        const booking = await Booking.findById(req.bookingId);
+
+        // Start optimized toolshop assignment
+        await assignNextToolshop({
+          requestId,
+          coordinates: booking.location.coordinates,
+          io,
+        });
+
+      } catch (err) {
+        console.error("tool-permission-approved error:", err);
+      }
     });
 
+
+    // ToolShop accepts request
+    socket.on("toolshop-accept", async ({ requestId, shopId }) => {
+      try {
+        await toolshopAccept({ requestId, shopId, io });
+      } catch (err) {
+        console.error("toolshop-accept error:", err);
+      }
+    });
+
+
+    // ToolShop rejects request
+    socket.on("toolshop-reject", async ({ requestId, shopId }) => {
+      try {
+        await toolshopReject({ requestId, shopId, io });
+      } catch (err) {
+        console.error("toolshop-reject error:", err);
+      }
+    });
+
+
+    // Employee verifies OTP when collecting tool
     socket.on("verify-part-otp", async ({ requestId, otp }) => {
-      const result = await verifyPartOTP(requestId, otp);
-      if (!result.success) {
-        return socket.emit("otp-failed");
-      }
+      try {
+        const result = await verifyPartOTP(requestId, otp);
 
-      socket.emit("part-otp-success", result);
+        if (!result.success) {
+          socket.emit("otp-failed", { message: "Invalid OTP" });
+          return;
+        }
+
+        socket.emit("part-otp-success", result);
+
+      } catch (err) {
+        socket.emit("otp-failed", { message: err.message });
+      }
     });
 
     /* ===============================

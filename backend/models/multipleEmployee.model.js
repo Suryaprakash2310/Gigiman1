@@ -61,7 +61,7 @@ const MultipleEmployeeSchema = new mongoose.Schema({
       default: "Point"
     },
     coordinates: {
-      type: [Number], 
+      type: [Number],
       required: true
     }
   },
@@ -80,6 +80,17 @@ const MultipleEmployeeSchema = new mongoose.Schema({
 
   blockedUntil: {
     type: Date,
+    default: null,
+  },
+  teamStatus: {
+    type: String,
+    enum: ["AVAILABLE", "OFFERED", "BUSY"],
+    default: "AVAILABLE",
+  },
+
+  offerBookingId: {
+    type: mongoose.Types.ObjectId,
+    ref: "Booking",
     default: null,
   },
 }, { timestamps: true });

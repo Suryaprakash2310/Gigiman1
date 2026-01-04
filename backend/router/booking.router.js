@@ -21,17 +21,19 @@ router.post("/otp/start/generate", bookingController.generateStartOtpcontroller)
 router.post("/otp/start/verify", bookingController.verifystartOTPcontroller);
 
 /* ===============================
-   TOOL REQUEST
+   TOOL / PART REQUEST FLOW
 =============================== */
-router.post("/tool/request", bookingController.requestToolController);
-router.post("/tool/nearby", bookingController.nearbyToolShops);
-router.post("/tool/auto-assign", bookingController.autoAssignToolShop);
-router.post("/tool/otp/verify", bookingController.verifyToolOTPcontroller);
 
-/* ===============================
-   PART OTP
-=============================== */
-router.post("/part/otp/verify", bookingController.verifyPartOTPcontroller);
+router.post("/tool/request",bookingController.requestToolController);
+
+router.post("/tool/nearby",bookingController.nearbyToolShops);
+
+router.post("/tool/auto-assign",bookingController.autoAssignToolShop);
+
+router.post("/tool/otp/generate",bookingController.generateToolOTPController);
+
+router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
+
 
 /* ===============================
    PAYMENT
