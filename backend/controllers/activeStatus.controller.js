@@ -18,29 +18,31 @@ exports.updateActiveStatus = async (req, res) => {
     const Model = modelMap[modelName];
 
     if (!Model) {
-      return res.status(400).json({ message: "Invalid employee type" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid employee type",
+      });
     }
 
     const { isActive } = req.body;
 
     if (typeof isActive !== "boolean") {
       return res.status(400).json({
-        message: "isActive must be boolean",
+        success: false,
+        message: "isActive must be a boolean value",
       });
     }
 
     const updatePayload = { isActive };
-    if (modelName === "SingleEmployee") {
-      if (!isActive) {
-        // Going offline → clear availability locks
-        updatePayload.availabilityStatus = "AVAILABLE";
-        updatePayload.blockedUntil = null;
-      }
+
+    //  IMPORTANT FIXES FOR REALTIME FLOW
+    if (modelName === "SingleEmployee" && !isActive) {
+      updatePayload.availabilityStatus = "AVAILABLE";
+      updatePayload.blockedUntil = null;
+      updatePayload.offerBookingId = null; // clear stale offer
+      updatePayload.socketId = null;       // clear dead socket
     }
 
-    /* ======================================================
-       UPDATE ENTITY
-    ====================================================== */
     const emp = await Model.findByIdAndUpdate(
       empId,
       updatePayload,
@@ -48,8 +50,15 @@ exports.updateActiveStatus = async (req, res) => {
     );
 
     if (!emp) {
-      return res.status(404).json({ message: "Entity not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Entity not found",
+      });
     }
+
+    console.log(
+      `[STATUS UPDATE] ${modelName} ${empId} → isActive=${emp.isActive}`
+    );
 
     return res.status(200).json({
       success: true,
@@ -57,12 +66,16 @@ exports.updateActiveStatus = async (req, res) => {
       id: emp._id,
       role: empType,
       isActive: emp.isActive,
-      availabilityStatus: emp.availabilityStatus ?? undefined,
+      availabilityStatus:
+        modelName === "SingleEmployee"
+          ? emp.availabilityStatus
+          : undefined,
     });
 
   } catch (err) {
-    console.error("updateActiveStatus error:", err.message);
+    console.error("updateActiveStatus error:", err);
     return res.status(500).json({
+      success: false,
       message: "Server error",
       error: err.message,
     });
