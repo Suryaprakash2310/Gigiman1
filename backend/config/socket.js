@@ -6,9 +6,6 @@ module.exports=(server)=>{
         cors:{origin:"*"},
         pingTimeout:60000
     });
-    io.on("connection",(socket)=>{
-        console.log("socket connected");
-        socketHandler(io,socket);
-    })
+        socketHandler(io);
     return io;
 }

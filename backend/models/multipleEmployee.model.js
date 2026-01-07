@@ -95,6 +95,9 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
+MultipleEmployeeSchema.index({ location: "2dsphere" });
+
+
 // Auto-generate TeamId (M1, M2, ...)
 MultipleEmployeeSchema.pre('save', async function (next) {
   if (this.isNew) {

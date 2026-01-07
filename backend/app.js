@@ -35,6 +35,7 @@ connectDb();
 const server=http.createServer(app);
 const io=socketConfig(server);
 
+app.set("io", io);
 // ------------------- ROUTES -------------------
 app.get("/", (req, res) => res.send("API is running..."));
 
@@ -51,7 +52,12 @@ app.use('/api/booking',bookingRouter);
 app.use('/api/',activestateRouter);
 
 // ------------------- START SERVER -------------------
+// const port = process.env.PORT || 5000;
+// app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
+
 const port = process.env.PORT || 5000;
-app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
+server.listen(port, () =>
+  console.log(`🚀 Server + Socket.IO running on port ${port}`)
+);
 
 module.exports={app,server,io};

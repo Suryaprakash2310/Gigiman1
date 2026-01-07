@@ -27,6 +27,7 @@ exports.sendOtp = async (req, res) => {
       (await SingleEmployee.findOne({ phoneNo })) ||
       (await MultipleEmployee.findOne({ phoneNo })) ||
       (await ToolShop.findOne({ phoneNo }));
+
     if (!emp)
       return res.status(404).json({ message: "Employee not found" });
 

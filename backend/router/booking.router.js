@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
-
+const { protect } = require('../middleware/auth.middleware');
+const { userProtect } = require('../middleware/user.middleware'); 
 const bookingController = require("../controllers/booking.controller");
 
 /* ===============================
@@ -8,7 +9,7 @@ const bookingController = require("../controllers/booking.controller");
 =============================== */
 router.post("/search", bookingController.searchNearbyservicer);
 router.post("/auto-assign", bookingController.autoAssignServicer);
-
+router.get("/:bookingId", bookingController.getBookingById);
 /* ===============================
    BOOKING
 =============================== */
@@ -24,7 +25,7 @@ router.post("/otp/start/verify", bookingController.verifystartOTPcontroller);
    TOOL / PART REQUEST FLOW
 =============================== */
 
-router.post("/tool/request",bookingController.requestToolController);
+router.post("/tool/request", protect, bookingController.requestToolController);
 
 router.post("/tool/nearby",bookingController.nearbyToolShops);
 
@@ -33,6 +34,9 @@ router.post("/tool/auto-assign",bookingController.autoAssignToolShop);
 router.post("/tool/otp/generate",bookingController.generateToolOTPController);
 
 router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
+
+// user confirms part/tool delivery
+router.post("/approve", userProtect, bookingController.approvePartRequest);
 
 
 /* ===============================

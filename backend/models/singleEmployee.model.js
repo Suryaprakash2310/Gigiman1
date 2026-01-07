@@ -77,6 +77,11 @@ const singleEmployeeSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  offerBookingId:{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Booking',
+    default: null
+  },
   availabilityStatus: {
   type: String,
   enum: ["AVAILABLE", "OFFERED", "BUSY"],
@@ -87,6 +92,7 @@ const singleEmployeeSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+singleEmployeeSchema.index({ location: "2dsphere" });
 
 //  Auto-generate sequential empId (E1, E2, ...)
 singleEmployeeSchema.pre('save', async function (next) {

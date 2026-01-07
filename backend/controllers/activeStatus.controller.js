@@ -12,6 +12,8 @@ const modelMap = {
 exports.updateActiveStatus = async (req, res) => {
   try {
     const empId = req.employee._id;
+    //req.role = req.role?.toUpperCase();
+
     const empType = req.role;
 
     const modelName = roleModelMap[empType];
@@ -59,6 +61,11 @@ exports.updateActiveStatus = async (req, res) => {
     console.log(
       `[STATUS UPDATE] ${modelName} ${empId} → isActive=${emp.isActive}`
     );
+    console.log("🔐 AUTH DEBUG");
+console.log("employee:", req.employee);
+console.log("role:", req.role);
+console.log("body:", req.body);
+
 
     return res.status(200).json({
       success: true,
@@ -71,6 +78,7 @@ exports.updateActiveStatus = async (req, res) => {
           ? emp.availabilityStatus
           : undefined,
     });
+    
 
   } catch (err) {
     console.error("updateActiveStatus error:", err);
@@ -80,4 +88,5 @@ exports.updateActiveStatus = async (req, res) => {
       error: err.message,
     });
   }
+  
 };

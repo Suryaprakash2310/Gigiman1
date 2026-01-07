@@ -6,9 +6,10 @@ const Booking = require("../models/Booking.model");
 const ToolShop = require("../models/toolshop.model");
 const EmployeeService = require("../models/employeeService.model");
 const PartRequest = require("../models/partsrequest.model");
-
+const User = require("../models/user.model");
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const { SEARCH_RADIUS_METERS } = require("../utils/constants");
+const mongoose = require("mongoose");
 
 require("dotenv").config();
 
@@ -58,6 +59,7 @@ exports.findNearbyTeams = async ({
     if (!lngLat) throw new Error("Unable to resolve location");
 
     const [lng, lat] = lngLat;
+    console.log("Finding teams near:", lng, lat);
 
     // Employees capable of this domain
     const capableEmployees = await EmployeeService.find({
@@ -65,6 +67,10 @@ exports.findNearbyTeams = async ({
     });
 
     const capableEmployeeIds = capableEmployees.map(e => e.employeeId);
+    const capableEmployeeObjectIds = capableEmployeeIds.map(
+        id => new mongoose.Types.ObjectId(id)
+    );
+    console.log("Capable Employee IDs:", capableEmployeeObjectIds);
 
     /* ======================================================
        SINGLE EMPLOYEE
@@ -79,7 +85,7 @@ exports.findNearbyTeams = async ({
                     maxDistance: radiusInMeters,
                     spherical: true,
                     query: {
-                        _id: { $in: capableEmployeeIds },
+                        _id: { $in: capableEmployeeObjectIds },
                         isActive: true,
                         availabilityStatus: "AVAILABLE",
                         $or: [
@@ -90,6 +96,7 @@ exports.findNearbyTeams = async ({
                 }
             }
         ]);
+        console.log('available employees singles:', singles);
 
         return {
             type: "single",
@@ -164,11 +171,16 @@ exports.findNearbyTeams = async ({
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
 
+
     //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
             isActive: true,
             availabilityStatus: "AVAILABLE",
+            $or: [
+                { blockedUntil: null },
+                { blockedUntil: { $lte: new Date() } }
+            ],
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } }
@@ -200,7 +212,15 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
     //  Emit immediately (FAST)
     if (servicer.socketId) {
-        io.to(servicer.socketId).emit("new-booking-request", { bookingId });
+        io.to(servicer.socketId).emit(
+            "new-booking-request",
+            { bookingId },
+            (ack) => {
+                if (!ack) {
+                    console.log("++++++++++++++Provider did not acknowledge booking");
+                }
+            }
+        );
     }
 
     //  Single timeout (retry, NOT loop)
@@ -220,17 +240,53 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
         //  retry (event-driven, not loop)
         exports.assignNextServicer({ bookingId, coordinates, io });
-    }, 150000);
+    }, 150000); //  2.5 minutes
 };
 
-exports.servicerAccept = async (bookingId, employeeId, io) => {
-    const employee = await SingleEmployee.findOne({
-        _id: employeeId,
-        offerBookingId: bookingId,
-        availabilityStatus: "OFFERED",
-    });
+// exports.servicerAccept = async (bookingId, employeeId, io) => {
+//     const employee = await SingleEmployee.findOne({
+//         _id: employeeId,
+//         offerBookingId: bookingId,
+//         availabilityStatus: "OFFERED",
+//     });
 
-    if (!employee) return;
+//     if (!employee) return;
+//     const booking = await Booking.findOneAndUpdate(
+//         {
+//             _id: bookingId,
+//             primaryEmployee: null,
+//             status: BOOKING_STATUS.PENDING,
+//         },
+//         {
+//             $set: {
+//                 primaryEmployee: employeeId,
+//                 employees: [employeeId],
+//             },
+//         },
+//         { new: true }
+//     );
+//     if (!booking) {
+//         await SingleEmployee.findByIdAndUpdate(employeeId, {
+//             availabilityStatus: "AVAILABLE",
+//             offerBookingId: null,
+//         });
+//         return;
+//     }
+//     // console.log(booking);
+//     await SingleEmployee.findByIdAndUpdate(employeeId, {
+//         availabilityStatus: "BUSY",
+//         offerBookingId: null,
+//     });
+
+//     const user = await User.findById(booking.user).select("socketId");
+//     if (user?.socketId) {
+//         console.log("Emitting servicer-accepted to user:", user.socketId, bookingId);
+//         io.to(user.socketId).emit("servicer-accepted", booking);
+//     }
+// };
+
+exports.servicerAccept = async (bookingId, employeeId, io) => {
+    // 1️⃣ Assign employee to booking
     const booking = await Booking.findOneAndUpdate(
         {
             _id: bookingId,
@@ -246,25 +302,30 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
         { new: true }
     );
 
-    if (!booking) {
-        await SingleEmployee.findByIdAndUpdate(employeeId, {
-            availabilityStatus: "AVAILABLE",
-            offerBookingId: null,
+    if (!booking) return;
+
+    // 2️⃣ 🔐 GENERATE OTP IMMEDIATELY AFTER ACCEPT
+    const { booking: updatedBooking, otp } =
+        await this.generateStartOTP(booking._id);
+
+    console.log("🔐 OTP GENERATED:", otp);
+
+    // 3️⃣ Notify USER with booking + OTP
+    const user = await User.findById(updatedBooking.user).select("socketId");
+
+    if (user?.socketId) {
+        io.to(user.socketId).emit("servicer-accepted", {
+            booking: updatedBooking,
+            otp,
         });
-        return;
     }
 
-    await SingleEmployee.findByIdAndUpdate(employeeId, {
-        availabilityStatus: "BUSY",
-        offerBookingId: null,
-    });
-
-    const user = await User.findById(booking.user).select("socketId");
-    if (user?.socketId) {
-        io.to(user.socketId).emit("servicer-accepted", booking);
+    // 4️⃣ (Optional) Notify PROVIDER booking confirmed
+    const employee = await SingleEmployee.findById(employeeId);
+    if (employee?.socketId) {
+        io.to(employee.socketId).emit("booking-confirmed", { booking: updatedBooking, otp });
     }
 };
-
 
 
 exports.servicerReject = async ({ bookingId, employeeId, coordinates, io }) => {
@@ -590,6 +651,9 @@ exports.generateStartOTP = async (bookingId) => {
 
     booking.StartWorkOTP = otp;
     await booking.save();
+    console.log("Stored OTP:", booking.StartWorkOTP);
+    console.log("Received OTP:", otp);
+
 
     return { booking, otp };
 };
@@ -786,9 +850,14 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost }) => {
         employeeId,
         parts,
         totalCost: totalCost ?? null,
-        status: "requested",
+        status: "REQUESTED",
         approvalByUser: false,
         otp: null,
+    });
+    io.to(booking.userId.toString()).emit("tool-request-created", {
+        requestId: partRequest._id,
+        parts,
+        totalCost,
     });
 
     return partRequest;
@@ -796,32 +865,37 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost }) => {
 
 exports.generateToolOTP = async (requestId) => {
 
-  const req = await PartRequest.findOne({
-    _id: requestId,
-    status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
-  });
+    const req = await PartRequest.findOne({
+        _id: requestId,
+        status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
+    });
 
-  if (!req) {
-    throw new Error("OTP can only be generated after shop acceptance");
-  }
+    if (!req) {
+        throw new Error("OTP can only be generated after shop acceptance");
+    }
 
-  // Generate 4-digit OTP
-  const otp = Math.floor(1000 + Math.random() * 9000);
+    // Generate 4-digit OTP
+    const otp = Math.floor(1000 + Math.random() * 9000);
 
-  req.otp = otp;
-  await req.save();
+    req.otp = otp;
+    await req.save();
+    io.to(employee.socketId).emit("tool-otp-generated", {
+        requestId,
+        otp,
+    });
 
-  return {
-    requestId: req._id,
-    otp,
-  };
+
+    return {
+        requestId: req._id,
+        otp,
+    };
 };
 exports.verifyPartOTP = async (requestId, otp) => {
 
     //  Validate request
     const req = await PartRequest.findOne({
         _id: requestId,
-        status: "approved",      
+        status: "approved",
         otp: Number(otp),
     });
 

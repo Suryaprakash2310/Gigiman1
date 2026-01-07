@@ -4,6 +4,7 @@ const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
 const PartRequest = require("../models/partsrequest.model");
 const Booking = require("../models/Booking.model");
+const mongoose = require("mongoose");
 
 const {
   servicerAccept,
@@ -19,7 +20,7 @@ const {
 } = require("../services/booking.service");
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-const mongoose = require("mongoose");
+//const mongoose = require("mongoose");
 
 const isValidId = id =>
   id && mongoose.Types.ObjectId.isValid(id);
@@ -33,16 +34,22 @@ module.exports = (io) => {
     =============================== */
     socket.on("register-user", async ({ userId }) => {
       await User.findByIdAndUpdate(userId, { socketId: socket.id });
+      console.log("✅ User registered:", userId, socket.id);
+      const updated = await User.findByIdAndUpdate(
+        userId,
+        { socketId: socket.id },
+        { new: true }
+      );
+
+      console.log("✅ User after socket save:", updated);
     });
 
     socket.on("register-employee", async ({ employeeId }) => {
       if (!mongoose.Types.ObjectId.isValid(employeeId)) return;
       await SingleEmployee.findByIdAndUpdate(employeeId, {
         socketId: socket.id,
-        isActive: true,
       });
     });
-
     socket.on("register-team", async ({ teamId }) => {
       await MultipleEmployee.findByIdAndUpdate({ _id: teamId }, {
         socketId: socket.id,
@@ -51,22 +58,49 @@ module.exports = (io) => {
     });
 
     socket.on("register-toolshop", async ({ shopId }) => {
-      await ToolShop.findByIdAndUpdate(shopId, { socketId: socket.id });
+      if (!shopId || !mongoose.Types.ObjectId.isValid(shopId)) {
+        console.warn("❌ Invalid shopId:", shopId);
+        return;
+      }
+
+      await ToolShop.findByIdAndUpdate(shopId, {
+        socketId: socket.id,
+      });
     });
     /* ===============================
        ACCEPT / REJECT
     =============================== */
-    socket.on("servicer-accept", ({ bookingId, employeeId }) =>
-      servicerAccept(bookingId, employeeId, io)
-    );
+    socket.on("servicer-accept", async ({ bookingId, employeeId }) => {
+      try {
+        if (!io) {
+          console.error("IO instance missing for booking:", bookingId);
+          return;
+        }
+        await servicerAccept(bookingId, employeeId, io);
+      } catch (err) {
+        console.error("servicer-accept error:", err);
+      }
+    });
 
-    socket.on("servicer-reject", ({ bookingId }) =>
-      servicerReject(bookingId, io)
-    );
+    socket.on("servicer-reject", async ({ bookingId, employeeId }) => {
+      try {
+        if (!io) {
+          console.error("IO instance missing for booking:", bookingId);
+          return;
+        }
+        await servicerReject({ bookingId, employeeId, io });
+      } catch (err) {
+        console.error("servicer-reject error:", err);
+      }
+    });
+    socket.on("team-accept", ({ bookingId, teamId }) => {
 
-    socket.on("team-accept", ({ bookingId, teamId }) =>
+      if (!io) {
+        console.error("IO instance missing for booking:", bookingId);
+        return;
+      }
       teamAccept(bookingId, teamId, io)
-    );
+    });
 
     socket.on("team-reject", ({ bookingId }) =>
       teamReject(bookingId, io)
@@ -162,6 +196,7 @@ module.exports = (io) => {
     });
 
     socket.on("verify-start-otp", async ({ bookingId, otp }) => {
+      console.log("🔐 OTP VERIFY REQUEST", bookingId, otp);
       const result = await verifyStartOTP(bookingId, otp);
       if (!result.success) {
         return socket.emit("otp-failed");

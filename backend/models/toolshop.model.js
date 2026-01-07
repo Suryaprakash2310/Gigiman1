@@ -78,6 +78,9 @@ const toolshopSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+toolshopSchema.index({ location: "2dsphere" });
+
+
 // Auto-generate Tool Shop ID (T1, T2, T3 ...)
 toolshopSchema.pre("save", async function (next) {
   if (this.toolShopId) return next();

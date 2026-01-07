@@ -6,7 +6,7 @@ const DomainService = require("../models/domainservice.model");
 const EmployeeService = require("../models/employeeService.model");
 const { maskPhone } = require("../utils/crypto");
 const { encryptAadhaar, hashAadhaar, maskAadhaar } = require('../utils/aadharUtils');
-
+const axios = require('axios');
 // Generate JWT token
 const generateToken = (user) => {
   return jwt.sign(
@@ -28,6 +28,7 @@ exports.registerEmployee = async (req, res) => {
     if (!fullname || !phoneNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
+
     if (role !== ROLES.SINGLE_EMPLOYEE) {
       return res.status(400).json({ message: "Invalid role" });
     }
@@ -44,7 +45,9 @@ exports.registerEmployee = async (req, res) => {
     });
 
     if (existingEmployee) {
-      return res.status(400).json({ message: "Employee already registered with this phone or Aadhaar" });
+      return res.status(400).json({
+        message: "Employee already registered with this phone or Aadhaar",
+      });
     }
     let address = null;
     if (latitude && longitude) {
@@ -56,6 +59,7 @@ exports.registerEmployee = async (req, res) => {
         },
       });
       address = geoRes.data.features[0]?.place_name || null;
+      console.log("Resolved address:", address);
     }
     // 4. SERVICE VALIDATION (NEW PART)
     if (!Array.isArray(services) || services.length === 0) {
@@ -66,13 +70,15 @@ exports.registerEmployee = async (req, res) => {
       return res.status(400).json({ message: "Maximum 3 services allowed" });
     }
 
-    // Validate service IDs exist
-    const validServices = await DomainService.find({ _id: { $in: services } });
+    const validServices = await DomainService.find({
+      _id: { $in: services },
+    });
 
     if (validServices.length !== services.length) {
       return res.status(400).json({ message: "One or more services not found" });
     }
-    // 5. Create new employee
+
+    // Create employee  
     const employee = await SingleEmployee.create({
       fullname,
       phoneNo,
@@ -93,18 +99,18 @@ exports.registerEmployee = async (req, res) => {
 
     // 6. Create EmployeeService entry
     await EmployeeService.create({
-      employeeId: employee._id,   // store the userId
-      capableservice: services    // store the selected 1–3 service IDs
+      employeeId: employee._id,
+      capableservice: services,
     });
 
-    // 7. Return response with token
+    // Response  
     res.status(201).json({
       id: employee._id,
       empId: employee.empId,
       fullname: employee.fullname,
       phoneNo: employee.phoneMasked,
       address: employee.address,
-      aadhaarNo: employee.aadhaarMasked, // only last 4 digits
+      aadhaarNo: employee.aadhaarMasked,
       role: employee.role,
       verified: employee.verified,
       servicesAssigned: services,
@@ -119,6 +125,7 @@ exports.registerEmployee = async (req, res) => {
     });
   }
 };
+
 //Accept request by the singleEmployee
 exports.acceptTeamRequest = async (req, res) => {
   try {

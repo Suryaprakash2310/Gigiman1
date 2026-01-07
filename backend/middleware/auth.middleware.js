@@ -1,8 +1,7 @@
-const Admin = require("../models/admin.model");
 const multipleEmployee = require("../models/multipleEmployee.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const Shop = require("../models/toolshop.model");
-const jwt=require("jsonwebtoken");
+const jwt = require("jsonwebtoken");
 
 exports.protect = async (req, res, next) => {
   try {
@@ -14,22 +13,24 @@ exports.protect = async (req, res, next) => {
 
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_KEY);
-
+    console.log(decoded.id);
+    console.log(token);
     // Find user by decoded.id (Mongo _id)
     let employee =
       (await SingleEmployee.findById(decoded.id)) ||
       (await multipleEmployee.findById(decoded.id)) ||
-      (await Shop.findById(decoded.id))||
-      (await Admin.findById(decoded.id));
+      (await Shop.findById(decoded.id));
 
     if (!employee) {
-      return res.status(404).json({ message: "User not found" });
+      console.log("here is th eerror")
+      return res.status(404).json({ message: "employee not found" });
     }
 
     // Attach to request
-    req.employee = employee;          // full user data
-    req.employeeId = decoded.employeeId; // empId, TeamId, or shopId
-    req.role = employee.role; 
+    req.employee = employee;
+    req.employeeId =  employee._id;
+    req.role = employee.role;
+
 
     next();
 

@@ -3,7 +3,8 @@ const mongoose = require("mongoose");
 const Booking = require("../models/Booking.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
-
+const PartRequest = require('../models/partsrequest.model');
+const Domainparts = require('../models/domainparts.model');
 const {
   findNearbyTeams,
   createBooking,
@@ -23,7 +24,7 @@ const {
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const PAYMENT_STATUS = require("../enum/payment.enum");
-
+const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
@@ -58,7 +59,7 @@ exports.autoAssignServicer = async (req, res) => {
       coordinates,
       serviceCount = 1,
     } = req.body;
-
+    const io = req.app.get("io");
     /* -------------------------
        Validate user + socket
     ------------------------- */
@@ -106,15 +107,14 @@ exports.autoAssignServicer = async (req, res) => {
         bookingId: booking._id,
       });
     }
-
-    /* ======================================================
+    /* =======f===============================================
         START AUTO-ASSIGN QUEUE
     ====================================================== */
     if (result.type === "single") {
       assignNextServicer({
         bookingId: booking._id.toString(),
         coordinates: result.coordinates,
-        io: req.io,
+        io,
       });
 
     } else {
@@ -253,21 +253,140 @@ exports.verifystartOTPcontroller = async (req, res) => {
 /* ======================================================
    TOOL REQUEST
 ====================================================== */
+// exports.requestToolController = async (req, res) => {
+//   try {
+//     const { bookingId, toolName } = req.body;
+//     const booking = await requestTool(bookingId, toolName);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Tool request sent",
+//       booking,
+//     });
+//   } catch (err) {
+//     console.error("requestTool error:", err.message);
+//     return res.status(500).json({ message: err.message });
+//   }
+// };
+
 exports.requestToolController = async (req, res) => {
   try {
-    const { bookingId, toolName } = req.body;
-    const booking = await requestTool(bookingId, toolName);
+    const employeeId = req.employeeId;
+    console.log(employeeId) // ✅ from employee middleware
+    const { bookingId, parts = [], totalCost } = req.body;
+    console.log("REQUEST BODY:", req.body);
 
-    return res.status(200).json({
-      success: true,
-      message: "Tool request sent",
-      booking,
+    // Resolve partsId: accept provided `partsId` or lookup by part name
+    const resolvedParts = await Promise.all(
+      parts.map(async (p) => {
+        const providedId = p.partsId || p.partId || p._id;
+        if (providedId) {
+          return {
+            partsId: providedId,
+            partName: p.partsname || p.partName || "",
+            quantity: p.quantity,
+            price: p.price,
+          };
+        }
+
+        const name = p.partsname || p.partName;
+        if (!name) throw new Error("partsId or partName is required for each part");
+
+        const domainPart = await Domainparts.findOne({ partName: name });
+        if (!domainPart) throw new Error(`Domain part not found: ${name}`);
+
+        return {
+          partsId: domainPart._id,
+          partName: domainPart.partName,
+          quantity: p.quantity,
+          price: p.price != null ? p.price : domainPart.price,
+        };
+      })
+    );
+
+    // Compute total cost if not provided
+    const computedTotalCost =
+      totalCost != null
+        ? totalCost
+        : resolvedParts.reduce((sum, r) => sum + (r.price || 0) * (r.quantity || 0), 0);
+
+    const partRequest = await requestTool({
+      bookingId,
+      employeeId,
+      parts: resolvedParts,
+      totalCost: computedTotalCost,
+      status: PART_REQUEST_STATUS.PENDING,
+      approvalByUser: false,
     });
+    // 🔔 notify user
+    req.io.to(`booking_${bookingId}`).emit("part-request-created", {
+      requestId: partRequest._id,
+      totalCost,
+    });
+
+    return res.status(201).json({
+      success: true,
+      request: partRequest,
+    });
+
   } catch (err) {
     console.error("requestTool error:", err.message);
-    return res.status(500).json({ message: err.message });
+    res.status(500).json({ message: err.message });
   }
 };
+
+
+
+
+// controllers/partApproval.controller.js
+exports.approvePartRequest = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(403).json({ message: "Only user can approve parts" });
+    }
+
+    const { requestId } = req.params;
+
+    const partRequest = await PartRequest.findById(requestId);
+    if (!partRequest) {
+      return res.status(404).json({ message: "Part request not found" });
+    }
+
+    // 🔒 Ensure booking belongs to this user
+    const booking = await Booking.findOne({
+      _id: partRequest.bookingId,
+      user: req.user._id,
+    }).populate('user');
+    console.log(booking);
+    if (!booking) {
+      return res.status(403).json({ message: "Unauthorized booking" });
+    }
+
+    // ✅ Approve
+    partRequest.approvalByUser = true;
+    partRequest.status = "APPROVED_BY_USER";
+    await partRequest.save();
+
+    // 🔔 Notify employee
+    req.io
+      .to(`employee_${partRequest.employeeId}`)
+      .emit("tool-permission-approved", {
+        requestId: partRequest._id,
+        bookingId: partRequest.bookingId,
+      });
+
+    res.status(200).json({
+      success: true,
+      message: "Parts approved",
+    });
+  } catch (err) {
+    console.error("approvePartRequest:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
 
 /* ======================================================
    NEARBY TOOL SHOPS
@@ -359,6 +478,33 @@ exports.verifyPartOTPcontroller = async (req, res) => {
   } catch (err) {
     console.error("verifyPartOtp error:", err.message);
     return res.status(500).json({ message: err.message });
+  }
+};
+exports.getBookingById = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const booking = await Booking.findById(bookingId)
+      .populate("primaryEmployee", "fullname phoneNo")
+      .populate("employees", "fullname phoneNo");
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      booking,
+    });
+  } catch (err) {
+    console.error("getBookingById error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 
