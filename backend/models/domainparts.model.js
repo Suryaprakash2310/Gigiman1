@@ -1,32 +1,33 @@
 const mongoose = require('mongoose');
 
 const domainPartSchema = mongoose.Schema({
-    
-    partName: {
-        type: String,
-        required: true,
-        unique: true
-    },
-
-    categoryName: {
-        type: String,
+    domainPartsName: {
+        type: String, 
         required: true,
     },
 
-    price: {
-        type: Number,
-        required: true,
-        min: 0
-    },
-    isActive: {
-        type: Boolean,
-        default: true
-    }
+    parts: [
+        {
+            partName: {
+                type: String,
+                required: true,
+            },
+            price: {
+                type: Number,
+                required: true,
+                min: 0,
+            },
+            isActive: {
+                type: Boolean,
+                default: true,
+            }
+        }
+    ],
 
 }, { timestamps: true });
 
-// FAST SEARCH
-domainPartSchema.index({ partName: "text" });
-domainPartSchema.index({ categoryName: 1 });
+// Fast search
+domainPartSchema.index({ "parts.partName": "text" });
+domainPartSchema.index({ domainPartsName: 1 });
 
 module.exports = mongoose.model("Domainparts", domainPartSchema);
