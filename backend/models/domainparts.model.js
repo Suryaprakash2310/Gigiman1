@@ -17,10 +17,10 @@ const domainPartSchema = mongoose.Schema({
                 required: true,
                 min: 0,
             },
-            isActive: {
-                type: Boolean,
-                default: true,
-            }
+            // isActive: {
+            //     type: Boolean,
+            //     default: true,
+            // }
         }
     ],
 
