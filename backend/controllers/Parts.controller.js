@@ -7,8 +7,8 @@ const mongoose = require("mongoose");
 exports.showCategories = async (req, res) => {
   try {
     const categories = await Domainparts.aggregate([
-      { $project: { _id: 1, domaintoolname: 1 } },
-      { $sort: { domaintoolname: 1 } },
+      { $project: { _id: 1, domainPartsName: 1 } },
+      { $sort: { domainPartsName: 1 } },
     ]);
     res.status(200).json({
       success: true,
