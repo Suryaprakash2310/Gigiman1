@@ -4,7 +4,9 @@ const SingleEmployee = require('../models/singleEmployee.model');
 const ROLES = require('../enum/role.enum');
 const DomainService = require('../models/domainservice.model')
 const EmployeeService = require("../models/employeeService.model");
-const { maskPhone  } = require('../utils/crypto');
+const { maskPhone } = require('../utils/crypto');
+const axios = require('axios');
+
 // Generate JWT token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
@@ -13,10 +15,10 @@ const generateToken = (id) => {
 //registeration for multiple employee
 exports.multipleEmployeeRegister = async (req, res) => {
   try {
-    const { storeName, ownerName, storeLocation, phoneNo, role, services } = req.body;
+    const { storeName, ownerName, latitude, longitude, phoneNo, role, services } = req.body;
 
     // 1. Required fields
-    if (!storeName || !ownerName  || !storeLocation || !phoneNo) {
+    if (!storeName || !ownerName || !latitude || !longitude || !phoneNo) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
@@ -26,9 +28,21 @@ exports.multipleEmployeeRegister = async (req, res) => {
     }
     const maskedPhone = maskPhone(phoneNo);
     // 3. Check duplicate phone
-    const existingEmployee = await MultipleEmployee.findOne({phoneNo });
+    const existingEmployee = await MultipleEmployee.findOne({ phoneNo });
     if (existingEmployee) {
       return res.status(400).json({ message: "Employee already registered" });
+    }
+     let address = null;
+    if (latitude && longitude) {
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json`;
+      const geoRes = await axios.get(url, {
+        params: {
+          access_token: MAP_BOX_TOKEN,
+          limit: 1,
+        },
+      });
+      address = geoRes.data.features[0]?.place_name || null;
+      console.log("Resolved address:", address);
     }
 
     // 4. Validate services
@@ -50,10 +64,14 @@ exports.multipleEmployeeRegister = async (req, res) => {
     const employee = await MultipleEmployee.create({
       storeName,
       ownerName,
-      storeLocation,
+      storeLocation:address,
       phoneNo,
       phoneMasked: maskedPhone,
-      role: ROLES.MULTIPLE_EMPLOYEE
+      role: ROLES.MULTIPLE_EMPLOYEE,
+      location:{
+        type:"Point",
+        coordinates:[longitude,latitude],
+      }
     });
 
     // 6. Save MultipleEmployee services (same as SingleEmployee)
@@ -98,7 +116,7 @@ exports.showSingleEmployee = async (req, res) => {
       message: "Registered single employees list",
       employees,
     })
-  } 
+  }
   catch (err) {
     console.error("Error for showSingleEmployee", err.message);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -199,7 +217,7 @@ exports.removeMembersFromTeam = async (req, res) => {
     await employee.save();
 
     res.status(200).json({
-      success:true,
+      success: true,
       message: `Employee ${empId} removed from your team successfully.`,
       team,
     });
@@ -282,22 +300,22 @@ exports.SearchSingleEmployee = async (req, res) => {
   }
 }
 
-exports.getpendingDetails=async(req,res)=>{
-  try{
-    const loggedInEmp=req.employee;
-    const team=await MultipleEmployee.findOne({_id:loggedInEmp._id})
-    .populate("pendingRequests","fullName empId teamAccepted")
-    .populate("members","fullName empId teamAccepted")
-    if(!team){
-      return res.status(400).json({message:"team not found"});
+exports.getpendingDetails = async (req, res) => {
+  try {
+    const loggedInEmp = req.employee;
+    const team = await MultipleEmployee.findOne({ _id: loggedInEmp._id })
+      .populate("pendingRequests", "fullName empId teamAccepted")
+      .populate("members", "fullName empId teamAccepted")
+    if (!team) {
+      return res.status(400).json({ message: "team not found" });
     }
     res.status(200).json({
-      success:true,
+      success: true,
       team,
     })
   }
-  catch(err){
-    return res.status(500).json({message:"server Error"});
+  catch (err) {
+    return res.status(500).json({ message: "server Error" });
   }
 }
 
@@ -325,7 +343,7 @@ exports.updateTeamMembers = async (req, res) => {
     // Validate helpers exist
     let helpers = [];
     if (helperEmpIds && helperEmpIds.length > 0) {
-      const helperIds = helperEmpIds.map((h) => h); 
+      const helperIds = helperEmpIds.map((h) => h);
       helpers = await SingleEmployee.find({
         empId: { $in: helperIds },
       });
