@@ -3,7 +3,7 @@ const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
 const Domainparts = require('../models/domainparts.model');
 const { maskPhone } = require('../utils/crypto');
-const axis=require('axios');
+const axios=require('axios');
 
 // JWT creator
 const generateToken = (id) => {
