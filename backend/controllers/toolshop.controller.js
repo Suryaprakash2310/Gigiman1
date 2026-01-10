@@ -6,8 +6,16 @@ const { maskPhone } = require('../utils/crypto');
 const axios=require('axios');
 
 // JWT creator
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
+const generateToken = (tool) => {
+  return jwt.sign(
+    {
+      id: tool._id,
+      employeeId: tool.empId,
+      role: tool.role
+    },
+    process.env.JWT_KEY,
+    { expiresIn: '7d' }
+  );
 };
 
 exports.registerShop = async (req, res) => {
