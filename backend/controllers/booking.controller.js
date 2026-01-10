@@ -122,7 +122,7 @@ exports.autoAssignServicer = async (req, res) => {
         bookingId: booking._id.toString(),
         coordinates: result.coordinates,
         employeeCount: result.employeeCount,
-        io: req.io,
+        io: io,
       });
     }
 
@@ -276,11 +276,21 @@ exports.requestToolController = async (req, res) => {
     const { bookingId, parts = [], totalCost } = req.body;
     console.log("REQUEST BODY:", req.body);
 
+    const io = (req.app && req.app.get && req.app.get("io")) || req.io || null;
+
     // Resolve partsId: accept provided `partsId` or lookup by part name
     const resolvedParts = await Promise.all(
       parts.map(async (p) => {
-        const providedId = p.partsId || p.partId || p._id;
+        let providedId = p.partsId || p.partId || p._id;
         if (providedId) {
+          if (typeof providedId === "string") {
+            const match = providedId.match(/[0-9a-fA-F]{24}/);
+            if (match) {
+              providedId = match[0];
+            } else if (!mongoose.Types.ObjectId.isValid(providedId)) {
+              throw new Error(`Invalid partsId: ${providedId}`);
+            }
+          }
           return {
             partsId: providedId,
             partName: p.partsname || p.partName || "",
@@ -317,12 +327,15 @@ exports.requestToolController = async (req, res) => {
       totalCost: computedTotalCost,
       status: PART_REQUEST_STATUS.PENDING,
       approvalByUser: false,
+      io,
     });
-    // 🔔 notify user
-    req.io.to(`booking_${bookingId}`).emit("part-request-created", {
-      requestId: partRequest._id,
-      totalCost,
-    });
+    // 🔔 notify user (if socket server available)
+    if (io) {
+      io.to(`booking_${bookingId}`).emit("part-request-created", {
+        requestId: partRequest._id,
+        totalCost,
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -341,6 +354,7 @@ exports.requestToolController = async (req, res) => {
 // controllers/partApproval.controller.js
 exports.approvePartRequest = async (req, res) => {
   try {
+    console.log("approvePartRequest called with params:", req.params);
     if (!req.user) {
       return res.status(403).json({ message: "Only user can approve parts" });
     }
@@ -368,12 +382,13 @@ exports.approvePartRequest = async (req, res) => {
     await partRequest.save();
 
     // 🔔 Notify employee
-    req.io
-      .to(`employee_${partRequest.employeeId}`)
-      .emit("tool-permission-approved", {
+    const notifyIo = (req.app && req.app.get && req.app.get("io")) || req.io || null;
+    if (notifyIo) {
+      notifyIo.to(`employee_${partRequest.employeeId}`).emit("tool-permission-approved", {
         requestId: partRequest._id,
         bookingId: partRequest.bookingId,
       });
+    }
 
     res.status(200).json({
       success: true,
@@ -414,10 +429,11 @@ exports.autoAssignToolShop = async (req, res) => {
       return res.status(404).json({ message: "Part request not found" });
     }
 
+    const assignIo = (req.app && req.app.get && req.app.get("io")) || req.io || null;
     await assignNextToolshop({
       requestId,
       coordinates: partRequest.bookingId.location.coordinates,
-      io: req.io,
+      io: assignIo,
     });
 
     return res.status(200).json({
@@ -443,7 +459,8 @@ exports.generateToolOTPController = async (req, res) => {
       return res.status(400).json({ message: "requestId is required" });
     }
 
-    const result = await generateToolOTP(requestId);
+    const genIo = (req.app && req.app.get && req.app.get("io")) || req.io || null;
+    const result = await generateToolOTP(requestId, genIo);
 
     return res.status(200).json({
       success: true,

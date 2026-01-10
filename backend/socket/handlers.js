@@ -65,6 +65,7 @@ module.exports = (io) => {
 
       await ToolShop.findByIdAndUpdate(shopId, {
         socketId: socket.id,
+        isActive: true,
       });
     });
     /* ===============================
