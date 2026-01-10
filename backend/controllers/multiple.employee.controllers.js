@@ -8,10 +8,17 @@ const { maskPhone } = require('../utils/crypto');
 const axios = require('axios');
 
 // Generate JWT token
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
+const generateToken = (emp) => {
+  return jwt.sign(
+    {
+      id: emp._id,
+      employeeId: emp.empId,
+      role: emp.role
+    },
+    process.env.JWT_KEY,
+    { expiresIn: '7d' }
+  );
 };
-
 //registeration for multiple employee
 exports.multipleEmployeeRegister = async (req, res) => {
   try {
