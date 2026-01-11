@@ -18,10 +18,12 @@ exports.adminLogin = async (req, res) => {
       return res.status(400).json({ message: "Invalid password" });
     }
     const token = jwt.sign(
-      { id: admin._id, role: "admin" },
+      { id: admin._id, role: admin.role },
       process.env.JWT_KEY,
       { expiresIn: "7d" }
     );
+
+
     res.json({
       message: "Admin login successfully",
       token,
@@ -112,7 +114,7 @@ exports.setServiceList = async (req, res) => {
   try {
     const {
       DomainServiceId,
-      serviceId,                 // 👈 IMPORTANT
+      serviceId,
       serviceName,
       serviceCategoryName,
       description,
@@ -275,27 +277,42 @@ exports.DeleteDomainService = async (req, res) => {
   }
 };
 
+
+// exports.getServiceCategories = async (req, res) => {
+//   try {
+//     const { DomainServiceId } = req.params;
+
+//     const services = await ServiceList.find({ DomainServiceId });
+
+//     if (!services.length) {
+//       return res.status(404).json({ message: "No services found" });
+//     }
+
+//     const categories = services.flatMap(
+//       service => service.serviceCategory
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       serviceCategory: categories,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
 exports.getServiceCategories = async (req, res) => {
-  try {
-    const { serviceName } = req.params;
+  const { DomainServiceId } = req.params;
 
-    const service = await ServiceList.findOne(
-      { serviceName },
-      { serviceCategory: 1 }
-    );
-
-    if (!service) {
-      return res.json({ categories: [] });
+  const services = await ServiceList.find(
+    { DomainServiceId },
+    {
+      serviceName: 1,
+      DomainServiceId: 1, // optional
     }
+  );
 
-    return res.json({
-      categories: service.serviceCategory.map(cat => ({
-        _id: cat._id,
-        serviceCategoryName: cat.serviceCategoryName
-      }))
-    });
-
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
+  res.status(200).json({
+    services, // _id is ServiceList._id ✅
+  });
 };
