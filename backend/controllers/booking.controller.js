@@ -271,8 +271,7 @@ exports.verifystartOTPcontroller = async (req, res) => {
 
 exports.requestToolController = async (req, res) => {
   try {
-    const employeeId = req.employeeId;
-    console.log(employeeId) // ✅ from employee middleware
+    const employeeId = req.employeeId;// ✅ from employee middleware
     const { bookingId, parts = [], totalCost } = req.body;
     console.log("REQUEST BODY:", req.body);
 

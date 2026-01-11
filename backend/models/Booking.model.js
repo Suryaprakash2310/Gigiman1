@@ -145,7 +145,10 @@ const bookingSchema = mongoose.Schema({
     razorpayOrderId: String,
     razorpayOrderPaymentId: String,
     razorpaySignature: String,
-
+    employeeCount:{
+        type: Number,
+        default:1,
+    }
 }, { timestamps: true });
 
 bookingSchema.index({ location: "2dsphere" });
