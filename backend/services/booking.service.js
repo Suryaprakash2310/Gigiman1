@@ -115,15 +115,15 @@ exports.findNearbyTeams = async ({
                 near: { type: "Point", coordinates: [lng, lat] },
                 key: "location",
                 distanceField: "distance",
-                maxDistance: radiusInMeters,
                 spherical: true,
                 query: {
                     isActive: true,
+                    teamStatus: "AVAILABLE",
                     $or: [
                         { blockedUntil: null },
                         { blockedUntil: { $lte: new Date() } }
                     ],
-                    members: { $in: capableEmployeeIds },
+                    members: { $in: capableObjectIds }
                 }
             }
         },
@@ -135,11 +135,9 @@ exports.findNearbyTeams = async ({
             }
         },
         {
-            // optional: sort by nearest
             $sort: { distance: 1 }
         },
         {
-            // populate leader manually
             $lookup: {
                 from: "singleemployees",
                 localField: "leader",
@@ -154,6 +152,7 @@ exports.findNearbyTeams = async ({
             }
         }
     ]);
+
     return {
         type: "team",
         data: teams,
@@ -549,7 +548,7 @@ exports.createBooking = async ({
         const booking = await Booking.create({
             user: userId,
             serviceType: "single",
-            primaryEmployee: null,     // 🔑 assigned after accept
+            primaryEmployee: null,     //  assigned after accept
             employees: [],
             serviceCategoryName,
             domainService,
@@ -825,58 +824,59 @@ exports.toolshopReject = async ({ requestId, shopId, io }) => {
 ====================================================== */
 exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) => {
 
-  // 1️⃣ Validate booking
-  const booking = await Booking.findOne({
-    _id: bookingId,
-    primaryEmployee: employeeId,
-    status: BOOKING_STATUS.IN_PROGRESS,
-  });
+    // 1️⃣ Validate booking
+    const booking = await Booking.findOne({
+        _id: bookingId,
+        primaryEmployee: employeeId,
+        status: BOOKING_STATUS.IN_PROGRESS,
+    });
 
-  if (!booking) {
-    throw new Error("Invalid booking or employee not assigned");
-  }
+    if (!booking) {
+        throw new Error("Invalid booking or employee not assigned");
+    }
 
-  // 2️⃣ Prevent duplicate active requests (ENUM SAFE)
-  const existing = await PartRequest.findOne({
-    bookingId,
-    status: {
-      $in: [
-        PART_REQUEST_STATUS.REQUESTED,
-        PART_REQUEST_STATUS.APPROVED_BY_USER,
-        PART_REQUEST_STATUS.WAITING_TOOLSHOP,
-      ],
-    },
-  });
+    // 2️⃣ Prevent duplicate active requests (ENUM SAFE)
+    const existing = await PartRequest.findOne({
+        bookingId,
+        status: {
+            $in: [
+                PART_REQUEST_STATUS.REQUESTED,
+                PART_REQUEST_STATUS.APPROVED_BY_USER,
+                PART_REQUEST_STATUS.WAITING_TOOLSHOP,
+            ],
+        },
+    });
 
-  if (existing) {
-    throw new Error("Active part request already exists");
-  }
+    if (existing) {
+        throw new Error("Active part request already exists");
+    }
 
-  // 3️⃣ Create part request
-  const partRequest = await PartRequest.create({
-    bookingId,
-    employeeId,
-    parts,
-    totalCost,
-    status: PART_REQUEST_STATUS.REQUESTED,
-    approvalByUser: false,
-    otp: null,
-  });
+    // 3️⃣ Create part request
+    const partRequest = await PartRequest.create({
+        bookingId,
+        employeeId,
+        parts,
+        totalCost,
+        status: PART_REQUEST_STATUS.REQUESTED,
+        approvalByUser: false,
+        otp: null,
+    });
 
-  // 4️⃣ Emit to USER (best-effort)
-  if (io && booking.user) {
-    console.log("Emitting tool-request-created to user:", booking.user.toString());
-    io.to(booking.user.toString()).emit("tool-request-created", {
-      requestId: partRequest._id,
-      parts,
-      totalCost,
-    },(ack) => {
-      if (!ack) {
-        console.log("++++++++++++++User did not acknowledge part request");
-      } });
-  }
+    // 4️⃣ Emit to USER (best-effort)
+    if (io && booking.user) {
+        console.log("Emitting tool-request-created to user:", booking.user.toString());
+        io.to(booking.user.toString()).emit("tool-request-created", {
+            requestId: partRequest._id,
+            parts,
+            totalCost,
+        }, (ack) => {
+            if (!ack) {
+                console.log("++++++++++++++User did not acknowledge part request");
+            }
+        });
+    }
 
-  return partRequest;
+    return partRequest;
 };
 
 

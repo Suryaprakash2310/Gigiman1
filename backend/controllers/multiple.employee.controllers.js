@@ -39,7 +39,7 @@ exports.multipleEmployeeRegister = async (req, res) => {
     if (existingEmployee) {
       return res.status(400).json({ message: "Employee already registered" });
     }
-     let address = null;
+    let address = null;
     if (latitude && longitude) {
       const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json`;
       const geoRes = await axios.get(url, {
@@ -71,13 +71,13 @@ exports.multipleEmployeeRegister = async (req, res) => {
     const employee = await MultipleEmployee.create({
       storeName,
       ownerName,
-      storeLocation:address,
+      storeLocation: address,
       phoneNo,
       phoneMasked: maskedPhone,
       role: ROLES.MULTIPLE_EMPLOYEE,
-      location:{
-        type:"Point",
-        coordinates:[longitude,latitude],
+      location: {
+        type: "Point",
+        coordinates: [longitude, latitude],
       }
     });
 
@@ -140,100 +140,98 @@ exports.requestToAddMember = async (req, res) => {
       return res.status(400).json({ message: "Employee ID is required" });
     }
 
-    // Find team of logged-in employee
     const team = await MultipleEmployee.findOne({ TeamId: loggedInEmp.TeamId });
     if (!team) {
-      return res.status(400).json({ message: "Team not found" });
+      return res.status(404).json({ message: "Team not found" });
     }
 
-    // Check if empId exists in SingleEmployee collection
-    const singleEmployee = await SingleEmployee.findOne({ empId });
-    if (!singleEmployee) {
-      return res.status(400).json({ message: "Employee not found" });
+    const employee = await SingleEmployee.findOne({ empId });
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
     }
 
-    // --- Check if request already exists ---
-    const alreadyRequested = team.pendingRequests.includes(empId);
+    if (employee.teamAccepted) {
+      return res.status(400).json({ message: "Employee already in a team" });
+    }
+
+    const empObjectId = employee._id;
+
+    const alreadyRequested = team.pendingRequests.some(id =>
+      id.equals(empObjectId)
+    );
 
     if (alreadyRequested) {
-      // REMOVE request (undo request)
-      team.pendingRequests.pull(empId);
+      team.pendingRequests.pull(empObjectId);
       await team.save();
 
       return res.status(200).json({
         success: true,
         action: "removed",
-        message: "Request removed (undo request)",
-        team,
+        message: "Request removed"
       });
     }
 
-    // --- Add request ---
-    team.pendingRequests.push(empId);
+    team.pendingRequests.push(empObjectId);
     await team.save();
 
     return res.status(200).json({
       success: true,
       action: "sent",
-      message: "Request sent successfully",
-      team,
+      message: "Request sent"
     });
 
   } catch (err) {
-    console.error("toggle pending request error:", err.message);
-    return res.status(500).json({
-      message: "Server error",
-      error: err.message,
-    });
+    console.error("requestToAddMember:", err.message);
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
 //Remove a singleEmployee from the logged in MultipleEmployee's team
 exports.removeMembersFromTeam = async (req, res) => {
   try {
-    const loggedInEmpId = req.employee;//Logged in employee
+    const loggedInEmp = req.employee;
     const { empId } = req.body;
-    //Check role
-    if (loggedInEmpId.role != ROLES.MULTIPLE_EMPLOYEE) {
-      return res.status(403).json({ message: "Only MultipleEmployee can remove Members" });
+
+    if (loggedInEmp.role !== ROLES.MULTIPLE_EMPLOYEE) {
+      return res.status(403).json({ message: "Only MultipleEmployee can remove members" });
     }
-    if (!empId) {
-      return res.status(400).json({ message: "empId is required" });
-    }
-    //Get the team of the logged-in MultipleEmployee
-    const team = await MultipleEmployee.findOne({ TeamId: loggedInEmpId.TeamId });
+
+    const team = await MultipleEmployee.findOne({ TeamId: loggedInEmp.TeamId });
     if (!team) {
-      return res.status(404).json({ message: "Team not found for this user" });
+      return res.status(404).json({ message: "Team not found" });
     }
-    //Find the Single Employee
+
     const employee = await SingleEmployee.findOne({ empId });
     if (!employee) {
-      return re.status(404).json({ message: "Employee not found" });
+      return res.status(404).json({ message: "Employee not found" });
     }
-    //check if the employee is actually a member
-    const memberIndex = team.members.indexOf(empId);
-    if (memberIndex === -1) {
-      return res.status(400).json({ messgae: "Employee is not a member of this team" });
+
+    const empObjectId = employee._id;
+
+    const index = team.members.findIndex(id =>
+      id.equals(empObjectId)
+    );
+
+    if (index === -1) {
+      return res.status(400).json({ message: "Employee not in your team" });
     }
-    //Remove employee from team
-    team.members.splice(memberIndex, 1);
+
+    team.members.splice(index, 1);
     await team.save();
 
-    //Rest teamAccepted to false
     employee.teamAccepted = false;
     await employee.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: `Employee ${empId} removed from your team successfully.`,
-      team,
+      message: `${empId} removed successfully`
     });
+
+  } catch (err) {
+    console.error("removeMembersFromTeam:", err.message);
+    return res.status(500).json({ message: "Server error" });
   }
-  catch (err) {
-    console.error("Error removing members", err.message);
-    res.status(500).json({ message: "Error removing member", error: err.message });
-  }
-}
+};
 
 // Get team status (members + pending requests)
 exports.getTeamStatus = async (req, res) => {
@@ -241,39 +239,27 @@ exports.getTeamStatus = async (req, res) => {
     const loggedInEmp = req.employee;
 
     if (loggedInEmp.role !== ROLES.MULTIPLE_EMPLOYEE) {
-      return res.status(403).json({ message: "Only MultipleEmployee can view team status" });
+      return res.status(403).json({ message: "Access denied" });
     }
 
-    // Find the logged-in user's team
-    const team = await MultipleEmployee.findOne({ _id: loggedInEmp._id });
+    const team = await MultipleEmployee.findOne({ TeamId: loggedInEmp.TeamId })
+      .populate("members", "empId fullname teamAccepted")
+      .populate("pendingRequests", "empId fullname");
 
     if (!team) {
       return res.status(404).json({ message: "Team not found" });
     }
 
-    // Fetch member details
-    const members = await SingleEmployee.find({
-      empId: { $in: team.members }
-    }).select("empId fullname");
-
-    // Fetch pending request details
-    const pending = await SingleEmployee.find({
-      empId: { $in: team.pendingRequests }
-    }).select("empId fullname");
-
     return res.status(200).json({
       success: true,
       teamId: team.TeamId,
-      members,
-      pendingRequests: pending,
+      members: team.members,
+      pendingRequests: team.pendingRequests
     });
 
   } catch (err) {
-    console.error("Team Status Error:", err.message);
-    res.status(500).json({
-      message: "Error fetching team status",
-      error: err.message,
-    });
+    console.error("getTeamStatus:", err.message);
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -325,58 +311,45 @@ exports.getpendingDetails = async (req, res) => {
     return res.status(500).json({ message: "server Error" });
   }
 }
-
 exports.updateTeamMembers = async (req, res) => {
   try {
     const loggedInEmp = req.employee;
-
     const { leaderEmpId, helperEmpIds } = req.body;
 
     const team = await MultipleEmployee.findOne({ TeamId: loggedInEmp.TeamId });
-
     if (!team) {
       return res.status(404).json({ message: "Team not found" });
     }
 
-    // Validate leader exists
-    let leader = null;
     if (leaderEmpId) {
-      leader = await SingleEmployee.findOne({ empId: leaderEmpId });
+      const leader = await SingleEmployee.findOne({ empId: leaderEmpId });
       if (!leader) {
-        return res.status(404).json({ message: "Leader employee not found" });
+        return res.status(404).json({ message: "Leader not found" });
       }
+      team.leader = leader._id;
     }
 
-    // Validate helpers exist
-    let helpers = [];
-    if (helperEmpIds && helperEmpIds.length > 0) {
-      const helperIds = helperEmpIds.map((h) => h);
-      helpers = await SingleEmployee.find({
-        empId: { $in: helperIds },
+    if (helperEmpIds?.length) {
+      const helpers = await SingleEmployee.find({
+        empId: { $in: helperEmpIds }
       });
 
-      if (helpers.length !== helperIds.length) {
-        const missing = helperIds.filter(
-          (id) => !helpers.find((h) => h.empId === id)
-        );
-        return res.status(404).json({
-          message: "Some helper employees not found",
-          missing,
-        });
+      if (helpers.length !== helperEmpIds.length) {
+        return res.status(404).json({ message: "Some helpers not found" });
       }
+
+      team.helpers = helpers.map(h => h._id);
     }
 
-    // Update team
-    team.leader = leaderEmpId;
-    team.helpers = helperEmpIds || [];
     await team.save();
 
     return res.status(200).json({
-      message: "Team updated successfully",
-      team,
+      success: true,
+      message: "Team roles updated"
     });
+
   } catch (err) {
-    console.error("updateTeamMembers ERROR:", err.message);
-    return res.status(500).json({ message: "Server error", error: err.message });
+    console.error("updateTeamMembers:", err.message);
+    return res.status(500).json({ message: "Server error" });
   }
 };

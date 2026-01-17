@@ -129,85 +129,90 @@ exports.registerEmployee = async (req, res) => {
 //Accept request by the singleEmployee
 exports.acceptTeamRequest = async (req, res) => {
   try {
-    const loggedInEmpId = req.employee.empId;
-    const employee = await SingleEmployee.findOne({ empId: loggedInEmpId });
+    const empId = req.employee.empId;
+
+    const employee = await SingleEmployee.findOne({ empId });
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
+
     if (employee.teamAccepted) {
-      return res.status(400).json({ message: "Team request already accepted" });
+      return res.status(400).json({ message: "Already in a team" });
     }
-    //update employee status
+
+    const empObjectId = employee._id;
+
     employee.teamAccepted = true;
     await employee.save();
 
-    //Remove from pending requests in all multipleEmployee
     await MultipleEmployee.updateMany(
-      { pendingRequests: loggedInEmpId },
+      { pendingRequests: empObjectId },
       {
-        $pull: { pendingRequests: loggedInEmpId },
-        $addToSet: { members: loggedInEmpId }
+        $pull: { pendingRequests: empObjectId },
+        $addToSet: { members: empObjectId }
       }
-    );
-
-    res.status(200).json({
-      message: "Team request Accepted Successfully",
-      empId: employee.empId,
-      teamAccepted: true
-    });
-  }
-  catch (err) {
-    console.error("acceptTeamRequest error:", err.message);
-    res.status(500).json({ message: "Error accepting request", error: err.message });
-  }
-}
-
-exports.rejectTeamRequest = async (req, res) => {
-  try {
-    const loggedInEmp = req.employee;
-    const { teamId } = req.body;
-
-    if (!teamId) {
-      return res.status(400).json({ message: "teamId is required" });
-    }
-
-    const team = await MultipleEmployee.findOne({ TeamId: teamId });
-    if (!team) {
-      return res.status(400).json({ message: "Team not found" });
-    }
-
-    await MultipleEmployee.updateOne(
-      { TeamId: teamId },
-      { $pull: { pendingRequests: loggedInEmp.empId } }
     );
 
     return res.status(200).json({
       success: true,
-      message: "Request rejected successfully",
-      rejectFrom: teamId,
+      message: "Team joined successfully",
+      empId
     });
 
   } catch (err) {
-    console.error("rejectTeamRequest error:", err.message);
-    return res.status(500).json({
-      message: "Error rejecting request",
-      error: err.message,
-    });
+    console.error("acceptTeamRequest:", err.message);
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
 
+exports.rejectTeamRequest = async (req, res) => {
+  try {
+    const { teamId } = req.body;
+    const empId = req.employee.empId;
+
+    const employee = await SingleEmployee.findOne({ empId });
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    await MultipleEmployee.updateOne(
+      { TeamId: teamId },
+      { $pull: { pendingRequests: employee._id } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Request rejected"
+    });
+
+  } catch (err) {
+    console.error("rejectTeamRequest:", err.message);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 exports.getTeamRequest = async (req, res) => {
   try {
-    const loggedInEmp = req.employee;
-    const team = await MultipleEmployee.find(
-      { pendingRequests: loggedInEmp.empId },
-      { teamId: 1, storeName: 1, ownerName: 1, pendingRequests: 1 },
+    const empId = req.employee.empId;
+
+    const employee = await SingleEmployee.findOne({ empId });
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    const teams = await MultipleEmployee.find(
+      { pendingRequests: employee._id },
+      { TeamId: 1, storeName: 1, ownerName: 1 }
     );
-    return res.status(200).json({ message: "successfully fetch the data", team });
+
+    return res.status(200).json({
+      success: true,
+      teams
+    });
+
+  } catch (err) {
+    console.error("getTeamRequest:", err.message);
+    return res.status(500).json({ message: "Server error" });
   }
-  catch (err) {
-    console.error("Get Team request", err.message);
-    res.status(500).json({ message: "Error fetching request", error: err.message });
-  }
-}
+};

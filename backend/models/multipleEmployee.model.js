@@ -11,18 +11,28 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  members: [
-    {
-      type: String,
-      ref: "SingleEmployee",
-    }
-  ],
-  pendingRequests: [
-    {
-      type: String,
-      ref: "SingleEmployee",
-    }
-  ],
+  members: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "SingleEmployee",
+    validate: {
+    validator: function(v) {
+      return v.length <= 10; // example limit
+    },
+    message: "Team cannot exceed 10 members"
+  }
+  }],
+  pendingRequests: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "SingleEmployee"
+  }],
+  leader: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "SingleEmployee"
+  },
+  helpers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "SingleEmployee"
+  }],
   ownerName: {
     type: String,
     required: true,
@@ -46,14 +56,6 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     required: true,
     default: ROLES.MULTIPLE_EMPLOYEE,
   },
-  leader: {
-    type: String,
-    ref: "SingleEmployee",
-  },
-  helpers: [{
-    type: String,
-    ref: "SingleEmployee",
-  }],
   location: {
     type: {
       type: String,
@@ -134,5 +136,17 @@ MultipleEmployeeSchema.post('findOneAndDelete', async function (doc) {
     }
   }
 });
+
+//Remove the dulpicated member before save
+MultipleEmployeeSchema.pre("save", function(next) {
+  this.members = [...new Set(this.members.map(id => id.toString()))]
+    .map(id => new mongoose.Types.ObjectId(id));
+
+  this.pendingRequests = [...new Set(this.pendingRequests.map(id => id.toString()))]
+    .map(id => new mongoose.Types.ObjectId(id));
+
+  next();
+});
+
 
 module.exports = mongoose.model('MultipleEmployee', MultipleEmployeeSchema);
