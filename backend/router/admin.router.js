@@ -22,7 +22,7 @@ router.post("/add-service-list",protect,allowRoles("admin"),setServiceList);
 
 router.delete("/delete-domain-service/:id",protect,allowRoles("admin"),DeleteDomainService);
 
-router.get("/service-categories",protect,allowRoles("admin"),getServiceCategories)
+router.get("/service-categories/:DomainServiceId",protect,allowRoles("admin"),getServiceCategories)
 
 router.put("/domainservice-edit/:DomainServiceId",protect,allowRoles("admin"),EditDomainService)
 
