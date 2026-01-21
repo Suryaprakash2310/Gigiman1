@@ -1,6 +1,6 @@
 const express=require('express');
 const router=express.Router();
-const { showCategories, showParts, searchDomainCategories, searchParts, createPartRequest } = require('../controllers/parts.controller');\
+const { showCategories, showParts, searchDomainCategories, searchParts, createPartRequest } = require('../controllers/parts.controller');
 
 
 router.get("/categories",showCategories);
