@@ -24,7 +24,7 @@ router.delete("/delete-domain-service/:id",protect,allowRoles("admin"),DeleteDom
 
 router.get("/service-categories/:DomainServiceId",protect,allowRoles("admin"),getServiceCategories)
 
-router.put("/domainservice-edit/:DomainServiceId",protect,allowRoles("admin"),EditDomainService)
+router.put("/domainservice-edit/:DomainserviceId",protect,allowRoles("admin"),EditDomainService)
 
 router.put("/update-service-category/:serviceId/:categoryId",protect,allowRoles("admin"),updateServiceCategory);
 

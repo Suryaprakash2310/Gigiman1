@@ -280,10 +280,9 @@ exports.DeleteDomainService = async (req, res) => {
 
 exports.EditDomainService = async (req, res) => {
   try {
-    const { domainserviceId } = req.params;
-
+    const { DomainserviceId } = req.params;
     // Validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(domainserviceId)) {
+    if (!mongoose.Types.ObjectId.isValid(DomainserviceId)) {
       return res.status(400).json({ message: "Invalid domain service ID" });
     }
 
@@ -298,7 +297,7 @@ exports.EditDomainService = async (req, res) => {
 
     // Update and return new document
     const domainservice = await DomainService.findByIdAndUpdate(
-      domainserviceId,
+      DomainserviceId,
       { $set: update },
       { new: true, runValidators: true }
     );
