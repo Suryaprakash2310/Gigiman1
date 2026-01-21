@@ -1,107 +1,117 @@
-const mongoose = require('mongoose');
-const BOOKING_STATUS = require('../enum/bookingstatus.enum');
-const PAYMENT_STATUS = require('../enum/payment.enum');
-const SERVICE_TYPE = require('../enum/bookingservicetype.enum');
-const BOOKING_TYPE = require('../enum/bookingtype.enum');
+const mongoose = require("mongoose");
+const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+const PAYMENT_STATUS = require("../enum/payment.enum");
+const SERVICE_TYPE = require("../enum/bookingservicetype.enum");
+const BOOKING_TYPE = require("../enum/bookingtype.enum");
 
-const bookingSchema = mongoose.Schema({
-    user: {
-        type: mongoose.Types.ObjectId,
-        ref: "User",
-        required: true,
-    },
+const bookingSchema = new mongoose.Schema({
 
-    servicerCompany: {
-        type: mongoose.Types.ObjectId,
-        ref: "MultipleEmployee",
-        default: null,
-    },
+  /* ---------------- USER ---------------- */
+  user: {
+    type: mongoose.Types.ObjectId,
+    ref: "User",
+    required: true,
+    index: true
+  },
 
-    serviceType: {
-        type: String,
-        enum: Object.values(SERVICE_TYPE),
-        required: true,
-    },
+  /* ---------------- SERVICE PROVIDER ---------------- */
+  servicerCompany: {
+    type: mongoose.Types.ObjectId,
+    ref: "MultipleEmployee",
+    default: null,
+    index: true
+  },
 
-    primaryEmployee: {
-        type: mongoose.Types.ObjectId,
-        ref: "SingleEmployee",
-        default: null,
-    },
+  serviceType: {
+    type: String,
+    enum: Object.values(SERVICE_TYPE),
+    required: true,
+    index: true
+  },
 
-    employees: [{
-        type: mongoose.Types.ObjectId,
-        ref: "SingleEmployee",
-    }],
-    serviceCategoryName: {
-        type: String,
-        required: true,
-    },
+  primaryEmployee: {
+    type: mongoose.Types.ObjectId,
+    ref: "SingleEmployee",
+    default: null,
+    index: true
+  },
 
-    domainService: {
-        type: mongoose.Types.ObjectId,
-        ref: "DomainService",
-    },
+  employees: [{
+    type: mongoose.Types.ObjectId,
+    ref: "SingleEmployee"
+  }],
 
-    //  USER CAN INCREASE THIS
-    serviceCount: {
-        type: Number,
-        default: 1,
-        min: 1,
-    },
+  /* ---------------- SERVICE DETAILS ---------------- */
+  serviceCategoryName: {
+    type: String,
+    required: true
+  },
 
-    //  PRICE FROM SERVICE CATEGORY
-    pricePerService: {
-        type: Number,
-        required: true,
-    },
+  domainService: {
+    type: mongoose.Types.ObjectId,
+    ref: "DomainService"
+  },
 
-    //  FINAL CALCULATED PRICE
-    totalPrice: {
-        type: Number,
-        required: true,
-    },
+  serviceCount: {
+    type: Number,
+    default: 1,
+    min: 1
+  },
 
-    status: {
-        type: String,
-        enum: Object.values(BOOKING_STATUS),
-        default: BOOKING_STATUS.PENDING,
-    },
+  pricePerService: {
+    type: Number,
+    required: true
+  },
 
-    bookingType: {
-        type: String,
-        enum: Object.values(BOOKING_TYPE),
-        default: BOOKING_TYPE.ONDEMAND,
-    },
-    assignmentStatus: {
-        type: String,
-        enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED"],
-        default: "SEARCHING",
-    },
+  totalPrice: {
+    type: Number,
+    required: true
+  },
 
-    offeredEmployee: {
-        type: mongoose.Types.ObjectId,
-        ref: "SingleEmployee",
-        default: null,
-    },
+  /* ---------------- BOOKING STATE ---------------- */
+  status: {
+    type: String,
+    enum: Object.values(BOOKING_STATUS),
+    default: BOOKING_STATUS.PENDING,
+    index: true
+  },
 
-    assignmentExpiresAt: {
-        type: Date,
-        default: null,
-    },
+  bookingType: {
+    type: String,
+    enum: Object.values(BOOKING_TYPE),
+    default: BOOKING_TYPE.ONDEMAND
+  },
 
-    dispatchAttempts: {
-        type: Number,
-        default: 0,
-    },
+  assignmentStatus: {
+    type: String,
+    enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED"],
+    default: "SEARCHING",
+    index: true
+  },
 
-    userSocketId: {
-        type: String,
-        default: null,
-    },
+  offeredEmployee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "SingleEmployee",
+    default: null
+  },
 
+  assignmentExpiresAt: Date,
+  dispatchAttempts: {
+    type: Number,
+    default: 0
+  },
+  /* ---------------- OTP ---------------- */
+  StartWorkOTP: Number,
+  toolOTP: Number,
 
-    scheduleDateTime: Date,
+  /* ---------------- PAYMENT ---------------- */
+  paymentMethod: {
+    type: String,
+    enum: ["CASH", "RAZORPAY"],
+    default: null,
+    index: true
+  },
+scheduleDateTime: Date,
     isScheduled: Boolean,
     scheduleExecuted: {
         type: Boolean,
@@ -135,22 +145,30 @@ const bookingSchema = mongoose.Schema({
     },
 
     toolOTP: Number,
+  paymentStatus: {
+    type: String,
+    enum: Object.values(PAYMENT_STATUS),
+    default: PAYMENT_STATUS.PENDING,
+    index: true
+  },
 
-    paymentStatus: {
-        type: String,
-        enum: Object.values(PAYMENT_STATUS),
-        default: PAYMENT_STATUS.PENDING,
-    },
+  razorpayOrderId: String,
+  razorpayPaymentId: String,
+  razorpaySignature: String,
 
-    razorpayOrderId: String,
-    razorpayOrderPaymentId: String,
-    razorpaySignature: String,
-    employeeCount:{
-        type: Number,
-        default:1,
-    }
+  completedAt: Date,
+
+  /* ---------------- TEAM ---------------- */
+  employeeCount: {
+    type: Number,
+    default: 1
+  }
+
 }, { timestamps: true });
 
-bookingSchema.index({ location: "2dsphere" });
+/* ---------------- INDEXES ---------------- */
+bookingSchema.index({ status: 1, createdAt: -1 });
+bookingSchema.index({ servicerCompany: 1, status: 1 });
+bookingSchema.index({ primaryEmployee: 1, status: 1 });
 
 module.exports = mongoose.model("Booking", bookingSchema);

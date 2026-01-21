@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
-
+const crypto = require("crypto");
+const{PAYMENT_STATUS}=require("../enum/payment.enum"); 
+const{BOOKING_STATUS}=require("../enum/bookingstatus.enum");
 const Booking = require("../models/Booking.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
@@ -25,6 +27,9 @@ const {
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const PAYMENT_STATUS = require("../enum/payment.enum");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
+
+const Review = require("../models/review.model");
+const ROLES = require("../enum/role.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
@@ -523,28 +528,140 @@ exports.getBookingById = async (req, res) => {
     });
   }
 };
+/*================================================
+   REVIEW
+=================================================*/
+exports.submitReview = async (req, res) => {
+  try {
+    const { bookingId, rating, comment } = req.body;
+    const userId = req.user._id;
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return res.status(400).json({ message: "Booking not found" });
 
+    if (!booking.user.equals(userId)) {
+      return res.status(403).json({ message: "Not your booking" });
+    }
+
+    const existing = await Review.findOne({ booking: bookingId });
+    if (existing) {
+      return res.status(400).json({ message: "Review already submitted for this booking" });
+    }
+    const review=await Review.create({
+      booking: bookingId,
+      user:userId,
+      serviceType:booking.serviceType,
+      primaryEmployee:booking.primaryEmployee,
+      helpers:booking.employees||[],
+      company:booking.employees||[],
+      rating,
+      comment
+    })
+    return res.status(201).json({
+      success: true,
+      message: "Review submitted successfully",
+      review,
+    });
+  }
+  catch (err) {
+    console.error("submitReview error:", err.message);
+    return res.status(500).json({ message: err.message });
+  }
+}
 /* ======================================================
    PAYMENT SUCCESS
 ====================================================== */
 exports.paymentSuccess = async (req, res) => {
   try {
-    const { bookingId } = req.body;
+    const {
+      bookingId,
+      paymentMethod,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature
+    } = req.body;
+
+    if (!bookingId || !paymentMethod) {
+      return res.status(400).json({
+        message: "bookingId and paymentMethod are required"
+      });
+    }
 
     const booking = await Booking.findById(bookingId);
+
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    booking.paymentStatus = PAYMENT_STATUS.PAID;
-    await booking.save();
+    // Prevent double payment
+    if (booking.paymentStatus === PAYMENT_STATUS.PAID) {
+      return res.status(409).json({
+        message: "Booking already paid"
+      });
+    }
 
-    return res.status(200).json({
-      success: true,
-      message: "Payment recorded successfully",
-      booking,
+    /* ---------------- CASH FLOW ---------------- */
+    if (paymentMethod === "CASH") {
+      booking.paymentMethod = "CASH";
+      booking.paymentStatus = PAYMENT_STATUS.PAID;
+      booking.status = BOOKING_STATUS.COMPLETED;
+      booking.completedAt = new Date();
+
+      await booking.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Cash payment recorded and booking completed",
+        booking
+      });
+    }
+
+    /* ------------- RAZORPAY FLOW -------------- */
+    if (paymentMethod === "RAZORPAY") {
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+        return res.status(400).json({
+          message: "Missing Razorpay payment details"
+        });
+      }
+
+      const body = razorpayOrderId + "|" + razorpayPaymentId;
+
+      const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(body)
+        .digest("hex");
+
+      if (expectedSignature !== razorpaySignature) {
+        return res.status(400).json({
+          message: "Invalid Razorpay signature"
+        });
+      }
+
+      booking.paymentMethod = "RAZORPAY";
+      booking.razorpayOrderId = razorpayOrderId;
+      booking.razorpayPaymentId = razorpayPaymentId;
+      booking.razorpaySignature = razorpaySignature;
+
+      booking.paymentStatus = PAYMENT_STATUS.PAID;
+      booking.status = BOOKING_STATUS.COMPLETED;
+      booking.completedAt = new Date();
+
+      await booking.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Online payment verified and booking completed",
+        booking
+      });
+    }
+
+    return res.status(400).json({
+      message: "Invalid payment method"
     });
+
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    console.error("completeBooking error:", err.message);
+    return res.status(500).json({ message: "Server error" });
   }
 };
+
+
