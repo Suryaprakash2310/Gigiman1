@@ -50,6 +50,7 @@ module.exports = (io) => {
       socket.join(room);
       await SingleEmployee.findByIdAndUpdate(employeeId, {
         socketId: socket.id,
+        isActive:true,
       });
     });
     socket.on("register-team", async ({ teamId }) => {
@@ -208,20 +209,11 @@ module.exports = (io) => {
     //     io.to(user.socketId).emit("start-work-otp", otp);
     // });
 
-<<<<<<< Updated upstream
-    socket.on("verify-start-otp", async ({ bookingId, otp }) => {
-      console.log("🔐 OTP VERIFY REQUEST", bookingId, otp);
-      const result = await verifyStartOTP(bookingId, otp);
-      if (!result.success) {
-        return socket.emit("otp-failed");
-      }
-=======
     // socket.on("verify-start-otp", async ({ bookingId, otp }) => {
     //   const result = await verifyStartOTP(bookingId, otp);
     //   if (!result.success) {
     //     return socket.emit("otp-failed");
     //   }
->>>>>>> Stashed changes
 
     //   const booking = result.booking;
     //   const employees = await SingleEmployee.find({
