@@ -20,9 +20,9 @@ const {
   assignNextToolshop,
   assignNextServicer,
 } = require("../services/booking.service")
-const PartRequest = require("../models/partsrequest.model");
-const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-const PAYMENT_STATUS = require("../enum/payment.enum");
+// const PartRequest = require("../models/partsrequest.model");
+// const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+// const PAYMENT_STATUS = require("../enum/payment.enum");
 
 /* ======================================================
    SEARCH NEARBY SERVICERS

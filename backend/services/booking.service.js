@@ -9,8 +9,8 @@ const PartRequest = require("../models/partsrequest.model");
 const User = require("../models/user.model");
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const { SEARCH_RADIUS_METERS } = require("../utils/constants");
-const User = require("../models/user.model");
-
+const mongoose = require("mongoose");
+const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 require("dotenv").config();
 
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
@@ -328,20 +328,10 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
         });
     }
 
-    await SingleEmployee.findByIdAndUpdate(employeeId, {
-        availabilityStatus: "BUSY",
-        offerBookingId: null,
-    });
-
-    const otp = Math.floor(1000 + Math.random() * 9000);
-    booking.StartWorkOTP = otp;
-    await booking.save();
-
-    // Notify user
-    const user = await User.findById(booking.user).select("socketId");
-    if (user?.socketId) {
-        io.to(user.socketId).emit("servicer-accepted", booking);
-        io.to(user.socketId).emit("start-work-otp", otp);
+    // 4️⃣ (Optional) Notify PROVIDER booking confirmed
+    const employee = await SingleEmployee.findById(employeeId);
+    if (employee?.socketId) {
+        io.to(employee.socketId).emit("booking-confirmed", { booking: updatedBooking, otp });
     }
 };
 
@@ -803,30 +793,33 @@ exports.createBooking = async ({
 /* ======================================================
    6. START WORK OTP
 ====================================================== */
-// exports.generateStartOTP = async (bookingId) => {
-//     const booking = await Booking.findById(bookingId);
+exports.generateStartOTP = async (bookingId) => {
+    const booking = await Booking.findById(bookingId);
 
-//     if (!booking) {
-//         throw new Error("Booking not found");
-//     }
+    if (!booking) {
+        throw new Error("Booking not found");
+    }
 
-//     //  Employee must be assigned first
-//     if (!booking.primaryEmployee) {
-//         throw new Error("Cannot generate OTP before employee assignment");
-//     }
+    //  Employee must be assigned first
+    if (!booking.primaryEmployee) {
+        throw new Error("Cannot generate OTP before employee assignment");
+    }
 
-//     // OTP only allowed before work starts
-//     if (booking.status !== BOOKING_STATUS.PENDING) {
-//         throw new Error("OTP can only be generated before work starts");
-//     }
+    // OTP only allowed before work starts
+    if (booking.status !== BOOKING_STATUS.PENDING) {
+        throw new Error("OTP can only be generated before work starts");
+    }
 
-//     const otp = Math.floor(1000 + Math.random() * 9000);
+    const otp = Math.floor(1000 + Math.random() * 9000);
 
-//     booking.StartWorkOTP = otp;
-//     await booking.save();
+    booking.StartWorkOTP = otp;
+    await booking.save();
+    console.log("Stored OTP:", booking.StartWorkOTP);
+    console.log("Received OTP:", otp);
 
-//     return { booking, otp };
-// };
+
+    return { booking, otp };
+};
 
 
 exports.verifyStartOTP = async (bookingId, otp) => {
@@ -852,21 +845,6 @@ exports.verifyStartOTP = async (bookingId, otp) => {
     await booking.save();
 
     return { success: true, booking };
-};
-// Called AFTER API verifyStartOTP succeeds
-exports.notifyOtpSuccess = async (booking, io) => {
-    const employees = await SingleEmployee.find({
-        _id: { $in: booking.employees },
-    }).select("socketId");
-
-    employees.forEach(emp => {
-        if (emp.socketId && io.sockets.sockets.get(emp.socketId)) {
-            io.to(emp.socketId).emit("otp-success", {
-                bookingId: booking._id,
-                status: booking.status,
-            });
-        }
-    });
 };
 
 /* ======================================================
@@ -1106,6 +1084,8 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
 };
 
 
+exports.generateToolOTP = async (requestId, io) => {
+
     const req = await PartRequest.findOne({
         _id: requestId,
         status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
@@ -1121,6 +1101,18 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
     req.otp = otp;
     await req.save();
 
+    const employee = await SingleEmployee.findById(req.employeeId).select("socketId");
+    if (io && employee?.socketId) {
+        try {
+            io.to(employee.socketId).emit("tool-otp-generated", {
+                requestId,
+                otp,
+            });
+        } catch (e) {
+            console.error('emit tool-otp-generated failed', e);
+        }
+    }
+
     return {
         requestId: req._id,
         otp,
@@ -1131,7 +1123,7 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     //  Validate request
     const req = await PartRequest.findOne({
         _id: requestId,
-        status: "approved",
+        status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
         otp: Number(otp),
     });
 
@@ -1143,16 +1135,19 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     req.status = PART_REQUEST_STATUS.COLLECTED;
     req.otp = null;
     await req.save();
-    const booking = await Booking.findById(req.bookingId);
-    if (!booking) {
-        return { success: false };
+    const employee = await SingleEmployee.findById(req.employeeId).select("socketId");
+    if (io && employee?.socketId) {
+        try {
+            io.to(employee.socketId).emit("tool-otp-verified", {
+                requestId,
+                otp,
+            });
+        } catch (e) {
+            console.error('emit tool-otp-verified failed', e);
+        }
     }
-
-    booking.totalPrice += req.totalCost;
-    await booking.save();
     return {
         success: true,
-        booking,
         req,
     };
 };
