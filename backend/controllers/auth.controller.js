@@ -139,10 +139,11 @@ exports.ShowServices = async (req, res) => {
   try {
     const services = await DomainService.find(
       {},
-      { domainName: 1, image: 1 } // projection
+      { domainName: 1, serviceImage: 1 }
     )
       .sort({ domainName: 1 })
-      .lean() // returns plain JS objects, faster than Mongoose docs
+      .lean()
+    // returns plain JS objects, faster than Mongoose docs
 
     return res.status(200).json({
       success: true,
