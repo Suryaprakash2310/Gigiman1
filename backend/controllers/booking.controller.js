@@ -24,8 +24,8 @@ const {
   assignNextServicer,
 } = require("../services/booking.service");
 const role = require("../utils/roleModelMap")
-const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-const PAYMENT_STATUS = require("../enum/payment.enum");
+// const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+// const PAYMENT_STATUS = require("../enum/payment.enum");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 
 const Review = require("../models/review.model");
