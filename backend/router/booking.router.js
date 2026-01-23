@@ -35,13 +35,23 @@ router.post("/tool/otp/generate",bookingController.generateToolOTPController);
 
 router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
 
+
 // user confirms part/tool delivery
-router.post("/approve", userProtect, bookingController.approvePartRequest);
+router.post("/approve/:requestId", userProtect, bookingController.approvePartRequest);
+
+
+
+router.get(
+  "/parts/part-request/:requestId",
+  protect,
+  bookingController.getPartRequestById
+);
 
 
 /* ===============================
    PAYMENT
 =============================== */
+router.post("/review",userProtect, bookingController.submitReview);
 router.post("/payment/success", bookingController.paymentSuccess);
 
 module.exports = router;

@@ -74,6 +74,10 @@ const toolshopSchema = new mongoose.Schema(
       ref: "PartRequest",
       default: null,
     },
+    isActive:{
+      type: Boolean, 
+      default:false,
+    },
   },
   { timestamps: true }
 );

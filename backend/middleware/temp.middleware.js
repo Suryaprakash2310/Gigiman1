@@ -4,7 +4,6 @@ const User = require("../models/user.model");
 exports.tempProtect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    console.log("Auth Header:", authHeader);
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ message: "Temp token missing" });
     }
@@ -12,8 +11,6 @@ exports.tempProtect = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
 
     const decoded = jwt.verify(token, process.env.JWT_KEY);
-    console.log("Decoded Token:", decoded);
-
     // if (decoded.type !== "TEMP_PROFILE") {
     //   return res.status(403).json({ message: "Invalid temp token" });
     // }
