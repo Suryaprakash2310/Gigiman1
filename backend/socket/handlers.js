@@ -33,8 +33,14 @@ module.exports = (io) => {
        REGISTER SOCKETS
     =============================== */
     socket.on("register-user", async ({ userId }) => {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        console.log("⚠️ Invalid userId for socket register:", userId);
+        return;
+      }
+
       socket.join(userId.toString());
       console.log("✅ User registered:", userId, socket.id);
+
       const updated = await User.findByIdAndUpdate(
         userId,
         { socketId: socket.id },
@@ -50,7 +56,7 @@ module.exports = (io) => {
       socket.join(room);
       await SingleEmployee.findByIdAndUpdate(employeeId, {
         socketId: socket.id,
-        isActive:true,
+        isActive: true,
       });
     });
     socket.on("register-team", async ({ teamId }) => {

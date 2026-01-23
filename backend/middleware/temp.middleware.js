@@ -1,19 +1,19 @@
+const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
-
 exports.tempProtect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!authHeader?.startsWith("Bearer ")) {
       return res.status(401).json({ message: "Temp token missing" });
     }
 
     const token = authHeader.split(" ")[1];
-
     const decoded = jwt.verify(token, process.env.JWT_KEY);
-    // if (decoded.type !== "TEMP_PROFILE") {
-    //   return res.status(403).json({ message: "Invalid temp token" });
-    // }
+
+    if (!mongoose.Types.ObjectId.isValid(decoded.userId)) {
+      return res.status(401).json({ message: "Invalid temp token" });
+    }
 
     const user = await User.findById(decoded.userId);
     if (!user) {
