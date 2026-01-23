@@ -156,13 +156,13 @@ scheduleDateTime: Date,
   razorpayPaymentId: String,
   razorpaySignature: String,
 
-  completedAt: Date,
-
-  /* ---------------- TEAM ---------------- */
-  employeeCount: {
-    type: Number,
-    default: 1
-  }
+    razorpayOrderId: String,
+    razorpayOrderPaymentId: String,
+    razorpaySignature: String,
+    employeeCount:{
+        type:Number,
+        required:true,
+    },
 
 }, { timestamps: true });
 

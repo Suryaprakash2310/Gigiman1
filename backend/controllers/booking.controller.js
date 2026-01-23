@@ -14,22 +14,16 @@ const {
   verifyStartOTP,
   requestTool,
   findNearbyToolShops,
-  startServicerQueue,
-  startTeamQueue,
-  startToolShopQueue,
-  verifyToolOTP,
+ generateToolOTP,
   verifyPartOTP,
   assignNextTeam,
   assignNextToolshop,
   assignNextServicer,
-} = require("../services/booking.service");
-const role = require("../utils/roleModelMap")
-// const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-// const PAYMENT_STATUS = require("../enum/payment.enum");
-const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
+} = require("../services/booking.service")
+const PartRequest = require("../models/partsrequest.model");
+const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+const PAYMENT_STATUS = require("../enum/payment.enum");
 
-const Review = require("../models/review.model");
-const ROLES = require("../enum/role.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
@@ -79,7 +73,7 @@ exports.autoAssignServicer = async (req, res) => {
     /* ======================================================
         CREATE BOOKING (ALWAYS FIRST)
     ====================================================== */
-    const { booking, serviceType } = await createBooking({
+    const { booking, serviceType ,employeeCount} = await createBooking({
       userId,
       serviceCategoryName,
       domainService,
@@ -591,6 +585,7 @@ exports.verifyPartOTPcontroller = async (req, res) => {
     if (!result.success) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
+    await booking.save();
 
     return res.status(200).json({ success: true, result });
   } catch (err) {

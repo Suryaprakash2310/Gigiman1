@@ -6,6 +6,6 @@ module.exports=(server)=>{
         cors:{origin:"*"},
         pingTimeout:60000
     });
-        socketHandler(io);
+     socketHandler(io);
     return io;
 }

@@ -2,6 +2,7 @@ const multipleEmployee = require("../models/multipleEmployee.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const Shop = require("../models/toolshop.model");
 const jwt = require("jsonwebtoken");
+const Admin=require("../models/admin.model");
 
 exports.protect = async (req, res, next) => {
   try {
@@ -19,16 +20,16 @@ exports.protect = async (req, res, next) => {
     let employee =
       (await SingleEmployee.findById(decoded.id)) ||
       (await multipleEmployee.findById(decoded.id)) ||
-      (await Shop.findById(decoded.id));
+      (await Shop.findById(decoded.id)) ||
+      (await Admin.findById(decoded.id));
 
     if (!employee) {
-      console.log("here is th eerror")
       return res.status(404).json({ message: "employee not found" });
     }
 
     // Attach to request
     req.employee = employee;
-    req.employeeId = employee._id;
+    req.employeeId =  employee._id;
     req.role = employee.role;
 
 

@@ -137,25 +137,37 @@ exports.verifyOtp = async (req, res) => {
 
 exports.ShowServices = async (req, res) => {
   try {
-    const services = await DomainService.aggregate([
-      { $sort: { domainName: 1 } }
-    ]);
+    const page = parseInt(req.query.page) || 1
+    const limit = parseInt(req.query.limit) || 10
+    const skip = (page - 1) * limit
 
-    if (!services || services.length === 0) {
-      return res.status(404).json({ message: "No services found" });
-    }
+    const services = await DomainService.aggregate([
+      { $sort: { domainName: 1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          domainName: 1,
+          image: 1, // only send image URL, NOT full image data
+          _id: 1
+        }
+      }
+    ])
+
+    const total = await DomainService.countDocuments()
 
     return res.status(200).json({
-      message: "Services fetched successfully",
+      success: true,
+      page,
+      totalPages: Math.ceil(total / limit),
       count: services.length,
-      services,
-    });
-
+      services
+    })
   } catch (err) {
-    console.error("Service get issue", err.message);
-    return res.status(500).json({ message: "Server error", error: err.message });
+    console.error("Service get issue", err.message)
+    return res.status(500).json({ message: "Server error" })
   }
-};
+}
 
 
 //Search the service
@@ -244,8 +256,8 @@ exports.getServiceCategoryById = async (req, res) => {
     const services = await ServiceList.find({
       DomainServiceId: domainServiceId
     })
-    .sort({ createdAt: 1 }) // oldest first, optional
-    .lean();
+      .sort({ createdAt: 1 }) // oldest first, optional
+      .lean();
 
     res.status(200).json({
       success: true,

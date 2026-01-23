@@ -18,7 +18,7 @@ router.post("/team/assign", bookingController.teamAssignMembers);
 /* ===============================
    START WORK OTP
 =============================== */
-router.post("/otp/start/generate", bookingController.generateStartOtpcontroller);
+// router.post("/otp/start/generate", bookingController.generateStartOtpcontroller);
 router.post("/otp/start/verify", bookingController.verifystartOTPcontroller);
 
 /* ===============================
@@ -34,19 +34,6 @@ router.post("/tool/auto-assign",bookingController.autoAssignToolShop);
 router.post("/tool/otp/generate",bookingController.generateToolOTPController);
 
 router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
-
-
-// user confirms part/tool delivery
-router.post("/approve/:requestId", userProtect, bookingController.approvePartRequest);
-
-
-
-router.get(
-  "/parts/part-request/:requestId",
-  protect,
-  bookingController.getPartRequestById
-);
-
 
 /* ===============================
    PAYMENT

@@ -199,32 +199,40 @@ module.exports = (io) => {
     /* ===============================
        START WORK OTP
     =============================== */
-    socket.on("generate-start-otp", async ({ bookingId }) => {
-      const { booking, otp } = await generateStartOTP(bookingId);
-      if (!booking) return;
+    // socket.on("generate-start-otp", async ({ bookingId }) => {
+    //   const { booking, otp } = await generateStartOTP(bookingId);
+    //   if (!booking) return;
 
-      const user = await User.findById(booking.user);
-      user?.socketId &&
-        io.to(user.socketId).emit("start-work-otp", otp);
-    });
+    //   const user = await User.findById(booking.user);
+    //   user?.socketId &&
+    //     io.to(user.socketId).emit("start-work-otp", otp);
+    // });
 
+<<<<<<< Updated upstream
     socket.on("verify-start-otp", async ({ bookingId, otp }) => {
       console.log("🔐 OTP VERIFY REQUEST", bookingId, otp);
       const result = await verifyStartOTP(bookingId, otp);
       if (!result.success) {
         return socket.emit("otp-failed");
       }
+=======
+    // socket.on("verify-start-otp", async ({ bookingId, otp }) => {
+    //   const result = await verifyStartOTP(bookingId, otp);
+    //   if (!result.success) {
+    //     return socket.emit("otp-failed");
+    //   }
+>>>>>>> Stashed changes
 
-      const booking = result.booking;
-      const employees = await SingleEmployee.find({
-        _id: { $in: booking.employees },
-      });
+    //   const booking = result.booking;
+    //   const employees = await SingleEmployee.find({
+    //     _id: { $in: booking.employees },
+    //   });
 
-      employees.forEach(emp => {
-        emp.socketId &&
-          io.to(emp.socketId).emit("otp-success", booking);
-      });
-    });
+    //   employees.forEach(emp => {
+    //     emp.socketId &&
+    //       io.to(emp.socketId).emit("otp-success", booking);
+    //   });
+    // });
 
     /* ===============================
     TOOL / PART REQUEST FLOW
