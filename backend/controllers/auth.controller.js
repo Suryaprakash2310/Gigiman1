@@ -9,8 +9,17 @@ const { normalizePhone } = require("../utils/crypto");
 const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
 // Generate JWT token
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: "7d" });
+const generateToken = (employee) => {
+  return jwt.sign(
+    {
+      id: employee._id,
+      employeeId: employee.employeeId,
+      role: employee.role
+    },
+    process.env.JWT_KEY,
+    { expiresIn: "7d" }
+  );
+
 };
 
 exports.sendOtp = async (req, res) => {
@@ -109,7 +118,6 @@ exports.verifyOtp = async (req, res) => {
     await Otp.deleteOne({ cleanPhone });
 
     const token = generateToken(emp);
-
     return res.status(200).json({
       id: emp._id,
       role: emp.role,
@@ -190,7 +198,7 @@ exports.ShowsubService = async (req, res) => {
         parentServiceName: item.serviceName,
         domainServiceId: item.DomainServiceId?._id,
         domainServiceName: item.DomainServiceId?.domainServiceName,
-        subserviceImage: item.subserviceImage,
+        subserviceImage: sub.servicecategoryImage,
         serviceCategoryName: sub.serviceCategoryName,
         description: sub.description,
         price: sub.price,
@@ -202,11 +210,11 @@ exports.ShowsubService = async (req, res) => {
     const groupedServices = data.map(item => ({
       serviceName: item.serviceName,
       domainServiceId: item.DomainServiceId?._id,
-      subserviceImage: item.subserviceImage,
       categories: item.serviceCategory.map(sub => ({
         _id: sub._id,
         serviceCategoryName: sub.serviceCategoryName,
         descritpion: sub.description,
+        subserviceImage: sub.servicecategoryImage,
         price: sub.price,
         durationInMinutes: sub.durationInMinutes,
         employeCount: sub.employeeCount,
@@ -230,45 +238,28 @@ exports.ShowsubService = async (req, res) => {
 
 exports.getServiceCategoryById = async (req, res) => {
   try {
-    const { serviceCategoryId } = req.params;
+    const { domainServiceId } = req.params;
 
-    if (!serviceCategoryId) {
-      return res.status(400).json({
-        message: "serviceCategoryId is required",
-      });
-    }
-
-    const categoryObjectId = new mongoose.Types.ObjectId(serviceCategoryId);
-
-    const service = await ServiceList.findOne(
-      { "serviceCategory._id": categoryObjectId }
-    ).lean();
-
-    if (!service) {
-      return res.status(404).json({
-        message: "Service category not found",
-      });
-    }
-
-    const category = service.serviceCategory.find(
-      (cat) => cat._id.toString() === serviceCategoryId
-    );
+    const services = await ServiceList.find({
+      DomainServiceId: domainServiceId
+    })
+    .sort({ createdAt: 1 }) // oldest first, optional
+    .lean();
 
     res.status(200).json({
       success: true,
-      serviceName: service.serviceName,
-      domainServiceId: service.DomainServiceId,
-      serviceCategory: category,
+      services
     });
-
   } catch (err) {
-    console.error("getServiceCategoryById error:", err);
+    console.error("getServiceListByDomain error:", err);
     res.status(500).json({
+      success: false,
       message: "Server error",
-      error: err.message,
+      error: err.message
     });
   }
 };
+
 exports.ShowsubserviceId = async (req, res) => {
   try {
     const { id } = req.params;
