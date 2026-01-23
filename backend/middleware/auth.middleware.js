@@ -7,14 +7,14 @@ exports.protect = async (req, res, next) => {
   try {
     // Extract token
     const token = req.headers.authorization?.split(" ")[1];
+    // console.log("Authorization header:", req.headers.authorization);
+    // console.log("Extracted token:", token);
     if (!token) {
       return res.status(401).json({ message: "No authorization token found" });
     }
 
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_KEY);
-    console.log(decoded.id);
-    console.log(token);
     // Find user by decoded.id (Mongo _id)
     let employee =
       (await SingleEmployee.findById(decoded.id)) ||
@@ -28,7 +28,7 @@ exports.protect = async (req, res, next) => {
 
     // Attach to request
     req.employee = employee;
-    req.employeeId =  employee._id;
+    req.employeeId = employee._id;
     req.role = employee.role;
 
 

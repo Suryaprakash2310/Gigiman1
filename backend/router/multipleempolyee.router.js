@@ -1,5 +1,5 @@
 const express=require('express');
-const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam, showSingleEmployee, getTeamStatus, SearchSingleEmployee, getpendingDetails, removePendingRequest, updateTeamMembers } = require('../controllers/multiple.employee.controllers');
+const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam, showSingleEmployee, getTeamStatus, SearchSingleEmployee, getpendingDetails, removePendingRequest, updateTeamMembers, getTeamMembers } = require('../controllers/multiple.employee.controllers');
 const { protect } = require('../middleware/auth.middleware');
 const router=express.Router();
 
@@ -23,4 +23,5 @@ router.get("/get-memberDetails",protect,getpendingDetails);
 
 router.put("/update-teammembers",protect,updateTeamMembers);
 
+router.get("/members", protect, getTeamMembers);
 module.exports = router;

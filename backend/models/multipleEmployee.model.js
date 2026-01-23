@@ -14,12 +14,12 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   members: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: "SingleEmployee",
-    validate: {
-    validator: function(v) {
-      return v.length <= 10; // example limit
-    },
-    message: "Team cannot exceed 10 members"
-  }
+  //   validate: {
+  //   validator: function(v) {
+  //     return v.length <= 10; // example limit
+  //   },
+  //   message: "Team cannot exceed 10 members"
+  // }
   }],
   pendingRequests: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -138,12 +138,22 @@ MultipleEmployeeSchema.post('findOneAndDelete', async function (doc) {
 });
 
 //Remove the dulpicated member before save
-MultipleEmployeeSchema.pre("save", function(next) {
-  this.members = [...new Set(this.members.map(id => id.toString()))]
-    .map(id => new mongoose.Types.ObjectId(id));
+MultipleEmployeeSchema.pre("save", function (next) {
+  // ✅ SAFELY normalize members
+  if (Array.isArray(this.members)) {
+    this.members = [...new Set(this.members.map(id => id.toString()))]
+      .map(id => new mongoose.Types.ObjectId(id));
+  } else {
+    this.members = [];
+  }
 
-  this.pendingRequests = [...new Set(this.pendingRequests.map(id => id.toString()))]
-    .map(id => new mongoose.Types.ObjectId(id));
+  // ✅ SAFELY normalize pendingRequests
+  if (Array.isArray(this.pendingRequests)) {
+    this.pendingRequests = [...new Set(this.pendingRequests.map(id => id.toString()))]
+      .map(id => new mongoose.Types.ObjectId(id));
+  } else {
+    this.pendingRequests = [];
+  }
 
   next();
 });

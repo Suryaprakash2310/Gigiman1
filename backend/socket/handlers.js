@@ -33,7 +33,7 @@ module.exports = (io) => {
        REGISTER SOCKETS
     =============================== */
     socket.on("register-user", async ({ userId }) => {
-      await User.findByIdAndUpdate(userId, { socketId: socket.id });
+      socket.join(userId.toString());
       console.log("✅ User registered:", userId, socket.id);
       const updated = await User.findByIdAndUpdate(
         userId,
@@ -46,11 +46,14 @@ module.exports = (io) => {
 
     socket.on("register-employee", async ({ employeeId }) => {
       if (!mongoose.Types.ObjectId.isValid(employeeId)) return;
+      const room = `employee_${employeeId}`;
+      socket.join(room);
       await SingleEmployee.findByIdAndUpdate(employeeId, {
         socketId: socket.id,
       });
     });
     socket.on("register-team", async ({ teamId }) => {
+      console.log("🟢 register-team:", teamId, socket.id);
       await MultipleEmployee.findByIdAndUpdate({ _id: teamId }, {
         socketId: socket.id,
         isActive: true,
@@ -94,14 +97,16 @@ module.exports = (io) => {
         console.error("servicer-reject error:", err);
       }
     });
-    socket.on("team-accept", ({ bookingId, teamId }) => {
+    socket.on("team-accept", async (payload) => {
+      console.log("🟢 team-accept received", payload);
+      const result = await teamAccept({
+        ...payload,
+        io
+      });
 
-      if (!io) {
-        console.error("IO instance missing for booking:", bookingId);
-        return;
-      }
-      teamAccept(bookingId, teamId, io)
+      socket.emit("team-accept-result", result);
     });
+
 
     socket.on("team-reject", ({ bookingId }) =>
       teamReject(bookingId, io)
@@ -150,6 +155,7 @@ module.exports = (io) => {
         ============================ */
         booking.primaryEmployee = primaryEmployee;
         booking.employees = [primaryEmployee, ...helpers];
+        booking.status = BOOKING_STATUS.ASSIGNED;
         await booking.save();
 
         /* ============================
@@ -164,6 +170,12 @@ module.exports = (io) => {
         );
         const user = await User.findById(booking.user).select("socketId");
         if (user?.socketId) {
+          console.log("📤 EMITTING team-assigned TO USER:", {
+            userId: user._id,
+            socketId: user.socketId,
+            bookingId: booking._id,
+          });
+
           io.to(user.socketId).emit("team-assigned", booking);
         }
 
@@ -275,6 +287,7 @@ module.exports = (io) => {
     // ToolShop accepts request
     socket.on("toolshop-accept", async ({ requestId, shopId }) => {
       try {
+        console.log("$$$$$$$$$$$$$$$$$$$$$$$$Toolshop accept socket event:", shopId, requestId);
         await toolshopAccept({ requestId, shopId, io });
       } catch (err) {
         console.error("toolshop-accept error:", err);

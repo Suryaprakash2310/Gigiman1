@@ -194,20 +194,24 @@ exports.rejectTeamRequest = async (req, res) => {
 
 exports.getTeamRequest = async (req, res) => {
   try {
-    const empId = req.employee.empId;
+    const loggedInEmp = req.employee;
 
-    const employee = await SingleEmployee.findOne({ empId });
-    if (!employee) {
-      return res.status(404).json({ message: "Employee not found" });
+    // Enforce role
+    if (loggedInEmp.role !== ROLES.SINGLE_EMPLOYEE) {
+      return res.status(403).json({ message: "Only SingleEmployee can view team requests" });
     }
 
+    // If protect already attached SingleEmployee doc, reuse _id
+    const employeeId = loggedInEmp._id;
+
     const teams = await MultipleEmployee.find(
-      { pendingRequests: employee._id },
-      { TeamId: 1, storeName: 1, ownerName: 1 }
-    );
+      { pendingRequests: employeeId },
+      { TeamId: 1, storeName: 1, ownerName: 1, createdAt: 1 }
+    ).sort({ createdAt: -1 });
 
     return res.status(200).json({
       success: true,
+      count: teams.length,
       teams
     });
 
@@ -216,3 +220,60 @@ exports.getTeamRequest = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+// GET single employee team details
+exports.getMyTeam = async (req, res) => {
+  try {
+    const empId = req.employee.empId;
+
+    const employee = await SingleEmployee.findOne({ empId });
+    if (!employee || !employee.teamAccepted) {
+      return res.status(200).json({
+        success: true,
+        team: null
+      });
+    }
+
+    const team = await MultipleEmployee.findOne(
+      { members: employee._id },
+      { TeamId: 1, storeName: 1, ownerName: 1 }
+    );
+
+    return res.status(200).json({
+      success: true,
+      team
+    });
+
+  } catch (err) {
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.leaveTeam = async (req, res) => {
+  try {
+    const empId = req.employee.empId;
+
+    const employee = await SingleEmployee.findOne({ empId });
+    if (!employee || !employee.teamAccepted) {
+      return res.status(400).json({ message: "Not in any team" });
+    }
+
+    await MultipleEmployee.updateOne(
+      { members: employee._id },
+      { $pull: { members: employee._id } }
+    );
+
+    employee.teamAccepted = false;
+    await employee.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "You left the team successfully"
+    });
+
+  } catch (err) {
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+

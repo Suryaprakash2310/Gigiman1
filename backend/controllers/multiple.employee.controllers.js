@@ -6,13 +6,14 @@ const DomainService = require('../models/domainservice.model')
 const EmployeeService = require("../models/employeeService.model");
 const { maskPhone } = require('../utils/crypto');
 const axios = require('axios');
+const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN; 
 
 // Generate JWT token
 const generateToken = (emp) => {
   return jwt.sign(
     {
       id: emp._id,
-      employeeId: emp.empId,
+      TeamId: emp.TeamId,
       role: emp.role
     },
     process.env.JWT_KEY,
@@ -49,7 +50,7 @@ exports.multipleEmployeeRegister = async (req, res) => {
         },
       });
       address = geoRes.data.features[0]?.place_name || null;
-      console.log("Resolved address:", address);
+      //console.log("Resolved address:", address);
     }
 
     // 4. Validate services
@@ -96,6 +97,7 @@ exports.multipleEmployeeRegister = async (req, res) => {
       ownerName: employee.ownerName,
       phoneNo: employee.phoneMasked,
       servicesAssigned: services,
+      role: employee.role,
       token: generateToken(employee)
     });
 
@@ -185,6 +187,7 @@ exports.requestToAddMember = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
 
 //Remove a singleEmployee from the logged in MultipleEmployee's team
 exports.removeMembersFromTeam = async (req, res) => {
@@ -353,3 +356,29 @@ exports.updateTeamMembers = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+// GET MY TEAM MEMBERS
+
+  exports.getTeamMembers = async (req, res) => {
+  try {
+    const emp = req.employee;
+
+    if (emp.role !== ROLES.MULTIPLE_EMPLOYEE) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    const team = await MultipleEmployee.findById(emp._id)
+      .populate("members", "fullname empId phoneNo");
+
+    if (!team) {
+      return res.status(404).json({ message: "Team not found" });
+    }
+
+    return res.status(200).json({
+      members: team.members,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+

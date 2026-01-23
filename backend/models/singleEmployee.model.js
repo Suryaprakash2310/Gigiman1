@@ -31,8 +31,8 @@ const singleEmployeeSchema = new mongoose.Schema({
     default: "No",
   },
   address: {
-    type:String,
-    required:true,
+    type: String,
+    required: true,
   },
   aadhaarNo: {
     type: String,
@@ -77,18 +77,17 @@ const singleEmployeeSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
-  offerBookingId:{
+  offerBookingId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Booking',
     default: null
   },
   availabilityStatus: {
-  type: String,
-  enum: ["AVAILABLE", "OFFERED", "BUSY"],
-  default: "AVAILABLE",
-  index: true
-}
-
+    type: String,
+    enum: ["AVAILABLE", "OFFERED", "BUSY"],
+    default: "AVAILABLE",
+    index: true
+  },
 
 }, { timestamps: true });
 

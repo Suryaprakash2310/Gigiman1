@@ -109,6 +109,12 @@ exports.findNearbyTeams = async ({
     /* ======================================================
        TEAM ONLY
     ====================================================== */
+
+    // const capableEmployee = await SingleEmployee.find({
+    //     empId: { $in: capableEmployeeIds } // strings from frontend
+    // }).select("_id");
+
+    // const capableObjectIds = capableEmployee.map(e => e._id);
     const teams = await MultipleEmployee.aggregate([
         {
             $geoNear: {
@@ -123,7 +129,7 @@ exports.findNearbyTeams = async ({
                         { blockedUntil: null },
                         { blockedUntil: { $lte: new Date() } }
                     ],
-                    members: { $in: capableObjectIds }
+                    members: { $in: capableEmployeeObjectIds }
                 }
             }
         },
@@ -152,6 +158,9 @@ exports.findNearbyTeams = async ({
             }
         }
     ]);
+
+    console.log("FOUND TEAMS:", teams.length);
+
 
     return {
         type: "team",
@@ -381,7 +390,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             },
         },
         { new: true }
-    ).populate("leader");
+    );
 
     //  No team available
     if (!team) {
@@ -393,8 +402,15 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
     }
 
     //  Emit immediately to team leader
-    if (team.leader?.socketId) {
-        io.to(team.leader.socketId).emit("team-booking-request", { bookingId });
+    if (team.socketId) {
+        console.log("📤 EMITTING TEAM REQUEST TO:", team.socketId);
+        const booking = await Booking.findById(bookingId);
+        io.to(team.socketId).emit("team-booking-request", {
+            bookingId,
+            teamId: team._id,
+            employeeCount,
+            serviceCategory: booking.serviceCategoryName
+        });
     }
 
     //  Single timeout (retry)
@@ -422,52 +438,198 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 };
 
 
-exports.teamAccept = async ({ bookingId, teamId, io }) => {
+exports.teamAccept = async ({
+    bookingId,
+    teamId,
+    leaderEmpId,
+    helperEmpIds = [],
+    io
+}) => {
+    try {
+        if (!bookingId || !teamId || !leaderEmpId) {
+            return {
+                success: false,
+                reason: "bookingId, teamId and leaderEmpId are required"
+            };
+        }
 
-    // Validate offer
-    const team = await MultipleEmployee.findOne({
-        _id: teamId,
-        offerBookingId: bookingId,
-        teamStatus: "OFFERED",
-    }).populate("leader members");
+        console.log("🟡 teamAcceptAndAssign START", {
+            bookingId,
+            teamId,
+            leaderEmpId,
+            helperCount: helperEmpIds.length
+        });
 
-    if (!team) return;
+        /* 1️⃣ Fetch team */
+        const team = await MultipleEmployee.findOne(
+            {
+                _id: teamId,
+                offerBookingId: bookingId,
+                teamStatus: "OFFERED"
+            },
+            { members: 1, leader: 1, helpers: 1 }
+        );
 
-    const booking = await Booking.findOneAndUpdate(
-        {
-            _id: bookingId,
-            servicerCompany: null,
-            status: BOOKING_STATUS.PENDING,
-        },
-        {
-            $set: {
+        console.log("team fetched:", team ? { id: team._id?.toString(), membersCount: team.members?.length } : null);
+
+        if (!team) {
+            return { success: false, reason: "Invalid team offer" };
+        }
+
+        /* 2️⃣ Fetch leader */
+        const leader = await SingleEmployee.findById(leaderEmpId);
+        console.log("leader fetched:", leader ? { id: leader._id?.toString(), empId: leader.empId, socketId: leader.socketId } : null);
+        if (!leader) {
+            return { success: false, reason: "Leader not found" };
+        }
+
+        /* 3️⃣ Build MEMBER SET (O(1) lookups) */
+        const memberIdSet = new Set(
+            team.members.map(m => m.toString())
+        );
+
+        console.log("memberIdSet size:", memberIdSet.size);
+
+        /* 4️⃣ Validate leader is a team member */
+        if (!memberIdSet.has(leader._id.toString())) {
+            console.log("leader not in team members", { leaderId: leader._id.toString() });
+            return {
+                success: false,
+                reason: "Leader must be a member of the team"
+            };
+        }
+
+        /* 2️⃣.5️⃣ Fetch booking EARLY (read-only) */
+        const bookingMeta = await Booking.findById(bookingId)
+            .select("employeeCount status serviceType user");
+
+        if (!bookingMeta) {
+            return { success: false, reason: "Booking not found" };
+        }
+
+        if (bookingMeta.status !== BOOKING_STATUS.PENDING) {
+            return { success: false, reason: "Booking not pending" };
+        }
+
+
+        /* 5️⃣ Fetch helpers */
+        let helperDocs = [];
+        if (helperEmpIds.length) {
+            helperDocs = await SingleEmployee.find({
+                _id: { $in: helperEmpIds }
+            });
+
+            console.log("helpers fetched count:", helperDocs.length, "expected:", helperEmpIds.length);
+
+            if (helperDocs.length + 1 !== bookingMeta.employeeCount) {
+                return {
+                    success: false,
+                    reason: `Requires ${bookingMeta.employeeCount} employees`
+                };
+            }
+
+            /* 6️⃣ Validate helpers using SET (FAST) */
+            const invalidHelper = helperDocs.find(
+                h => !memberIdSet.has(h._id.toString())
+            );
+
+            if (invalidHelper) {
+                console.log("invalid helper detected:", { empId: invalidHelper.empId, id: invalidHelper._id.toString() });
+                return {
+                    success: false,
+                    reason: `Helper ${invalidHelper.empId} is not a team member`
+                };
+            }
+        }
+
+        /* 7️⃣ Assign roles to team */
+        team.leader = leader._id;
+        team.helpers = helperDocs.map(h => h._id);
+        console.log("assigning leader/helpers to team", { leader: leader._id.toString(), helpers: team.helpers.map(h => h.toString()) });
+        await team.save();
+        console.log("team after save:", { id: team._id.toString(), leader: team.leader.toString(), helpers: team.helpers.map(h => h.toString()) });
+
+        /* 8️⃣ Lock booking */
+        const booking = await Booking.findOneAndUpdate(
+            {
+                _id: bookingId,
+                servicerCompany: null,
+                status: BOOKING_STATUS.PENDING
+            },
+            {
                 servicerCompany: teamId,
                 serviceType: "team",
+                primaryEmployee: leader._id,
+                employees: [leader._id, ...helperDocs.map(h => h._id)],
+                status: BOOKING_STATUS.ASSIGNED // 🔥 REQUIRED
             },
-        },
-        { new: true }
-    );
+            { new: true }
+        );
 
-    if (!booking) {
-        await MultipleEmployee.findByIdAndUpdate(teamId, {
-            teamStatus: "AVAILABLE",
-            offerBookingId: null,
+        console.log("booking lock result:", booking ? { id: booking._id.toString(), servicerCompany: booking.servicerCompany?.toString(), status: booking.status } : null);
+
+        if (!booking) {
+            return {
+                success: false,
+                reason: "Booking already assigned"
+            };
+        }
+
+        /* 9️⃣ Generate OTP */
+        const otp = Math.floor(1000 + Math.random() * 9000);
+        booking.StartWorkOTP = otp;
+        await booking.save();
+
+        console.log("otp generated and saved:", otp);
+
+        /* 🔟 Mark team BUSY */
+        const teamUpdate = await MultipleEmployee.findByIdAndUpdate(teamId, {
+            teamStatus: "BUSY",
+            offerBookingId: null
+        }, { new: true });
+        console.log("team status updated to BUSY:", teamUpdate ? { id: teamUpdate._id.toString(), status: teamUpdate.teamStatus } : null);
+
+        /* 1️⃣1️⃣ Notify USER */
+        const user = await User.findById(booking.user).select("socketId");
+        if (user?.socketId) {
+            io.to(user.socketId).emit("otp-generated", {
+                bookingId: booking._id,
+                otp
+            });
+            console.log("notified user of otp", { userSocket: user.socketId, bookingId: booking._id.toString() });
+        }
+
+        /* 1️⃣2️⃣ Notify LEADER */
+        const leaderSocket = await SingleEmployee.findById(leader._id).select("socketId");
+        if (leaderSocket?.socketId) {
+            io.to(leaderSocket.socketId).emit("leader-otp-ready", {
+                bookingId: booking._id
+            });
+            console.log("notified leader socket", { leaderSocket: leaderSocket.socketId, leaderId: leader._id.toString() });
+        }
+
+        console.log("✅ teamAcceptAndAssign SUCCESS", {
+            bookingId: booking._id.toString(),
+            teamId: teamId.toString()
         });
-        return;
-    }
 
-    // Mark team BUSY
-    await MultipleEmployee.findByIdAndUpdate(teamId, {
-        teamStatus: "BUSY",
-        offerBookingId: null,
-    });
+        return {
+            success: true,
+            bookingId: booking._id
+        };
 
-    // Notify user
-    const user = await User.findById(booking.user).select("socketId");
-    if (user?.socketId) {
-        io.to(user.socketId).emit("team-accepted", booking);
+    } catch (err) {
+        console.error("🔥 teamAcceptAndAssign error:", err && err.stack ? err.stack : err);
+        return {
+            success: false,
+            reason: err.message
+        };
     }
 };
+
+
+
+
 
 
 exports.teamReject = async ({ bookingId, teamId, io }) => {
@@ -690,6 +852,7 @@ exports.verifyStartOTP = async (bookingId, otp) => {
 ====================================================== */
 exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const [lng, lat] = coordinates;
+    console.log("🔍 +++++++++Searching toolshop for request:", requestId);
 
     //  Pick + lock ONE toolshop atomically
     const shop = await ToolShop.findOneAndUpdate(
@@ -715,6 +878,7 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         },
         { new: true }
     );
+    console.log("➡️ Selected toolshop:", shop);
 
     //  No shop available
     if (!shop) {
@@ -729,8 +893,12 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
 
     //  Emit immediately
     if (shop.socketId) {
-        io.to(shop.socketId).emit("toolshop-booking-request", { requestId });
+        io.to(shop.socketId).emit("toolshop-booking-request", {
+            requestId,
+        });
+
     }
+    console.log("➡️ Offered toolshop:", shop.socketId);
 
     //  Single timeout (retry)
     setTimeout(async () => {
@@ -753,22 +921,33 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
 
 
 exports.toolshopAccept = async ({ requestId, shopId, io }) => {
-
     const shop = await ToolShop.findOne({
         _id: shopId,
         offerRequestId: requestId,
         shopStatus: "OFFERED",
     });
 
-    if (!shop) return;
+    console.log("🔔 Toolshop accept attempt:", shopId, requestId);
+
+    if (!shop) {
+        console.log("❌ Invalid shop accept attempt");
+        return;
+    }
+
+    const otp = Math.floor(1000 + Math.random() * 9000);
 
     const request = await PartRequest.findOneAndUpdate(
         {
             _id: requestId,
-            selectedToolShop: null,
+            approvalByUser: true,
         },
         {
-            $set: { selectedToolShop: shopId },
+            $set: {
+                shopId,
+                selectedToolShop: shopId,
+                status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
+                otp,
+            },
         },
         { new: true }
     );
@@ -781,17 +960,42 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         return;
     }
 
+    // ✅ Mark shop BUSY
     await ToolShop.findByIdAndUpdate(shopId, {
         shopStatus: "BUSY",
         offerRequestId: null,
     });
 
-    const employee = await SingleEmployee.findById(request.employeeId).select("socketId");
+    console.log("✅ OTP generated:", otp);
 
-    if (employee?.socketId) {
-        io.to(employee.socketId).emit("toolshop-accepted", { requestId, shopId });
+    // ✅ Get employee socket
+    const employee = await SingleEmployee
+        .findById(request.employeeId)
+        .select("socketId");
+    console.log("✅ Employee socket:", employee);
+
+    if (!employee?.socketId) {
+        console.log("❌ Employee socket missing");
+        return;
     }
+
+    // ✅ Emit pickup details
+    io.to(employee.socketId).emit("toolshop-accepted", {
+        requestId: request._id,
+        otp,
+        shop: {
+            name: shop.shopName,
+            address: shop.storeLocation,
+            phone: shop.phoneMasked,
+        },
+        parts: request.parts,
+        totalCost: request.totalCost,
+    });
+
+    console.log("✅ Toolshop accepted → Employee notified");
 };
+
+
 
 exports.toolshopReject = async ({ requestId, shopId, io }) => {
 
@@ -914,12 +1118,12 @@ exports.generateToolOTP = async (requestId, io) => {
         otp,
     };
 };
-exports.verifyPartOTP = async (requestId, otp) => {
-
+exports.verifyPartOTP = async (requestId, otp, io) => {
+    console.log("Verifying Part OTP:", requestId, otp);
     //  Validate request
     const req = await PartRequest.findOne({
         _id: requestId,
-        status: "approved",
+        status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
         otp: Number(otp),
     });
 
@@ -928,10 +1132,20 @@ exports.verifyPartOTP = async (requestId, otp) => {
     }
 
     //  Mark as collected
-    req.status = "collected";
+    req.status = PART_REQUEST_STATUS.COLLECTED;
     req.otp = null;
     await req.save();
-
+    const employee = await SingleEmployee.findById(req.employeeId).select("socketId");
+    if (io && employee?.socketId) {
+        try {
+            io.to(employee.socketId).emit("tool-otp-verified", {
+                requestId,
+                otp,
+            });
+        } catch (e) {
+            console.error('emit tool-otp-verified failed', e);
+        }
+    }
     return {
         success: true,
         req,

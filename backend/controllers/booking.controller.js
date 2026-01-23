@@ -23,7 +23,7 @@ const {
   assignNextToolshop,
   assignNextServicer,
 } = require("../services/booking.service");
-
+const role = require("../utils/roleModelMap")
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const PAYMENT_STATUS = require("../enum/payment.enum");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
@@ -199,6 +199,71 @@ exports.teamAssignMembers = async (req, res) => {
   }
 };
 
+// exports.teamAssignMembers = async (req, res) => {
+//   try {
+//     const loggedInEmp = req.employee;
+//     const { bookingId, primaryEmployee, helpers = [] } = req.body;
+
+//     if (loggedInEmp.role !== "multi_employee") {
+//       return res.status(403).json({ message: "Unauthorized" });
+//     }
+
+//     const booking = await Booking.findOne({
+//       _id: bookingId,
+//       serviceType: "team",
+//       status: BOOKING_STATUS.PENDING,
+//       servicerCompany: loggedInEmp._id,
+//     });
+
+//     if (!booking) {
+//       return res.status(404).json({ message: "Booking not found" });
+//     }
+
+//     const team = await MultipleEmployee.findById(loggedInEmp._id);
+
+//     if (!team) {
+//       return res.status(404).json({ message: "Team not found" });
+//     }
+
+//     // validate primary
+//     if (!team.members.includes(primaryEmployee)) {
+//       return res.status(400).json({ message: "Primary not in team" });
+//     }
+
+//     // validate helpers
+//     for (const h of helpers) {
+//       if (!team.members.includes(h)) {
+//         return res.status(400).json({ message: "Helper not in team" });
+//       }
+//     }
+
+//     if (helpers.length + 1 !== booking.employeeCount) {
+//       return res.status(400).json({
+//         message: `Requires ${booking.employeeCount} employees`
+//       });
+//     }
+
+//     booking.primaryEmployee = primaryEmployee;
+//     booking.employees = [primaryEmployee, ...helpers];
+//     await booking.save();
+
+//     await SingleEmployee.updateMany(
+//       { _id: { $in: booking.employees } },
+//       { availabilityStatus: "BUSY" }
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Booking assigned successfully",
+//       booking,
+//     });
+
+//   } catch (err) {
+//     console.error("assignTeamToBooking error:", err);
+//     return res.status(500).json({ message: "Server error" });
+//   }
+// };
+
 
 /* ======================================================
    START WORK OTP
@@ -370,7 +435,7 @@ exports.approvePartRequest = async (req, res) => {
       return res.status(404).json({ message: "Part request not found" });
     }
 
-    // 🔒 Ensure booking belongs to this user
+    //  Ensure booking belongs to this user
     const booking = await Booking.findOne({
       _id: partRequest.bookingId,
       user: req.user._id,
@@ -380,19 +445,16 @@ exports.approvePartRequest = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized booking" });
     }
 
-    // ✅ Approve
+    //  Approve
     partRequest.approvalByUser = true;
-    partRequest.status = "APPROVED_BY_USER";
+    partRequest.status = "WAITING_TOOLSHOP";
     await partRequest.save();
 
-    // 🔔 Notify employee
-    const notifyIo = (req.app && req.app.get && req.app.get("io")) || req.io || null;
-    if (notifyIo) {
-      notifyIo.to(`employee_${partRequest.employeeId}`).emit("tool-permission-approved", {
-        requestId: partRequest._id,
-        bookingId: partRequest.bookingId,
-      });
-    }
+    await assignNextToolshop({
+      requestId,
+      coordinates: booking.location.coordinates,
+      io: req.app.get("io"),
+    });
 
     res.status(200).json({
       success: true,
@@ -401,6 +463,35 @@ exports.approvePartRequest = async (req, res) => {
   } catch (err) {
     console.error("approvePartRequest:", err);
     res.status(500).json({ message: err.message });
+  }
+};
+
+
+exports.getPartRequestById = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+
+    const partRequest = await PartRequest.findById(requestId)
+      .populate("employeeId", "fullname phoneNo")
+      .populate("bookingId", "address");
+
+    if (!partRequest) {
+      return res.status(404).json({
+        success: false,
+        message: "Part request not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      partRequest,
+    });
+  } catch (err) {
+    console.error("getPartRequestById error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 
@@ -427,7 +518,11 @@ exports.nearbyToolShops = async (req, res) => {
 exports.autoAssignToolShop = async (req, res) => {
   try {
     const { requestId } = req.body;
+    console.log("autoAssignToolShop called with requestId:", requestId);
 
+    if (!requestId) {
+      return res.status(400).json({ message: "requestId is required" });
+    }
     const partRequest = await PartRequest.findById(requestId).populate("bookingId");
     if (!partRequest) {
       return res.status(404).json({ message: "Part request not found" });
@@ -489,7 +584,9 @@ exports.generateToolOTPController = async (req, res) => {
 exports.verifyPartOTPcontroller = async (req, res) => {
   try {
     const { requestId, otp } = req.body;
-    const result = await verifyPartOTP(requestId, otp);
+    
+     const io = (req.app && req.app.get && req.app.get("io")) || req.io || null;
+    const result = await verifyPartOTP(requestId, otp, io);
 
     if (!result.success) {
       return res.status(400).json({ message: "Invalid OTP" });
