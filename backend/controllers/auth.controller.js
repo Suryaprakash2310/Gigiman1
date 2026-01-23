@@ -137,29 +137,15 @@ exports.verifyOtp = async (req, res) => {
 
 exports.ShowServices = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1
-    const limit = parseInt(req.query.limit) || 10
-    const skip = (page - 1) * limit
-
-    const services = await DomainService.aggregate([
-      { $sort: { domainName: 1 } },
-      { $skip: skip },
-      { $limit: limit },
-      {
-        $project: {
-          domainName: 1,
-          image: 1, // only send image URL, NOT full image data
-          _id: 1
-        }
-      }
-    ])
-
-    const total = await DomainService.countDocuments()
+    const services = await DomainService.find(
+      {},
+      { domainName: 1, image: 1 } // projection
+    )
+      .sort({ domainName: 1 })
+      .lean() // returns plain JS objects, faster than Mongoose docs
 
     return res.status(200).json({
       success: true,
-      page,
-      totalPages: Math.ceil(total / limit),
       count: services.length,
       services
     })
@@ -168,6 +154,7 @@ exports.ShowServices = async (req, res) => {
     return res.status(500).json({ message: "Server error" })
   }
 }
+
 
 
 //Search the service
