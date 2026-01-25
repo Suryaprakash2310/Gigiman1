@@ -22,7 +22,7 @@ exports.userProtect = async (req, res, next) => {
       return next(new AppError("Invalid token", 401));
     }
 
-    const user = await User.findById(decoded.id).select("-phoneNo");
+    const user = await User.findById(decoded.id)
     if (!user) {
       return next(new AppError("User not found", 404));
     }
