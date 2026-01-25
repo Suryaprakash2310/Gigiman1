@@ -11,7 +11,7 @@ const ROLES=require("../enum/role.enum");
 const MODEL_MAP = {
   [ROLES.SINGLE_EMPLOYEE]: SingleEmployee,
   [ROLES.MULTIPLE_EMPLOYEE]: MultipleEmployee,
-  [ROLES.SHOP]: Shop,
+  [ROLES.TOOL_SHOP]: Shop,
   admin: Admin
 };    
 
