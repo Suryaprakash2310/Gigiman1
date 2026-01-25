@@ -255,7 +255,7 @@ exports.getServiceCategoryById = async (req, res, next) => {
 //get the all subservice by domainServiceId
 exports.ShowsubserviceId = async (req, res, next) => {
   try {
-    const { serviceCategoryId } = req.params;
+    const { domainServiceId } = req.params;
 
     const services = await ServiceList.find({
       DomainServiceId: domainServiceId
