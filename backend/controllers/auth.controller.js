@@ -16,7 +16,7 @@ exports.sendOtp = async (req, res, next) => {
     //Get the phone number
     const { phoneNo } = req.body;
     if (!phoneNo)
-      return next(new AppError("Phone number is required",400));
+      return next(new AppError("Phone number is required", 400));
 
     const cleanPhone = normalizePhone(phoneNo);
 
@@ -127,7 +127,7 @@ exports.ShowServices = async (req, res, next) => {
       .sort({ domainName: 1 })
       .lean()
     // returns plain JS objects, faster than Mongoose docs
-    if(!services || services.length===0){
+    if (!services || services.length === 0) {
       return next(new AppError("No services found", 404));
     }
     return res.status(200).json({
@@ -256,21 +256,18 @@ exports.getServiceCategoryById = async (req, res, next) => {
 exports.ShowsubserviceId = async (req, res, next) => {
   try {
     const { domainServiceId } = req.params;
-
+    if (!domainServiceId) {
+      return next(new AppError("domainServiceId is required", 400));
+    } 
     const services = await ServiceList.find({
       DomainServiceId: domainServiceId
     })
       .sort({ createdAt: 1 }) // oldest first, optional
       .lean();
-    if(!services || services.length===0){
-      return next(new AppError("No services found for the given domainServiceId", 404));
-    }
 
     res.status(200).json({
       success: true,
-      serviceName: service.serviceName,
-      domainServiceId: service.DomainServiceId,
-      serviceCategory: category,
+      services
     });
 
   } catch (err) {

@@ -56,13 +56,13 @@ exports.editprofile=async(req, res, next)=>{
       const employee=req.employee;
       const role=req.role;
       let allowFields=[];
-      if(role==="SINGLE_EMPLOYEE"){
+      if(role===ROLES.SINGLE_EMPLOYEE){
         allowFields=["fullname","address"];
       }
-      if(role==="MULTIPLE_EMPLOYEE"){
+      if(role===ROLES.MULTIPLE_EMPLOYEE){
         allowFields=["storeName","ownerName","storeLocation"];
       }
-      if(role==="TOOL_SHOP"){
+      if(role===ROLES.TOOL_SHOP){
         allowFields=["shopName","ownerName","storeLocation"];
       }
       //validate incoming fields

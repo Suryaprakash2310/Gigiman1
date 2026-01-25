@@ -10,28 +10,22 @@ const {
   ShowsubService,
   getServiceCategoryById,
 } = require("../controllers/auth.controller");
-const { protect } = require("../middleware/auth.middleware");
 
-//  OTP Login (common to SingleEmplkoyee / MultipleEmployee / ToolShop)
+// OTP
 router.post("/send-otp", sendOtp);
 router.post("/verify-otp", verifyOtp);
 
-//  Show service list
+// Domain services
 router.get("/services", ShowServices);
-
-//  Search services by name
 router.get("/services/search", searchService);
 
-// Get all the subservices
-router.get("/sub-service",ShowsubserviceId);
+// Subservices by domain
+router.get("/showsubservice/:domainServiceId", ShowsubserviceId);
 
-//Get all services
+// All services + categories 
 router.get("/showServices", ShowsubService);
 
-
-router.get("/showsubservice/:domainServiceId",ShowsubserviceId);
-
-router.get("/service-list/:serviceCategoryId",getServiceCategoryById)
-
+// Single category
+router.get("/service-list/:serviceCategoryId", getServiceCategoryById);
 
 module.exports = router;
