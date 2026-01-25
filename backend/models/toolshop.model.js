@@ -62,21 +62,23 @@ const toolshopSchema = new mongoose.Schema(
     blockedUntil: {
       type: String,
       default: null
-    }, 
-    shopStatus: {
-      type: String,
-      enum: ["AVAILABLE", "OFFERED", "BUSY"],
-      default: "AVAILABLE",
     },
-
+    activeRequests: {
+      type: Number,
+      default: 0
+    },
+    maxCapacity: {
+      type: Number,
+      default: 5
+    },
     offerRequestId: {
       type: mongoose.Types.ObjectId,
       ref: "PartRequest",
       default: null,
     },
-    isActive:{
-      type: Boolean, 
-      default:false,
+    isActive: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true }

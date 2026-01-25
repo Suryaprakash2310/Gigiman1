@@ -695,7 +695,7 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const shop = await ToolShop.findOneAndUpdate(
         {
             isActive: true,
-            shopStatus: "AVAILABLE",
+            activeRequests: { $lt: "$maxCapacity" },
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
@@ -708,13 +708,12 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
             },
         },
         {
-            $set: {
-                shopStatus: "OFFERED",
-                offerRequestId: requestId,
-            },
+            $inc: { activeRequests: 1 },
+            $push: { activeRequestIds: requestId }
         },
         { new: true }
     );
+
 
     //  No shop available
     if (!shop) {
@@ -739,13 +738,11 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         const stillOffered = await ToolShop.findOne({
             _id: shop._id,
             offerRequestId: requestId,
-            shopStatus: "OFFERED",
         });
 
         if (!stillOffered) return;
 
         await ToolShop.findByIdAndUpdate(shop._id, {
-            shopStatus: "AVAILABLE",
             offerRequestId: null,
         });
 
@@ -758,7 +755,6 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
     const shop = await ToolShop.findOne({
         _id: shopId,
         offerRequestId: requestId,
-        shopStatus: "OFFERED",
     });
 
     if (!shop) {
@@ -785,7 +781,6 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
 
     if (!request) {
         await ToolShop.findByIdAndUpdate(shopId, {
-            shopStatus: "AVAILABLE",
             offerRequestId: null,
         });
         return;
@@ -793,8 +788,8 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
 
     //  Mark shop BUSY
     await ToolShop.findByIdAndUpdate(shopId, {
-        shopStatus: "BUSY",
-        offerRequestId: null,
+        $inc: { activeRequests: 1 },
+        $set: { offerRequestId: null }
     });
 
     console.log(" OTP generated:", otp);
@@ -829,13 +824,12 @@ exports.toolshopReject = async ({ requestId, shopId, io }) => {
     const shop = await ToolShop.findOne({
         _id: shopId,
         offerRequestId: requestId,
-        shopStatus: "OFFERED",
     });
 
     if (!shop) return;
 
     await ToolShop.findByIdAndUpdate(shopId, {
-        shopStatus: "AVAILABLE",
+        $inc: { activeRequests: -1 },
         offerRequestId: null,
     });
 
@@ -879,7 +873,7 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
     });
 
     if (existing) {
-        throw new AppError("Active part request already exists",422);
+        throw new AppError("Active part request already exists", 422);
     }
 
     //  Create part request
@@ -895,16 +889,11 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
 
     //  Emit to USER (best-effort)
     if (io && booking.user) {
-        console.log("Emitting tool-request-created to user:", booking.user.toString());
         io.to(booking.user.toString()).emit("tool-request-created", {
             requestId: partRequest._id,
             parts,
             totalCost,
-        }, (ack) => {
-            if (!ack) {
-                console.log("++++++++++++++User did not acknowledge part request");
-            }
-        });
+        }, );
     }
 
     return partRequest;
