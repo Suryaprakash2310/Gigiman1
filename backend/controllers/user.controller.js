@@ -8,8 +8,12 @@ const generateTempToken = require("../utils/generateTempToken");
 const AppError = require("../utils/AppError");
 require('dotenv').config();
 //token generation
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_KEY, { expiresIn: '7d' });
+const generateToken = (user) => {
+  return jwt.sign({ 
+    id: user._id,
+    role:user.role ||"user"
+  }, process.env.JWT_KEY,
+  { expiresIn: '7d' });
 };
 
 //Send-otp always

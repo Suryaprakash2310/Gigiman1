@@ -40,4 +40,11 @@ router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
 router.post("/review",userProtect, bookingController.submitReview);
 router.post("/payment/success", bookingController.paymentSuccess);
 
+
+//Booking history
+router.get("history/user",userProtect,bookingController.getUserRecentBookingHistory);
+router.get("history/servicer",protect,bookingController.getEmployeeRecentBookingHistory);
+
+//popular bookings
+router.get("/popularbookings",bookingController.getPopularBookings)
 module.exports = router;

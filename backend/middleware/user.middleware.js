@@ -29,7 +29,7 @@ exports.userProtect = async (req, res, next) => {
 
     req.user = user;
     req.userId = user._id;
-
+    req.role=user.role;
     next();
   } catch (err) {
     next(err); //let Global error handler deal with it

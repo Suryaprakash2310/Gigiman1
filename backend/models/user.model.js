@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-
+const ROLES = require("../enum/role.enum");
 const UserSchema = new mongoose.Schema(
   {
     fullName: {
@@ -46,6 +46,11 @@ const UserSchema = new mongoose.Schema(
     },
 
     socketConnectedAt: Date,
+    role:{
+      type: String,
+      enum: Object.values(ROLES),
+      default: ROLES.USER,
+    }
   },
   { timestamps: true }
 );

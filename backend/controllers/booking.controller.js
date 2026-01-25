@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const crypto = require("crypto");
-const{PAYMENT_STATUS}=require("../enum/payment.enum"); 
-const{BOOKING_STATUS}=require("../enum/bookingstatus.enum");
+const { PAYMENT_STATUS } = require("../enum/payment.enum");
+const { BOOKING_STATUS } = require("../enum/bookingstatus.enum");
 const Booking = require("../models/Booking.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
@@ -20,7 +20,8 @@ const {
 } = require("../services/booking.service");
 const AppError = require("../utils/AppError");
 const Review = require("../models/review.model");
-const{ PART_REQUEST_STATUS }=require("../enum/partsstatus.enum");
+const { PART_REQUEST_STATUS } = require("../enum/partsstatus.enum");
+const ROLES = require("../enum/role.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
@@ -73,7 +74,7 @@ exports.autoAssignServicer = async (req, res, next) => {
     } = req.body;
     const io = req.app.get("io");
 
-     if (!serviceCategoryName) {
+    if (!serviceCategoryName) {
       return next(new AppError("serviceCategoryName is required", 400));
     }
 
@@ -93,7 +94,7 @@ exports.autoAssignServicer = async (req, res, next) => {
     /* ======================================================
         CREATE BOOKING (ALWAYS FIRST)
     ====================================================== */
-    const { booking, serviceType ,employeeCount} = await createBooking({
+    const { booking, serviceType, employeeCount } = await createBooking({
       userId,
       serviceCategoryName,
       domainService,
@@ -472,13 +473,13 @@ exports.submitReview = async (req, res, next) => {
     if (existing) {
       return next(new AppError("Review already submitted for this booking", 400));
     }
-    const review=await Review.create({
+    const review = await Review.create({
       booking: bookingId,
-      user:userId,
-      serviceType:booking.serviceType,
-      primaryEmployee:booking.primaryEmployee,
-      helpers:booking.employees||[],
-      company:booking.employees||[],
+      user: userId,
+      serviceType: booking.serviceType,
+      primaryEmployee: booking.primaryEmployee,
+      helpers: booking.employees || [],
+      company: booking.employees || [],
       rating,
       comment
     })
@@ -578,4 +579,97 @@ exports.paymentSuccess = async (req, res, next) => {
   }
 };
 
+exports.getUserRecentBookingHistory = async (req, res, next) => {
+  try {
+    const userId = req.userId;
+    const bookings = await Booking.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .populate("primaryEmployee", "empId fullname")
+      .populate("employees", "storeName teamId")
+      .populate("selectedToolshop", "toolShopId storeLocation")
+    if (!bookings || bookings.length === 0) {
+      next(new AppError("No bookings found", 404));
+    }
+    return res.status(200).json({
+      bookings,
+      total: bookings.length,
+      success: true,
+    })
+  } catch (err) {
+    next(err);
+  }
+}
 
+exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
+  try {
+    const { role, data } = req.employee;
+    let filter = {};
+    if (role === ROLES.SINGLE_EMPLOYEE) {
+      filter.$or = [{ primaryEmployee: data._id }
+        , { employees: data._id }];
+    }
+    else if (role === ROLES.MULTIPLE_EMPLOYEE) {
+      filter.servicerCompany = data._id;
+    }
+    else if (role === ROLES.TOOL_SHOP) {
+      filter.selectedToolshop = data._id;
+    }
+    const bookings = await Booking.find(filter)
+      .sort({ createdAt: -1 })
+      .populate("user", "fullname phoneMasked")
+      .populate("primaryEmployee", "empId fullname")
+      .populate("servicerCompany", "storeName TeamId")
+      .populate("selectedToolshop", "toolShopId storeLocation");
+    if (!bookings || bookings.length === 0) {
+      return next(new AppError("No bookings found", 404));
+    }
+    return res.status(200).json({
+      bookings,
+      total: bookings.length,
+      success: true,
+    })
+  } catch (err) {
+    next(err); //let Global error handler deal with it
+  }
+}
+
+
+exports.getPopularBookings = async (req, res, next) => {
+  try {
+    const { days = 30 } = req.query;
+
+    const since = new Date();
+    since.setDate(since.getDate() - Number(days));
+
+    const popularBookings = await Booking.aggregate([
+      {
+        $match: {
+          status: BOOKING_STATUS.COMPLETED,
+          createdAt: { $gte: since }
+        }
+      },
+      {
+        $group: {
+          _id: "$serviceCategoryName",
+          totalBookings: { $sum: 1 },
+          totalRevenue: { $sum: "$totalPrice" },
+        }
+      },
+      {
+        $sort: {
+          totalBookings: -1
+        }
+      }
+    ])
+    return res.status(200).json({
+      success: true,
+      rangeDays: Number(days),
+      totalServices: popular.length,
+      popularServices: popular
+    });
+
+
+  } catch (err) {
+    next(err); //let Global error handler deal with it
+  }
+}
