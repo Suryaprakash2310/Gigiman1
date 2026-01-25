@@ -255,7 +255,7 @@ exports.getServiceCategoryById = async (req, res, next) => {
 //get the all subservice by domainServiceId
 exports.ShowsubserviceId = async (req, res, next) => {
   try {
-    const { domainServiceId } = req.params;
+    const { serviceCategoryId } = req.params;
 
     const services = await ServiceList.find({
       DomainServiceId: domainServiceId
@@ -268,8 +268,11 @@ exports.ShowsubserviceId = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      services
+      serviceName: service.serviceName,
+      domainServiceId: service.DomainServiceId,
+      serviceCategory: category,
     });
+
   } catch (err) {
     next(err); //let Global error handler deal with it
   }

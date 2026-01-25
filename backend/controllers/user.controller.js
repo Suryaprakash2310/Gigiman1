@@ -22,15 +22,15 @@ exports.sendOtp = async (req, res, next) => {
     }
 
     const cleanPhone = normalizePhone(phoneNo);
+    console.log("-------------", cleanPhone);
 
     // Ensure user exists (temporary user)
     let user = await User.findOne({ phoneNo });
 
     if (!user) {
       user = await User.create({
-        phoneNo: cleanPhone,
-        phoneMasked: maskPhone(cleanPhone),
-        cleanPhone,
+        phoneNo,
+        phoneMasked: maskPhone(phoneNo),
         isVerified: false,
       });
     }
@@ -65,6 +65,7 @@ exports.sendOtp = async (req, res, next) => {
     return res.json({
       success: true,
       message: "OTP sent",
+      otp,
     });
   } catch (err) {
     next(err); //let Global error handler deal with it

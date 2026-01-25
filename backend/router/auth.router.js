@@ -31,8 +31,7 @@ router.get("/showServices", ShowsubService);
 
 router.get("/showsubservice/:domainServiceId",ShowsubserviceId);
 
-// Get service category by ID
-router.get("/service-list/:domainServiceId",getServiceCategoryById)
+router.get("/service-list/:serviceCategoryId",getServiceCategoryById)
 
 
 module.exports = router;
