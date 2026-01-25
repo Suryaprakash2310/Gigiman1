@@ -11,6 +11,7 @@ const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const { SEARCH_RADIUS_METERS } = require("../utils/constants");
 const mongoose = require("mongoose");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
+const AppError = require("../utils/AppError");
 require("dotenv").config();
 
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
@@ -43,23 +44,25 @@ exports.findNearbyTeams = async ({
         "serviceCategory.serviceCategoryName": serviceCategoryName,
     });
 
-    if (!serviceList) throw new Error("Service Category not found");
+    if (!serviceList) {
+        throw new AppError("Service Category not found", 404);
+    }
+
 
     const category = serviceList.serviceCategory.find(
         c => c.serviceCategoryName === serviceCategoryName
     );
 
-    if (!category) throw new Error("Invalid service category");
+    if (!category) throw new AppError("Invalid service category", 400);
 
     const employeeCount = category.employeeCount;
     const domainServiceId = serviceList.DomainServiceId;
 
     let lngLat = coordinates;
     if (!lngLat && address) lngLat = await exports.geocodeAddress(address);
-    if (!lngLat) throw new Error("Unable to resolve location");
+    if (!lngLat) throw new AppError("Unable to resolve location", 400);
 
     const [lng, lat] = lngLat;
-    console.log("Finding teams near:", lng, lat);
 
     // Employees capable of this domain
     const capableEmployees = await EmployeeService.find({
@@ -70,7 +73,6 @@ exports.findNearbyTeams = async ({
     const capableEmployeeObjectIds = capableEmployeeIds.map(
         id => new mongoose.Types.ObjectId(id)
     );
-    console.log("Capable Employee IDs:", capableEmployeeObjectIds);
 
     /* ======================================================
        SINGLE EMPLOYEE
@@ -96,7 +98,6 @@ exports.findNearbyTeams = async ({
                 }
             }
         ]);
-        console.log('available employees singles:', singles);
 
         return {
             type: "single",
@@ -109,12 +110,6 @@ exports.findNearbyTeams = async ({
     /* ======================================================
        TEAM ONLY
     ====================================================== */
-
-    // const capableEmployee = await SingleEmployee.find({
-    //     empId: { $in: capableEmployeeIds } // strings from frontend
-    // }).select("_id");
-
-    // const capableObjectIds = capableEmployee.map(e => e._id);
     const teams = await MultipleEmployee.aggregate([
         {
             $geoNear: {
@@ -158,10 +153,6 @@ exports.findNearbyTeams = async ({
             }
         }
     ]);
-
-    console.log("FOUND TEAMS:", teams.length);
-
-
     return {
         type: "team",
         data: teams,
@@ -185,10 +176,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         {
             isActive: true,
             availabilityStatus: "AVAILABLE",
-            $or: [
-                { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } }
-            ],
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } }
@@ -223,11 +210,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         io.to(servicer.socketId).emit(
             "new-booking-request",
             { bookingId },
-            (ack) => {
-                if (!ack) {
-                    console.log("++++++++++++++Provider did not acknowledge booking");
-                }
-            }
         );
     }
 
@@ -246,55 +228,13 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             offerBookingId: null,
         });
 
-        //  retry (event-driven, not loop)
         exports.assignNextServicer({ bookingId, coordinates, io });
     }, 150000); //  2.5 minutes
 };
 
-// exports.servicerAccept = async (bookingId, employeeId, io) => {
-//     const employee = await SingleEmployee.findOne({
-//         _id: employeeId,
-//         offerBookingId: bookingId,
-//         availabilityStatus: "OFFERED",
-//     });
-
-//     if (!employee) return;
-//     const booking = await Booking.findOneAndUpdate(
-//         {
-//             _id: bookingId,
-//             primaryEmployee: null,
-//             status: BOOKING_STATUS.PENDING,
-//         },
-//         {
-//             $set: {
-//                 primaryEmployee: employeeId,
-//                 employees: [employeeId],
-//             },
-//         },
-//         { new: true }
-//     );
-//     if (!booking) {
-//         await SingleEmployee.findByIdAndUpdate(employeeId, {
-//             availabilityStatus: "AVAILABLE",
-//             offerBookingId: null,
-//         });
-//         return;
-//     }
-//     // console.log(booking);
-//     await SingleEmployee.findByIdAndUpdate(employeeId, {
-//         availabilityStatus: "BUSY",
-//         offerBookingId: null,
-//     });
-
-//     const user = await User.findById(booking.user).select("socketId");
-//     if (user?.socketId) {
-//         console.log("Emitting servicer-accepted to user:", user.socketId, bookingId);
-//         io.to(user.socketId).emit("servicer-accepted", booking);
-//     }
-// };
 
 exports.servicerAccept = async (bookingId, employeeId, io) => {
-    // 1️⃣ Assign employee to booking
+    //  Assign employee to booking
     const booking = await Booking.findOneAndUpdate(
         {
             _id: bookingId,
@@ -312,14 +252,14 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
 
     if (!booking) return;
 
-    // 2️⃣ 🔐 GENERATE OTP IMMEDIATELY AFTER ACCEPT
+    //  GENERATE OTP IMMEDIATELY AFTER ACCEPT
     const { booking: updatedBooking, otp } =
         await this.generateStartOTP(booking._id);
 
-    console.log("🔐 OTP GENERATED:", otp);
-
-    // 3️⃣ Notify USER with booking + OTP
+    //  Notify USER with booking + OTP
     const user = await User.findById(updatedBooking.user).select("socketId");
+
+    console.log(" OTP generated for booking:", otp);
 
     if (user?.socketId) {
         io.to(user.socketId).emit("servicer-accepted", {
@@ -328,7 +268,7 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
         });
     }
 
-    // 4️⃣ (Optional) Notify PROVIDER booking confirmed
+    //  Notify PROVIDER booking confirmed
     const employee = await SingleEmployee.findById(employeeId);
     if (employee?.socketId) {
         io.to(employee.socketId).emit("booking-confirmed", { booking: updatedBooking, otp });
@@ -403,7 +343,6 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 
     //  Emit immediately to team leader
     if (team.socketId) {
-        console.log("📤 EMITTING TEAM REQUEST TO:", team.socketId);
         const booking = await Booking.findById(bookingId);
         io.to(team.socketId).emit("team-booking-request", {
             bookingId,
@@ -453,14 +392,7 @@ exports.teamAccept = async ({
             };
         }
 
-        console.log("🟡 teamAcceptAndAssign START", {
-            bookingId,
-            teamId,
-            leaderEmpId,
-            helperCount: helperEmpIds.length
-        });
-
-        /* 1️⃣ Fetch team */
+        /*  Fetch team */
         const team = await MultipleEmployee.findOne(
             {
                 _id: teamId,
@@ -470,86 +402,67 @@ exports.teamAccept = async ({
             { members: 1, leader: 1, helpers: 1 }
         );
 
-        console.log("team fetched:", team ? { id: team._id?.toString(), membersCount: team.members?.length } : null);
-
         if (!team) {
-            return { success: false, reason: "Invalid team offer" };
+            throw new AppError("Team not found or not offered for this booking", 400);
         }
 
-        /* 2️⃣ Fetch leader */
+        /*  Fetch leader */
         const leader = await SingleEmployee.findById(leaderEmpId);
-        console.log("leader fetched:", leader ? { id: leader._id?.toString(), empId: leader.empId, socketId: leader.socketId } : null);
+
         if (!leader) {
-            return { success: false, reason: "Leader not found" };
+            throw new AppError("Leader not found", 404);
         }
 
-        /* 3️⃣ Build MEMBER SET (O(1) lookups) */
         const memberIdSet = new Set(
             team.members.map(m => m.toString())
         );
 
-        console.log("memberIdSet size:", memberIdSet.size);
-
-        /* 4️⃣ Validate leader is a team member */
+        /*  Validate leader is a team member */
         if (!memberIdSet.has(leader._id.toString())) {
-            console.log("leader not in team members", { leaderId: leader._id.toString() });
-            return {
-                success: false,
-                reason: "Leader must be a member of the team"
-            };
+            if (!leader) {
+                throw new AppError("Leader not found", 404);
+            }
         }
 
-        /* 2️⃣.5️⃣ Fetch booking EARLY (read-only) */
+        // Fetch booking EARLY (read-only)
         const bookingMeta = await Booking.findById(bookingId)
             .select("employeeCount status serviceType user");
 
         if (!bookingMeta) {
-            return { success: false, reason: "Booking not found" };
+            throw new AppError("Booking not found", 404);
         }
 
         if (bookingMeta.status !== BOOKING_STATUS.PENDING) {
-            return { success: false, reason: "Booking not pending" };
+            throw new AppError("Booking not pending", 409);
         }
 
-
-        /* 5️⃣ Fetch helpers */
+        /*  Fetch helpers */
         let helperDocs = [];
         if (helperEmpIds.length) {
             helperDocs = await SingleEmployee.find({
                 _id: { $in: helperEmpIds }
             });
 
-            console.log("helpers fetched count:", helperDocs.length, "expected:", helperEmpIds.length);
-
             if (helperDocs.length + 1 !== bookingMeta.employeeCount) {
-                return {
-                    success: false,
-                    reason: `Requires ${bookingMeta.employeeCount} employees`
-                };
+                throw new AppError(`Requires ${bookingMeta.employeeCount} employees`, 422);
             }
 
-            /* 6️⃣ Validate helpers using SET (FAST) */
+            /*  Validate helpers using SET (FAST) */
             const invalidHelper = helperDocs.find(
                 h => !memberIdSet.has(h._id.toString())
             );
 
             if (invalidHelper) {
-                console.log("invalid helper detected:", { empId: invalidHelper.empId, id: invalidHelper._id.toString() });
-                return {
-                    success: false,
-                    reason: `Helper ${invalidHelper.empId} is not a team member`
-                };
+                throw new AppError(`Helper ${invalidHelper.empId} is not a team member`, 422);
             }
         }
 
-        /* 7️⃣ Assign roles to team */
+        /*  Assign roles to team */
         team.leader = leader._id;
         team.helpers = helperDocs.map(h => h._id);
-        console.log("assigning leader/helpers to team", { leader: leader._id.toString(), helpers: team.helpers.map(h => h.toString()) });
-        await team.save();
-        console.log("team after save:", { id: team._id.toString(), leader: team.leader.toString(), helpers: team.helpers.map(h => h.toString()) });
 
-        /* 8️⃣ Lock booking */
+        await team.save();
+
         const booking = await Booking.findOneAndUpdate(
             {
                 _id: bookingId,
@@ -561,75 +474,55 @@ exports.teamAccept = async ({
                 serviceType: "team",
                 primaryEmployee: leader._id,
                 employees: [leader._id, ...helperDocs.map(h => h._id)],
-                status: BOOKING_STATUS.ASSIGNED // 🔥 REQUIRED
+                status: BOOKING_STATUS.ASSIGNED //  REQUIRED
             },
             { new: true }
         );
 
-        console.log("booking lock result:", booking ? { id: booking._id.toString(), servicerCompany: booking.servicerCompany?.toString(), status: booking.status } : null);
-
         if (!booking) {
-            return {
-                success: false,
-                reason: "Booking already assigned"
-            };
+            throw new AppError("Booking already assigned", 409);
         }
 
-        /* 9️⃣ Generate OTP */
+        /*  Generate OTP */
         const otp = Math.floor(1000 + Math.random() * 9000);
         booking.StartWorkOTP = otp;
         await booking.save();
 
-        console.log("otp generated and saved:", otp);
+        console.log(" OTP generated for team booking:", otp);
 
-        /* 🔟 Mark team BUSY */
+        /*  Mark team BUSY */
         const teamUpdate = await MultipleEmployee.findByIdAndUpdate(teamId, {
             teamStatus: "BUSY",
             offerBookingId: null
         }, { new: true });
-        console.log("team status updated to BUSY:", teamUpdate ? { id: teamUpdate._id.toString(), status: teamUpdate.teamStatus } : null);
 
-        /* 1️⃣1️⃣ Notify USER */
+        /* Notify USER */
         const user = await User.findById(booking.user).select("socketId");
         if (user?.socketId) {
             io.to(user.socketId).emit("otp-generated", {
                 bookingId: booking._id,
                 otp
             });
-            console.log("notified user of otp", { userSocket: user.socketId, bookingId: booking._id.toString() });
         }
 
-        /* 1️⃣2️⃣ Notify LEADER */
+        /*  Notify LEADER */
         const leaderSocket = await SingleEmployee.findById(leader._id).select("socketId");
         if (leaderSocket?.socketId) {
             io.to(leaderSocket.socketId).emit("leader-otp-ready", {
                 bookingId: booking._id
             });
-            console.log("notified leader socket", { leaderSocket: leaderSocket.socketId, leaderId: leader._id.toString() });
         }
-
-        console.log("✅ teamAcceptAndAssign SUCCESS", {
-            bookingId: booking._id.toString(),
-            teamId: teamId.toString()
-        });
-
         return {
             success: true,
             bookingId: booking._id
         };
 
     } catch (err) {
-        console.error("🔥 teamAcceptAndAssign error:", err && err.stack ? err.stack : err);
-        return {
-            success: false,
-            reason: err.message
-        };
+        console.error("teamAcceptAndAssign error:", err && err.stack ? err.stack : err);
+        throw err;
     }
+
 };
-
-
-
-
 
 
 exports.teamReject = async ({ bookingId, teamId, io }) => {
@@ -675,7 +568,7 @@ exports.createBooking = async ({
        Validate serviceCount
     ------------------------- */
     if (!Number.isInteger(serviceCount) || serviceCount < 1) {
-        throw new Error("Invalid service count");
+        throw new AppError("Invalid service count", 400);
     }
 
     /* -------------------------
@@ -684,13 +577,16 @@ exports.createBooking = async ({
     const serviceList = await ServiceList.findOne({
         "serviceCategory.serviceCategoryName": serviceCategoryName,
     });
-    if (!serviceList) throw new Error("Service category not found");
+    if (!serviceList) {
+        throw new AppError("Service category not found", 404);
+    }
 
     const category = serviceList.serviceCategory.find(
         c => c.serviceCategoryName === serviceCategoryName
     );
-    if (!category) throw new Error("Invalid service category");
-
+    if (!category) {
+        throw new AppError("Invalid service category", 400);
+    }
     const employeeCount = category.employeeCount;
     const pricePerService = category.price;
     const totalPrice = pricePerService * serviceCount;
@@ -700,9 +596,8 @@ exports.createBooking = async ({
         typeof coordinates[0] !== "number" ||
         typeof coordinates[1] !== "number"
     ) {
-        throw new Error("Invalid or missing coordinates");
+        throw new AppError("Invalid or missing coordinates", 400);
     }
-
     /* ======================================================
        SINGLE SERVICE (NO EMPLOYEE YET)
     ====================================================== */
@@ -759,100 +654,42 @@ exports.createBooking = async ({
     };
 };
 
-
-// exports.teamAcceptBooking = async ({ bookingId, teamId }) => {
-//     const booking = await Booking.findById(bookingId);
-//     if (!booking) throw new Error("Booking not found");
-
-//     const team = await MultipleEmployee.findById(teamId).populate("members leader");
-//     if (!team) throw new Error("Team not found");
-
-//     // select employees (example logic)
-//     const primaryEmployee = team.leader._id;
-//     const helpers = team.members
-//         .filter(m => m._id.toString() !== primaryEmployee.toString())
-//         .slice(0, booking.employeeCount - 1);
-
-//     const assignedEmployees = [primaryEmployee, ...helpers.map(h => h._id)];
-
-//     booking.primaryEmployee = primaryEmployee;
-//     booking.employees = assignedEmployees;
-
-//     await booking.save();
-
-//     return {
-//         booking,
-//         assignedEmployees,
-//         primaryEmployee,
-//         helpers,
-//         serviceType: "team",
-//     };
-// };
-
-
-/* ======================================================
-   6. START WORK OTP
-====================================================== */
-exports.generateStartOTP = async (bookingId) => {
-    const booking = await Booking.findById(bookingId);
-
-    if (!booking) {
-        throw new Error("Booking not found");
-    }
-
-    //  Employee must be assigned first
-    if (!booking.primaryEmployee) {
-        throw new Error("Cannot generate OTP before employee assignment");
-    }
-
-    // OTP only allowed before work starts
-    if (booking.status !== BOOKING_STATUS.PENDING) {
-        throw new Error("OTP can only be generated before work starts");
-    }
-
-    const otp = Math.floor(1000 + Math.random() * 9000);
-
-    booking.StartWorkOTP = otp;
-    await booking.save();
-    console.log("Stored OTP:", booking.StartWorkOTP);
-    console.log("Received OTP:", otp);
-
-
-    return { booking, otp };
-};
-
-
 exports.verifyStartOTP = async (bookingId, otp) => {
     const booking = await Booking.findById(bookingId);
+
     if (!booking) {
-        return { success: false, message: "Booking not found" };
+        throw new AppError("Booking not found", 404);
     }
-    //  OTP must exist
+
+    // OTP must exist
     if (!booking.StartWorkOTP) {
-        return { success: false, message: "OTP not generated or already used" };
+        throw new AppError("OTP not generated or already used", 409);
     }
-    //  Status must be correct
+
+    // Status must be correct
     if (booking.status !== BOOKING_STATUS.PENDING) {
-        return { success: false, message: "Invalid booking state" };
+        throw new AppError("Invalid booking state", 409);
     }
-    //  OTP validation
+
+    // OTP validation
     if (booking.StartWorkOTP !== Number(otp)) {
-        return { success: false, message: "Invalid OTP" };
+        throw new AppError("Invalid OTP", 401);
     }
-    //  OTP verified → start work
+
+    // OTP verified → start work
     booking.StartWorkOTP = null;
     booking.status = BOOKING_STATUS.IN_PROGRESS;
     await booking.save();
 
-    return { success: true, booking };
+    return booking;
 };
+
 
 /* ======================================================
    7. TOOLSHOP FLOW
 ====================================================== */
 exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const [lng, lat] = coordinates;
-    console.log("🔍 +++++++++Searching toolshop for request:", requestId);
 
     //  Pick + lock ONE toolshop atomically
     const shop = await ToolShop.findOneAndUpdate(
@@ -878,7 +715,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         },
         { new: true }
     );
-    console.log("➡️ Selected toolshop:", shop);
 
     //  No shop available
     if (!shop) {
@@ -898,8 +734,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         });
 
     }
-    console.log("➡️ Offered toolshop:", shop.socketId);
-
     //  Single timeout (retry)
     setTimeout(async () => {
         const stillOffered = await ToolShop.findOne({
@@ -927,10 +761,7 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         shopStatus: "OFFERED",
     });
 
-    console.log("🔔 Toolshop accept attempt:", shopId, requestId);
-
     if (!shop) {
-        console.log("❌ Invalid shop accept attempt");
         return;
     }
 
@@ -960,26 +791,24 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         return;
     }
 
-    // ✅ Mark shop BUSY
+    //  Mark shop BUSY
     await ToolShop.findByIdAndUpdate(shopId, {
         shopStatus: "BUSY",
         offerRequestId: null,
     });
 
-    console.log("✅ OTP generated:", otp);
+    console.log(" OTP generated:", otp);
 
-    // ✅ Get employee socket
+    //  Get employee socket
     const employee = await SingleEmployee
         .findById(request.employeeId)
         .select("socketId");
-    console.log("✅ Employee socket:", employee);
 
     if (!employee?.socketId) {
-        console.log("❌ Employee socket missing");
         return;
     }
 
-    // ✅ Emit pickup details
+    //  Emit pickup details
     io.to(employee.socketId).emit("toolshop-accepted", {
         requestId: request._id,
         otp,
@@ -991,8 +820,6 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         parts: request.parts,
         totalCost: request.totalCost,
     });
-
-    console.log("✅ Toolshop accepted → Employee notified");
 };
 
 
@@ -1028,7 +855,7 @@ exports.toolshopReject = async ({ requestId, shopId, io }) => {
 ====================================================== */
 exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) => {
 
-    // 1️⃣ Validate booking
+    //  Validate booking
     const booking = await Booking.findOne({
         _id: bookingId,
         primaryEmployee: employeeId,
@@ -1036,10 +863,10 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
     });
 
     if (!booking) {
-        throw new Error("Invalid booking or employee not assigned");
+        throw new AppError("Invalid booking or employee not assigned", 404);
     }
 
-    // 2️⃣ Prevent duplicate active requests (ENUM SAFE)
+    //  Prevent duplicate active requests (ENUM SAFE)
     const existing = await PartRequest.findOne({
         bookingId,
         status: {
@@ -1052,10 +879,10 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
     });
 
     if (existing) {
-        throw new Error("Active part request already exists");
+        throw new AppError("Active part request already exists",422);
     }
 
-    // 3️⃣ Create part request
+    //  Create part request
     const partRequest = await PartRequest.create({
         bookingId,
         employeeId,
@@ -1066,7 +893,7 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
         otp: null,
     });
 
-    // 4️⃣ Emit to USER (best-effort)
+    //  Emit to USER (best-effort)
     if (io && booking.user) {
         console.log("Emitting tool-request-created to user:", booking.user.toString());
         io.to(booking.user.toString()).emit("tool-request-created", {
@@ -1084,42 +911,7 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
 };
 
 
-exports.generateToolOTP = async (requestId, io) => {
-
-    const req = await PartRequest.findOne({
-        _id: requestId,
-        status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
-    });
-
-    if (!req) {
-        throw new Error("OTP can only be generated after shop acceptance");
-    }
-
-    // Generate 4-digit OTP
-    const otp = Math.floor(1000 + Math.random() * 9000);
-
-    req.otp = otp;
-    await req.save();
-
-    const employee = await SingleEmployee.findById(req.employeeId).select("socketId");
-    if (io && employee?.socketId) {
-        try {
-            io.to(employee.socketId).emit("tool-otp-generated", {
-                requestId,
-                otp,
-            });
-        } catch (e) {
-            console.error('emit tool-otp-generated failed', e);
-        }
-    }
-
-    return {
-        requestId: req._id,
-        otp,
-    };
-};
 exports.verifyPartOTP = async (requestId, otp, io) => {
-    console.log("Verifying Part OTP:", requestId, otp);
     //  Validate request
     const req = await PartRequest.findOne({
         _id: requestId,
@@ -1128,7 +920,7 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     });
 
     if (!req) {
-        return { success: false, message: "Invalid OTP or request not approved" };
+        return new AppError("Invalid request or OTP", 404);
     }
 
     //  Mark as collected

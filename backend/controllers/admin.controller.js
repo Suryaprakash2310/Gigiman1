@@ -7,16 +7,17 @@ const DomainService = require("../models/domainservice.model");
 const cloudinary = require('../config/cloudinary');
 const ServiceList = require('../models/serviceList.model');
 const mongoose = require('mongoose');
-exports.adminLogin = async (req, res) => {
+const AppError = require('../utils/AppError');
+exports.adminLogin = async (req, res, next) => {
   try {
     const { email, password } = req.body;
     const admin = await Admin.findOne({ email });
     if (!admin) {
-      return res.status(400).json({ message: "Admin not found" });
+      return next(new AppError("Admin not found", 400));
     }
     const match = await admin.comparePassword(password);
     if (!match) {
-      return res.status(400).json({ message: "Invalid password" });
+      return next(new AppError("Invalid password", 400));
     }
     const token = jwt.sign(
       { id: admin._id, role: admin.role },
@@ -37,25 +38,26 @@ exports.adminLogin = async (req, res) => {
     });
   }
   catch (err) {
-    console.error("Admin Login controller error", err.message);
-    res.status(500).json({
-      message: "server Error",
-      error: err.message
+    next(err); //let Global error handler deal with it
+  }
+}
+
+exports.checkAuth = async (req, res, next) => {
+  try {
+    if (req.role != 'admin') {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    res.json({
+      isAuthenticated: true,
+      admin: req.employee,
     });
+
+  } catch (err) {
+    next(err); //let Global error handler deal with it
   }
 }
 
-exports.checkAuth = async (req, res) => {
-  if (req.role != 'admin') {
-    return res.status(403).json({ message: "Access denied" });
-  }
-  res.json({
-    isAuthenticated: true,
-    admin: req.employee,
-  });
-}
-
-exports.getEmployeecounts = async (req, res) => {
+exports.getEmployeecounts = async (req, res, next) => {
   try {
     const SingleEmployeeCount = await SingleEmployee.countDocuments();
     const MultipleEmployeeCount = await MultipleEmployee.countDocuments();
@@ -70,24 +72,20 @@ exports.getEmployeecounts = async (req, res) => {
       totalemp: total
     })
   } catch (err) {
-    console.error("Employee count controller error", err.message);
-    res.status(500).json({ message: "Sever Error" });
+    next(err); //let Global error handler deal with it
   }
 }
 
-exports.Adddomainservice = async (req, res) => {
+exports.Adddomainservice = async (req, res, next) => {
   try {
     const { domainName, serviceImage } = req.body;
     if (!domainName || !serviceImage) {
-      return res.status(400).json({ message: "All the fields are required" });
+      return next(new AppError("All the fields are required", 400));
     }
     const existingDomain = await DomainService.findOne({ domainName });
 
     if (existingDomain) {
-      return res.status(409).json({
-        message: "Domain service already exists",
-        existing: existingDomain,
-      });
+      return next(new AppError("Domain service already exists", 400));
     }
     const uploadImage = await cloudinary.uploader.upload(serviceImage, {
       folder: "Domain_service",
@@ -106,12 +104,11 @@ exports.Adddomainservice = async (req, res) => {
 
   }
   catch (err) {
-    console.error("Add domain service controller error", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 }
 
-exports.setServiceList = async (req, res) => {
+exports.setServiceList = async (req, res, next) => {
   try {
     const {
       DomainServiceId,
@@ -127,7 +124,7 @@ exports.setServiceList = async (req, res) => {
 
     // ================= VALIDATION =================
     if (!DomainServiceId) {
-      return res.status(400).json({ message: "DomainServiceId is required" });
+      return next(new AppError("DomainServiceId is required", 400));
     }
 
     if (
@@ -137,9 +134,7 @@ exports.setServiceList = async (req, res) => {
       !durationInMinutes ||
       !employeeCount
     ) {
-      return res.status(400).json({
-        message: "Service category fields are required",
-      });
+      return next(new AppError("All category fields are required", 400));
     }
 
     // ================= IMAGE UPLOAD =================
@@ -153,15 +148,13 @@ exports.setServiceList = async (req, res) => {
     }
 
     // =================================================
-    // CASE 1️⃣ : ADD CATEGORY TO EXISTING SERVICE
+    // CASE 1 : ADD CATEGORY TO EXISTING SERVICE
     // =================================================
     if (serviceId) {
       const service = await ServiceList.findById(serviceId);
 
       if (!service) {
-        return res.status(404).json({
-          message: "Service not found",
-        });
+        return next(new AppError("Service not found", 404));
       }
 
       // Prevent duplicate category name
@@ -172,9 +165,7 @@ exports.setServiceList = async (req, res) => {
       );
 
       if (duplicate) {
-        return res.status(400).json({
-          message: "Service category already exists",
-        });
+        return next(new AppError("Category name already exists in this service", 400));
       }
 
       service.serviceCategory.push({
@@ -196,12 +187,10 @@ exports.setServiceList = async (req, res) => {
     }
 
     // =================================================
-    // CASE 2️⃣ : CREATE NEW SERVICE + CATEGORY
+    // CASE 2 : CREATE NEW SERVICE + CATEGORY
     // =================================================
     if (!serviceName) {
-      return res.status(400).json({
-        message: "serviceName is required to create new service",
-      });
+      return next(new AppError("serviceName is required to create new service", 400));
     }
 
     const newService = await ServiceList.create({
@@ -226,16 +215,12 @@ exports.setServiceList = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("setServiceList error:", err);
-    res.status(500).json({
-      message: "Server error",
-      error: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 };
 
 
-exports.getAllEmployee = async (req, res) => {
+exports.getAllEmployee = async (req, res, next) => {
   try {
     const singleemployee = await SingleEmployee.find().sort({ createdAt: -1 });
     const multipleEmployee = await MultipleEmployee.find().sort({ createdAt: -1 });
@@ -250,21 +235,17 @@ exports.getAllEmployee = async (req, res) => {
     res.json({ success: true, employee });
   }
   catch (err) {
-    console.error("Get all employees error:", err);
-    return res.status(500).json({
-      message: "Server error",
-      error: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 }
 
-exports.DeleteDomainService = async (req, res) => {
+exports.DeleteDomainService = async (req, res, next) => {
   try {
     const { id } = req.params;
 
     const service = await DomainService.findById(id);
     if (!service) {
-      return res.status(404).json({ message: "Service not found" });
+      return next(new AppError("Domain service not found", 404));
     }
     if (service.serviceImagePublicId) {
       await cloudinary.uploader.destroy(service.serviceImagePublicId);
@@ -274,16 +255,16 @@ exports.DeleteDomainService = async (req, res) => {
 
     res.json({ success: true, message: "Service deleted successfully" });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.EditDomainService = async (req, res) => {
+exports.EditDomainService = async (req, res, next) => {
   try {
     const { DomainserviceId } = req.params;
     // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(DomainserviceId)) {
-      return res.status(400).json({ message: "Invalid domain service ID" });
+      return next(new AppError("Invalid DomainserviceId", 400));
     }
 
     // Pick only allowed fields
@@ -303,7 +284,7 @@ exports.EditDomainService = async (req, res) => {
     );
 
     if (!domainservice) {
-      return res.status(404).json({ message: "Domain service not found" });
+      return next(new AppError("Domain service not found", 404));
     }
 
     return res.status(200).json({
@@ -312,13 +293,12 @@ exports.EditDomainService = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("EditDomainService error:", err.message);
-    return res.status(500).json({ message: "Server error" });
+    next(err);
   }
 };
 
 
-exports.updateServiceCategory = async (req, res) => {
+exports.updateServiceCategory = async (req, res, next) => {
   const { serviceId, categoryId } = req.params;
   const updates = (({
     serviceCategoryName,
@@ -337,15 +317,15 @@ exports.updateServiceCategory = async (req, res) => {
   }))(req.body);
 
   if (!mongoose.Types.ObjectId.isValid(serviceId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
-    return res.status(400).json({ message: "Invalid id" });
+    return next(new AppError("Invalid id", 400));
   }
 
   try {
     const service = await ServiceList.findById(serviceId);
-    if (!service) return res.status(404).json({ message: "Service not found" });
+    if (!service) return next(new AppError("Service not found", 404));
 
     const category = service.serviceCategory.id(categoryId);
-    if (!category) return res.status(404).json({ message: "Category not found" });
+    if (!category) return next(new AppError("Category not found", 404));
 
     // apply provided fields
     Object.keys(updates).forEach((k) => {
@@ -356,26 +336,24 @@ exports.updateServiceCategory = async (req, res) => {
 
     return res.json({ success: true, category });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.deleteServiceCategory = async (req, res) => {
+exports.deleteServiceCategory = async (req, res, next) => {
   const { serviceId, categoryId } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(serviceId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
-    return res.status(400).json({ message: "Invalid id" });
+    return next(new AppError("Invalid id", 400));
   }
 
   try {
     const service = await ServiceList.findById(serviceId);
-    if (!service) return res.status(404).json({ message: "Service not found" });
+    if (!service) return next(new AppError("Service not found", 404));
 
     // Find category
     const category = service.serviceCategory.id(categoryId);
-    if (!category) return res.status(404).json({ message: "Category not found" });
-
+    if (!category) return next(new AppError("Category not found", 404));
     // Remove category properly
     service.serviceCategory.pull({ _id: categoryId });
     await service.save();
@@ -383,44 +361,6 @@ exports.deleteServiceCategory = async (req, res) => {
     return res.json({ success: true, message: "Category deleted" });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
-};
-// exports.getServiceCategories = async (req, res) => {
-//   try {
-//     const { DomainServiceId } = req.params;
-
-//     const services = await ServiceList.find({ DomainServiceId });
-
-//     if (!services.length) {
-//       return res.status(404).json({ message: "No services found" });
-//     }
-
-//     const categories = services.flatMap(
-//       service => service.serviceCategory
-//     );
-
-//     res.status(200).json({
-//       success: true,
-//       serviceCategory: categories,
-//     });
-//   } catch (err) {
-//     res.status(500).json({ message: err.message });
-//   }
-// };
-
-exports.getServiceCategories = async (req, res) => {
-  const { DomainServiceId } = req.params;
-
-  const services = await ServiceList.find(
-    { DomainServiceId },
-    {
-      serviceName: 1,
-      DomainServiceId: 1, // optional
-    }
-  );
-
-  res.status(200).json({
-    services, // _id is ServiceList._id ✅
-  });
 };

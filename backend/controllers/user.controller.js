@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const axios = require("axios");
 const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
+const AppError = require("../utils/AppError");
 require('dotenv').config();
 //token generation
 const generateToken = (id) => {
@@ -12,12 +13,12 @@ const generateToken = (id) => {
 };
 
 //Send-otp always
-exports.sendOtp = async (req, res) => {
+exports.sendOtp = async (req, res, next) => {
   try {
     const { phoneNo } = req.body;
 
     if (!phoneNo) {
-      return res.status(400).json({ message: "Phone number required" });
+      return next(new AppError("Phone number required", 400));
     }
 
     const cleanPhone = normalizePhone(phoneNo);
@@ -38,16 +39,12 @@ exports.sendOtp = async (req, res) => {
 
     // Block if OTP still valid
     if (existingOtp && existingOtp.expiresAt > new Date()) {
-      return res.status(429).json({
-        message: "OTP already sent. Please wait before resending.",
-      });
+      return next(new AppError("An active OTP has already been sent. Please wait before requesting a new one.", 429));
     }
 
     // Max resend limit
     if (existingOtp && existingOtp.resendCount >= 3) {
-      return res.status(429).json({
-        message: "Resend limit exceeded. Try later.",
-      });
+      return next(new AppError("Maximum OTP resend limit reached. Try again later.", 429));
     }
 
     const otp = Math.floor(1000 + Math.random() * 9000);
@@ -70,32 +67,31 @@ exports.sendOtp = async (req, res) => {
       message: "OTP sent",
     });
   } catch (err) {
-    console.error("Send OTP error:", err);
-    res.status(500).json({ error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
 
 //verify otp
-exports.verifyOtp = async (req, res) => {
+exports.verifyOtp = async (req, res, next) => {
   try {
     const { phoneNo, otp } = req.body;
 
     if (!phoneNo || !otp) {
-      return res.status(400).json({ message: "Phone number and OTP required" });
+      return next(new AppError("Phone number and OTP required", 400));
     }
 
     const cleanPhone = normalizePhone(phoneNo);
 
     const otpDoc = await Otp.findOne({ cleanPhone });
     if (!otpDoc) {
-      return res.status(400).json({ message: "OTP expired or not found" });
+      return next(new AppError("OTP expired or not found", 400));
     }
 
     // OTP expired
     if (new Date() > otpDoc.expiresAt) {
       await Otp.deleteOne({ cleanPhone });
-      return res.status(400).json({ message: "OTP expired" });
+      return next(new AppError("OTP expired. Please request a new one.", 400));
     }
 
     // OTP mismatch
@@ -104,13 +100,11 @@ exports.verifyOtp = async (req, res) => {
 
       if (otpDoc.attempts >= 5) {
         await Otp.deleteOne({ cleanPhone });
-        return res.status(429).json({
-          message: "Too many failed attempts. Try again later.",
-        });
+        return next(new AppError("Maximum OTP attempts exceeded. Please request a new OTP.", 400));
       }
 
       await otpDoc.save();
-      return res.status(400).json({ message: "Invalid OTP" });
+      return next(new AppError("Invalid OTP. Please try again.", 400));
     }
 
     // OTP verified → delete OTP
@@ -118,7 +112,7 @@ exports.verifyOtp = async (req, res) => {
 
     const user = await User.findOne({ phoneNo });
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return next(new AppError("User not found", 404));
     }
 
     user.isVerified = true;
@@ -141,24 +135,23 @@ exports.verifyOtp = async (req, res) => {
       message: "Login successful",
     });
   } catch (err) {
-    console.error("Verify OTP error:", err);
-    res.status(500).json({ error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
 //complete profile registeration
-exports.completeProfile = async (req, res) => {
+exports.completeProfile = async (req, res, next) => {
   try {
     const userId = req.userId;
     const { fullName, latitude, longitude, avatar } = req.body;
 
     if (!userId || !fullName) {
-      return res.status(400).json({ message: "Required fields missing" });
+      return next(new AppError("User ID and full name are required", 400));
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return next(new AppError("User not found", 404));
     }
     const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 
@@ -208,33 +201,32 @@ exports.completeProfile = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Complete profile error:", err);
-    res.status(500).json({ error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.getProfile = async (req, res) => {
+exports.getProfile = async (req, res, next) => {
   try {
     // user already attached by middleware
     if (!req.user) {
-      return res.status(400).json({ message: "User not found" });
+      return next(new AppError("User not found", 404));
     }
     res.json({
       success: true,
       user: req.user,
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.editprofile = async (req, res) => {
+exports.editprofile = async (req, res, next) => {
   try {
     const userId = req.userId;
     const { fullName, latitude, longitude, avatar } = req.body;
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      return next(new AppError("User not found", 404));
     }
     if (fullName) {
       user.fullName = fullName;
@@ -260,7 +252,6 @@ exports.editprofile = async (req, res) => {
       user,
     });
   } catch (err) {
-    console.error("edit profile controller error", err.message);
-    res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 }

@@ -4,13 +4,14 @@ const ROLES = require('../enum/role.enum');
 const Domainparts = require('../models/domainparts.model');
 const { maskPhone } = require('../utils/crypto');
 const axios=require('axios');
+const AppError = require('../utils/AppError');
 
 // JWT creator
 const generateToken = (tool) => {
   return jwt.sign(
     {
       id: tool._id,
-      employeeId: tool.empId,
+      employeeId: tool.toolShopId,
       role: tool.role
     },
     process.env.JWT_KEY,
@@ -18,23 +19,23 @@ const generateToken = (tool) => {
   );
 };
 
-exports.registerShop = async (req, res) => {
+exports.registerShop = async (req, res, next) => {
   try {
     let { shopName, ownerName, gstNo, latitude, longitude, phoneNo, role, categories } = req.body;
     // Clean empty values
     categories = Array.isArray(categories) ? categories.filter(id => id) : [];
     if (!shopName || !ownerName || !gstNo || !phoneNo) {
-      return res.status(400).json({ message: "All fields are required" });
+      return next(new AppError("All fields are required", 400));
     }
     if (role !== ROLES.TOOL_SHOP) {
-      return res.status(400).json({ message: "Invalid role" });
+      return next(new AppError("Invalid role", 400));
     }
     if (!Array.isArray(categories)) {
-      return res.status(400).json({ message: "Categories must be an array" });
+      return next(new AppError("Categories must be an array", 400));
     }
     const valid = await Domainparts.find({ _id: { $in: categories } });
     if (valid.length !== categories.length) {
-      return res.status(400).json({ message: "One or more categories are invalid" });
+      return next(new AppError("One or more categories are invalid", 400));
     }
     const maskedPhone = maskPhone(phoneNo);
     
@@ -45,7 +46,7 @@ exports.registerShop = async (req, res) => {
     });
 
     if (existingShop) {
-      return res.status(400).json({ message: "Shop already registered" });
+      return next(new AppError("Shop already registered", 400));
     }
     let address = null;
     if (latitude && longitude) {
@@ -57,7 +58,6 @@ exports.registerShop = async (req, res) => {
         },
       });
       address = geoRes.data.features[0]?.place_name || null;
-      console.log("Resolved address:", address);
     }
     const shop = await ToolShop.create({
       shopName,
@@ -88,10 +88,6 @@ exports.registerShop = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Shop registration error:", err.message);
-    return res.status(500).json({
-      message: "Error registering tool shop",
-      error: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 };

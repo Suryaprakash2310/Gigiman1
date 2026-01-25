@@ -1,6 +1,6 @@
 const express=require('express');
 const { protect } = require('../middleware/auth.middleware');
-const { adminLogin, checkAuth, getEmployeecounts, Adddomainservice, SetSubService, getAllEmployee, DeleteDomainService, setServiceList, getServiceCategories, deleteServiceCategory, updateServiceCategory, EditDomainService } = require('../controllers/admin.controller');
+const { adminLogin, checkAuth, getEmployeecounts, Adddomainservice, SetSubService, getAllEmployee, DeleteDomainService, setServiceList, deleteServiceCategory, updateServiceCategory, EditDomainService } = require('../controllers/admin.controller');
 const { allowRoles } = require('../middleware/role.middleware');
 const router=express.Router();
 
@@ -21,8 +21,6 @@ router.post("/add-domain-service",protect,allowRoles("admin"),Adddomainservice);
 router.post("/add-service-list",protect,allowRoles("admin"),setServiceList);
 
 router.delete("/delete-domain-service/:id",protect,allowRoles("admin"),DeleteDomainService);
-
-router.get("/service-categories/:DomainServiceId",protect,allowRoles("admin"),getServiceCategories)
 
 router.put("/domainservice-edit/:DomainserviceId",protect,allowRoles("admin"),EditDomainService)
 

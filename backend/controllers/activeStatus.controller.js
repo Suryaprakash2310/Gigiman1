@@ -2,6 +2,7 @@ const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
 const roleModelMap = require("../utils/roleModelMap");
+const AppError = require("../utils/AppError");
 
 const modelMap = {
   SingleEmployee,
@@ -9,30 +10,21 @@ const modelMap = {
   ToolShop,
 };
 
-exports.updateActiveStatus = async (req, res) => {
+exports.updateActiveStatus = async (req, res, next) => {
   try {
     const empId = req.employee._id;
-    //req.role = req.role?.toUpperCase();
-
     const empType = req.role;
-
     const modelName = roleModelMap[empType];
     const Model = modelMap[modelName];
 
     if (!Model) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid employee type",
-      });
+      next(new AppError("Invalid employee role for status update", 400));
     }
 
     const { isActive } = req.body;
 
     if (typeof isActive !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        message: "isActive must be a boolean value",
-      });
+      next(new AppError("isActive must be a boolean value", 400));
     }
 
     const updatePayload = { isActive };
@@ -52,20 +44,8 @@ exports.updateActiveStatus = async (req, res) => {
     );
 
     if (!emp) {
-      return res.status(404).json({
-        success: false,
-        message: "Entity not found",
-      });
+      next(new AppError("Employee not found for status update", 404));
     }
-
-    console.log(
-      `[STATUS UPDATE] ${modelName} ${empId} → isActive=${emp.isActive}`
-    );
-    console.log("🔐 AUTH DEBUG");
-console.log("employee:", req.employee);
-console.log("role:", req.role);
-console.log("body:", req.body);
-
 
     return res.status(200).json({
       success: true,
@@ -78,15 +58,10 @@ console.log("body:", req.body);
           ? emp.availabilityStatus
           : undefined,
     });
-    
+
 
   } catch (err) {
-    console.error("updateActiveStatus error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: err.message,
-    });
+    next(err);
   }
-  
+
 };

@@ -31,7 +31,6 @@ router.post("/tool/nearby",bookingController.nearbyToolShops);
 
 router.post("/tool/auto-assign",bookingController.autoAssignToolShop);
 
-router.post("/tool/otp/generate",bookingController.generateToolOTPController);
 
 router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
 

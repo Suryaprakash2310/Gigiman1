@@ -2,14 +2,18 @@ const Domainparts = require('../models/domainparts.model');
 const PartRequest = require("../models/partsrequest.model");
 
 const mongoose = require("mongoose");
+const AppError = require('../utils/AppError');
 
 //Showcategories
-exports.showCategories = async (req, res) => {
+exports.showCategories = async (req, res, next) => {
   try {
     const categories = await Domainparts.aggregate([
       { $project: { _id: 1, domainPartsName: 1 } },
       { $sort: { domainPartsName: 1 } },
     ]);
+    if(!categories || categories.length === 0){
+      return next(new AppError("No categories found", 404));
+    }
     res.status(200).json({
       success: true,
       total: categories.length,
@@ -17,19 +21,18 @@ exports.showCategories = async (req, res) => {
     });
   }
   catch (err) {
-    console.error("Error loading categories", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 //showparts
-exports.showParts = async (req, res) => {
+exports.showParts = async (req, res, next) => {
   try {
     const { jobId, categoriesId } = req.query;
     if (!jobId) {
-      return res.status(400).json({ message: "Job must be created before viewing parts" });
+      return next(new AppError("Job must be created before viewing parts", 400));
     }
     if (!categoriesId) {
-      return res.status(400).json({ message: "categories is required" });
+      return next(new AppError("categories is required", 400));
     }
 
     const partsList = await Domainparts.aggregate([
@@ -54,12 +57,11 @@ exports.showParts = async (req, res) => {
       parts: partsList[0]?.parts || [],
     });
   } catch (err) {
-    console.error("Error showing parts:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 }
 
-exports.searchDomainCategories = async (req, res) => {
+exports.searchDomainCategories = async (req, res, next) => {
   try {
     const { q = "" } = req.query;
 
@@ -84,12 +86,11 @@ exports.searchDomainCategories = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Domain search error:", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.searchParts = async (req, res) => {
+exports.searchParts = async (req, res, next) => {
   try {
     const { domain = "", q = "" } = req.query;
 
@@ -122,13 +123,15 @@ exports.searchParts = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Parts search error:", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
-exports.createPartRequest = async (req, res) => {
+exports.createPartRequest = async (req, res, next) => {
   try {
     const { bookingId, employeeId, parts, totalCost } = req.body;
+    if(!bookingId || !employeeId || !parts || parts.length === 0 || !totalCost){
+      return next(new AppError("All fields are required", 400));
+    }
     const request = await PartRequest.create({
       bookingId,
       employeeId,
@@ -137,6 +140,9 @@ exports.createPartRequest = async (req, res) => {
       totalCost,
       status: PART_REQUESTED_STATUS.REQUESTED,
     });
+    if(!request){
+      return next(new AppError("Failed to create part request", 500));
+    }
     res.json({
       success: true,
       message: "parts required create",
@@ -144,7 +150,6 @@ exports.createPartRequest = async (req, res) => {
     });
   }
   catch (err) {
-    console.error("create parts request controller", err.message);
-    res.status(200).json({ mesage: "server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 }

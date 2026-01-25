@@ -22,13 +22,16 @@ router.get("/services", ShowServices);
 //  Search services by name
 router.get("/services/search", searchService);
 
+// Get all the subservices
 router.get("/sub-service",ShowsubserviceId);
 
+//Get all services
 router.get("/showServices", ShowsubService);
 
-router.get("/showsubservice/:id",ShowsubserviceId);
 
+router.get("/showsubservice/:domainServiceId",ShowsubserviceId);
 
+// Get service category by ID
 router.get("/service-list/:domainServiceId",getServiceCategoryById)
 
 

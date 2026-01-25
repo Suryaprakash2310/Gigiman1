@@ -8,26 +8,15 @@ const Otp = require('../models/otp.model')
 const { normalizePhone } = require("../utils/crypto");
 const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
-// Generate JWT token
-const generateToken = (employee) => {
-  return jwt.sign(
-    {
-      id: employee._id,
-      employeeId: employee.employeeId,
-      role: employee.role
-    },
-    process.env.JWT_KEY,
-    { expiresIn: "7d" }
-  );
+const generateToken = require("../config/token");
+const AppError = require("../utils/AppError");
 
-};
-
-exports.sendOtp = async (req, res) => {
+exports.sendOtp = async (req, res, next) => {
   try {
+    //Get the phone number
     const { phoneNo } = req.body;
-
     if (!phoneNo)
-      return res.status(400).json({ message: "Phone number is required" });
+      return next(new AppError("Phone number is required",400));
 
     const cleanPhone = normalizePhone(phoneNo);
 
@@ -38,14 +27,12 @@ exports.sendOtp = async (req, res) => {
       (await ToolShop.findOne({ phoneNo }));
 
     if (!emp)
-      return res.status(404).json({ message: "Employee not found" });
+      return next(new AppError("Employee not found", 404));
 
     const existingOtp = await Otp.findOne({ cleanPhone });
 
     if (existingOtp && existingOtp.resendCount >= 5) {
-      return res.status(429).json({
-        message: "Maximum OTP limit reached. Try again later.",
-      });
+      return next(new AppError("Maximum OTP limit reached. Try again later.", 429));
     }
 
     const otp = crypto.randomInt(1000, 9999);
@@ -65,21 +52,20 @@ exports.sendOtp = async (req, res) => {
 
     return res.status(200).json({
       message: "OTP sent successfully",
-      otp   //temporary for testing purposes
+      otp  //temporary for testing purposes
     });
   } catch (err) {
-    console.error("OTP send error:", err);
-    res.status(500).json({ message: "Server error" });
+    next(err);
   }
 };
 
 
-exports.verifyOtp = async (req, res) => {
+exports.verifyOtp = async (req, res, next) => {
   try {
     const { phoneNo, otp } = req.body;
 
     if (!phoneNo || !otp)
-      return res.status(400).json({ message: "Phone and OTP required" });
+      return next(new AppError("Phone and OTP required", 400));
 
     const cleanPhone = normalizePhone(phoneNo);
 
@@ -89,16 +75,16 @@ exports.verifyOtp = async (req, res) => {
       (await ToolShop.findOne({ phoneNo }));
 
     if (!emp)
-      return res.status(404).json({ message: "Employee not found" });
+      return next(new AppError("Employee not found", 404));
 
     const otpRecord = await Otp.findOne({ cleanPhone });
 
     if (!otpRecord)
-      return res.status(400).json({ message: "OTP not found or expired" });
+      return next(new AppError("OTP not found or expired", 400));
 
     if (new Date() > otpRecord.expiresAt) {
       await Otp.deleteOne({ cleanPhone });
-      return res.status(400).json({ message: "OTP expired" });
+      return next(new AppError("OTP expired", 400));
     }
 
     if (otpRecord.otp.toString() !== otp.toString()) {
@@ -106,13 +92,11 @@ exports.verifyOtp = async (req, res) => {
 
       if (otpRecord.attempts >= 5) {
         await Otp.deleteOne({ cleanPhone });
-        return res
-          .status(429)
-          .json({ message: "Too many failed attempts" });
+        return next(new AppError("Maximum OTP attempts exceeded. Please request a new OTP.", 429));
       }
 
       await otpRecord.save();
-      return res.status(400).json({ message: "Invalid OTP" });
+      return next(new AppError("Invalid OTP", 400));
     }
 
     // OTP success
@@ -127,15 +111,14 @@ exports.verifyOtp = async (req, res) => {
       message: "Login successful",
     });
   } catch (err) {
-    console.error("OTP verify error:", err);
-    res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 
 
 //Show the services
 
-exports.ShowServices = async (req, res) => {
+exports.ShowServices = async (req, res, next) => {
   try {
     const services = await DomainService.find(
       {},
@@ -144,22 +127,21 @@ exports.ShowServices = async (req, res) => {
       .sort({ domainName: 1 })
       .lean()
     // returns plain JS objects, faster than Mongoose docs
-
+    if(!services || services.length===0){
+      return next(new AppError("No services found", 404));
+    }
     return res.status(200).json({
       success: true,
       count: services.length,
       services
     })
   } catch (err) {
-    console.error("Service get issue", err.message)
-    return res.status(500).json({ message: "Server error" })
+    next(err); //let Global error handler deal with it
   }
 }
 
-
-
 //Search the service
-exports.searchService = async (req, res) => {
+exports.searchService = async (req, res, next) => {
   try {
     const { q = "" } = req.query;
 
@@ -178,19 +160,18 @@ exports.searchService = async (req, res) => {
       services
     });
   } catch (err) {
-    console.error("Searching controller error", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
 
-exports.ShowsubService = async (req, res) => {
+exports.ShowsubService = async (req, res, next) => {
   try {
     const data = await ServiceList.find()
       .populate("DomainServiceId", "domainName serviceImage")
       .sort({ serviceName: 1 });
     if (!data || data.length === 0) {
-      return res.status(404).json({ message: "Service is empty" });
+      return next(new AppError("Service is empty", 404));
     }
     const serviceNames = data.map(item => item.serviceName);
     const categoriesservices = data.flatMap(item =>
@@ -232,12 +213,47 @@ exports.ShowsubService = async (req, res) => {
     })
 
   } catch (err) {
-    console.error("showsubservice error", err.message);
-    return res.status(500).json({ message: "Server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.getServiceCategoryById = async (req, res) => {
+//Get specific service category by serviceCategoryId
+exports.getServiceCategoryById = async (req, res, next) => {
+  try {
+    const { serviceCategoryId } = req.params;
+
+    if (!serviceCategoryId) {
+      return next(new AppError("serviceCategoryId is required", 400));
+    }
+
+    const categoryObjectId = new mongoose.Types.ObjectId(serviceCategoryId);
+
+    const service = await ServiceList.findOne(
+      { "serviceCategory._id": categoryObjectId }
+    ).lean();
+
+    if (!service) {
+      return next(new AppError("Service category not found", 404));
+    }
+
+    const category = service.serviceCategory.find(
+      (cat) => cat._id.toString() === serviceCategoryId
+    );
+
+    res.status(200).json({
+      success: true,
+      serviceName: service.serviceName,
+      domainServiceId: service.DomainServiceId,
+      serviceCategory: category,
+    });
+
+  } catch (err) {
+    next(err); //let Global error handler deal with it  
+  }
+};
+
+//get the all subservice by domainServiceId
+exports.ShowsubserviceId = async (req, res, next) => {
   try {
     const { domainServiceId } = req.params;
 
@@ -246,48 +262,15 @@ exports.getServiceCategoryById = async (req, res) => {
     })
       .sort({ createdAt: 1 }) // oldest first, optional
       .lean();
+    if(!services || services.length===0){
+      return next(new AppError("No services found for the given domainServiceId", 404));
+    }
 
     res.status(200).json({
       success: true,
       services
     });
   } catch (err) {
-    console.error("getServiceListByDomain error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: err.message
-    });
-  }
-};
-
-exports.ShowsubserviceId = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const service = await ServiceList.findById(
-      id,
-      { serviceCategory: 1, serviceName: 1 }
-    );
-
-    if (!service) {
-      return res.status(404).json({
-        success: false,
-        message: "Service not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Service categories fetched successfully",
-      serviceName: service.serviceName,
-      serviceCategory: service.serviceCategory || [],
-    });
-  } catch (err) {
-    console.error("ShowSubServiceId error controller", err.message);
-    return res.status(500).json({
-      message: "Server error",
-      error: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 };

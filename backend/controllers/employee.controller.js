@@ -7,7 +7,7 @@ const EmployeeService = require("../models/employeeService.model");
 const { maskPhone } = require("../utils/crypto");
 const { encryptAadhaar, hashAadhaar, maskAadhaar } = require('../utils/aadharUtils');
 const axios = require('axios');
-// Generate JWT token
+const AppError = require("../utils/AppError");
 const generateToken = (user) => {
   return jwt.sign(
     {
@@ -20,17 +20,18 @@ const generateToken = (user) => {
   );
 };
 
-exports.registerEmployee = async (req, res) => {
+
+exports.registerEmployee = async (req, res, next) => {
   try {
     const { fullname, phoneNo, aadhaarNo, latitude, longitude, role, services } = req.body;
 
     // 1. Validate required fields
     if (!fullname || !phoneNo) {
-      return res.status(400).json({ message: "All fields are required" });
+      return next(new AppError("All fields are required", 400));
     }
 
     if (role !== ROLES.SINGLE_EMPLOYEE) {
-      return res.status(400).json({ message: "Invalid role" });
+      return next(new AppError("Invalid role", 400));
     }
     const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 
@@ -45,9 +46,7 @@ exports.registerEmployee = async (req, res) => {
     });
 
     if (existingEmployee) {
-      return res.status(400).json({
-        message: "Employee already registered with this phone or Aadhaar",
-      });
+      return next(new AppError("Employee with given phone number or Aadhaar already exists", 409));
     }
     let address = null;
     if (latitude && longitude) {
@@ -59,15 +58,14 @@ exports.registerEmployee = async (req, res) => {
         },
       });
       address = geoRes.data.features[0]?.place_name || null;
-      console.log("Resolved address:", address);
     }
     // 4. SERVICE VALIDATION (NEW PART)
     if (!Array.isArray(services) || services.length === 0) {
-      return res.status(400).json({ message: "Select at least 1 service" });
+      return next(new AppError("At least one service must be selected", 400));
     }
 
     if (services.length > 3) {
-      return res.status(400).json({ message: "Maximum 3 services allowed" });
+      return next(new AppError("Maximum 3 services allowed", 400));
     }
 
     const validServices = await DomainService.find({
@@ -75,7 +73,7 @@ exports.registerEmployee = async (req, res) => {
     });
 
     if (validServices.length !== services.length) {
-      return res.status(400).json({ message: "One or more services not found" });
+      return next(new AppError("One or more services not found", 400));
     }
 
     // Create employee  
@@ -118,26 +116,22 @@ exports.registerEmployee = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Registration error:", err.message);
-    res.status(500).json({
-      message: "Error during registration",
-      error: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 };
 
 //Accept request by the singleEmployee
-exports.acceptTeamRequest = async (req, res) => {
+exports.acceptTeamRequest = async (req, res, next) => {
   try {
     const empId = req.employee.empId;
 
     const employee = await SingleEmployee.findOne({ empId });
     if (!employee) {
-      return res.status(404).json({ message: "Employee not found" });
+      return next(new AppError("Employee not found", 404));
     }
 
     if (employee.teamAccepted) {
-      return res.status(400).json({ message: "Already in a team" });
+      return next(new AppError("Already in a team", 400));
     }
 
     const empObjectId = employee._id;
@@ -160,20 +154,19 @@ exports.acceptTeamRequest = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("acceptTeamRequest:", err.message);
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 
 
-exports.rejectTeamRequest = async (req, res) => {
+exports.rejectTeamRequest = async (req, res, next) => {
   try {
     const { teamId } = req.body;
     const empId = req.employee.empId;
 
     const employee = await SingleEmployee.findOne({ empId });
     if (!employee) {
-      return res.status(404).json({ message: "Employee not found" });
+      return next(new AppError("Employee not found", 404));
     }
 
     await MultipleEmployee.updateOne(
@@ -187,18 +180,17 @@ exports.rejectTeamRequest = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("rejectTeamRequest:", err.message);
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.getTeamRequest = async (req, res) => {
+exports.getTeamRequest = async (req, res, next) => {
   try {
     const loggedInEmp = req.employee;
 
     // Enforce role
     if (loggedInEmp.role !== ROLES.SINGLE_EMPLOYEE) {
-      return res.status(403).json({ message: "Only SingleEmployee can view team requests" });
+      return next(new AppError("Access denied: Only single employees can access team requests", 403));
     }
 
     // If protect already attached SingleEmployee doc, reuse _id
@@ -216,15 +208,17 @@ exports.getTeamRequest = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("getTeamRequest:", err.message);
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 
 // GET single employee team details
-exports.getMyTeam = async (req, res) => {
+exports.getMyTeam = async (req, res, next) => {
   try {
     const empId = req.employee.empId;
+    if(!empId){
+      return next(new AppError("Employee ID missing", 400));
+    }
 
     const employee = await SingleEmployee.findOne({ empId });
     if (!employee || !employee.teamAccepted) {
@@ -245,17 +239,20 @@ exports.getMyTeam = async (req, res) => {
     });
 
   } catch (err) {
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 
-exports.leaveTeam = async (req, res) => {
+exports.leaveTeam = async (req, res, next) => {
   try {
     const empId = req.employee.empId;
 
+    if(!empId){
+      return next(new AppError("Employee ID missing", 400));
+    }
     const employee = await SingleEmployee.findOne({ empId });
     if (!employee || !employee.teamAccepted) {
-      return res.status(400).json({ message: "Not in any team" });
+      return next(new AppError("Not in any team", 400));
     }
 
     await MultipleEmployee.updateOne(
@@ -272,7 +269,7 @@ exports.leaveTeam = async (req, res) => {
     });
 
   } catch (err) {
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 

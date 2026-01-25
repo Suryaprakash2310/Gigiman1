@@ -3,8 +3,9 @@ const SingleEmployee=require('../models/singleEmployee.model');
 const MultipleEmployee=require('../models/multipleEmployee.model');
 const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
+const AppError = require('../utils/AppError');
 
-exports.getProfile = async (req, res) => {
+exports.getProfile = async (req, res, next) => {
   try {
     const employeeId = req.employee.id;
 
@@ -14,7 +15,7 @@ exports.getProfile = async (req, res) => {
       (await ToolShop.findById(employeeId));
 
     if (!employee) {
-      return res.status(404).json({ message: "Employee profile not found" });
+      return next(new AppError("Employee not found",404))
     }
 
     //  If MULTIPLE EMPLOYEE → include team details
@@ -45,13 +46,12 @@ exports.getProfile = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Getprofile error:", err.message);
-    res.status(500).json({ message: "server error", error: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
 
-exports.editprofile=async(req,res)=>{
+exports.editprofile=async(req, res, next)=>{
     try{
       const employee=req.employee;
       const role=req.role;
@@ -70,10 +70,7 @@ exports.editprofile=async(req,res)=>{
       
       const valid=updates.every((f)=>allowFields.includes(f));
       if(!valid){
-        return res.status(400).json({
-          success:false,
-          message:"Invalid fields for update",
-        });
+        return next(new AppError("Invalid updates!",400));
       }
       //Apply updates dynamically
       //include the nested address safety
@@ -95,7 +92,6 @@ exports.editprofile=async(req,res)=>{
         updateProfile:employee
       })
     }catch(err){
-      console.error("Edit profile err",err.message);
-      res.status(500).json({message:"Server error",error:err.message});
+      next(err);
     }
 }

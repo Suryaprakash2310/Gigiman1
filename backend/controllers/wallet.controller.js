@@ -5,20 +5,21 @@ const Wallet = require("../models/wallet.model");
 const roleModelMap = require("../utils/roleModelMap");
 const TRANSACTION_TYPE = require("../enum/transaction.enum");
 const TRANSACTION_STATUS = require("../enum/transactiontype.enum");
+const AppError = require("../utils/AppError");
 require('dotenv').config();
 
 //Add money in the wallet
-exports.addMoneyWallet = async (req, res) => {
+exports.addMoneyWallet = async (req, res, next) => {
     try {
         const empId = req.employee._id;
         const empType = req.role;
         const empModel = roleModelMap[empType];
         if (!empId || !empType || !empModel) {
-            return res.status(400).json({ message: "Invalid emp type or model" });
+            return next(new AppError("Invalid emp type or model", 400));
         }
         const { amount } = req.body;
         if (!amount) {
-            return res.status(400).json({ message: "Amount is required" });
+            return next(new AppError("Amount is required", 400));
         }
         const order = await razorpay.orders.create({
             amount: amount * 100,//paise
@@ -41,23 +42,22 @@ exports.addMoneyWallet = async (req, res) => {
         });
     }
     catch (err) {
-        console.error("Transaction controller error", err.message);
-        res.status(500).json({ message: "Failed", error: err.message });
+        next(err); //let Global error handler deal with it
     }
 }
 
 //verify payment
-exports.verifyAddMoney = async (req, res) => {
+exports.verifyAddMoney = async (req, res, next) => {
     try {
         const empId = req.employee._id;
         const empType = req.role;
         const empModel = roleModelMap[empType];
         if (!empId || !empType || !empModel) {
-            return res.status(400).json({ message: "Invalid emp type or model" });
+            return next(new AppError("Invalid emp type or model", 400));
         }
         const { orderId, paymentId, signature } = req.body;
         if (!orderId || !paymentId || !signature) {
-            return res.status(400).json({ message: "orderId,paymentId,signature is required" });
+            return next(new AppError("orderId,paymentId,signature is required", 400));
         }
         const body = `${orderId}|${paymentId}`;
         const expectedsignature = crypto
@@ -66,7 +66,7 @@ exports.verifyAddMoney = async (req, res) => {
             .digest("hex");
 
         if (expectedsignature != signature) {
-            return res.status(400).json({ message: "Invalid signature" });
+            return next(new AppError("Invalid signature", 400));
         }
 
         const tx = await Transaction.findOne({ razorpayOrderId: orderId });
@@ -84,30 +84,29 @@ exports.verifyAddMoney = async (req, res) => {
             newBalance: wallet.balance,
         });
     } catch (err) {
-        console.error("verify order controller error", err.message);
-        res.status(500).json({ message: "Server error", error: err.message });
+        next(err); //let Global error handler deal with it
     }
 }
 
 
-exports.withdrawMoney = async (req, res) => {
+exports.withdrawMoney = async (req, res, next) => {
     try {
         const empId = req.employee._id;
         const empType = req.role;
         const empModel = roleModelMap[empType]
         if (!empId || !empType || !empModel) {
-            return res.status(400).json({ message: "EmpId and Emp role is needed" });
+            return next(new AppError("Invalid emp type or model", 400));
         }
         const { amount } = req.body;
         if (!amount) {
-            return res.status(400).json({ message: "Amount is required" });
+            return next(new AppError("Amount is required", 400));
         }
         const wallet = await Wallet.findOne({ empId, empType });
         if (!wallet) {
-            return res.status(400).json({ message: "Wallet not found" });
+            return next(new AppError("Wallet not found", 400));
         }
         if (wallet.balance < amount) {
-            return res.status(500).json({ message: "Insufficient balance" });
+            return next(new AppError("Insufficient balance", 500));
         }
         wallet.balance -= amount;
         await wallet.save();
@@ -126,36 +125,44 @@ exports.withdrawMoney = async (req, res) => {
         })
     }
     catch (err) {
-        console.error("Withdraw Money controller error", err.message);
-        res.status(500).json({ mesage: "server error", error: err.message });
+        next(err); //let Global error handler deal with it
     }
 }
 
-exports.getWalletBalance = async (req, res) => {
-    const empId = req.employee._id;
-    const empType = req.role;
-    if (!empId || !empType) {
-        return res.status(400).json({ message: "EmpId and Emp role is needed" });
-    }
-    const wallet = await Wallet.findOne({ empId, empType });
+exports.getWalletBalance = async (req, res, next) => {
+    try {
+        const empId = req.employee._id;
+        const empType = req.role;
+        if (!empId || !empType) {
+            return next(new AppError("EmpId and Emp role is needed", 400));
+        }
+        const wallet = await Wallet.findOne({ empId, empType });
 
-    res.json({
-        balance: wallet ? wallet.balance : 0
-    });
+        res.json({
+            balance: wallet ? wallet.balance : 0
+        });
+    }
+    catch (err) {
+        next(err); //let Global error handler deal with it
+    }
 };
 
-exports.getRecentTransactions = async (req, res) => {
-    const empId = req.employee._id;
-    const empType = req.role;
-    const empModel = roleModelMap[empType]; 
+exports.getRecentTransactions = async (req, res, next) => {
+    try {
+        const empId = req.employee._id;
+        const empType = req.role;
+        const empModel = roleModelMap[empType];
 
-    if (!empId || !empType || !empModel) {
-        return res.status(400).json({ message: "EmpId and Emp role is needed" });
+        if (!empId || !empType || !empModel) {
+            return next(new AppError("EmpId and Emp role is needed", 400));
+        }
+
+        const tx = await Transaction.find({ empId, empModel })
+            .sort({ createdAt: -1 })
+            .limit(30);
+
+        res.json(tx);
+    } catch (err) {
+        next(err); //let Global error handler deal with it
     }
-
-    const tx = await Transaction.find({ empId, empModel })
-        .sort({ createdAt: -1 })
-        .limit(30);
-
-    res.json(tx);
 };

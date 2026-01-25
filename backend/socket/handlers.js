@@ -11,8 +11,6 @@ const {
   servicerReject,
   teamAccept,
   teamReject,
-  generateStartOTP,
-  verifyStartOTP,
   requestTool,
   toolshopAccept,
   toolshopReject,
@@ -34,20 +32,15 @@ module.exports = (io) => {
     =============================== */
     socket.on("register-user", async ({ userId }) => {
       if (!mongoose.Types.ObjectId.isValid(userId)) {
-        console.log("⚠️ Invalid userId for socket register:", userId);
         return;
       }
 
       socket.join(userId.toString());
-      console.log("✅ User registered:", userId, socket.id);
-
       const updated = await User.findByIdAndUpdate(
         userId,
         { socketId: socket.id },
         { new: true }
       );
-
-      console.log("✅ User after socket save:", updated);
     });
 
     socket.on("register-employee", async ({ employeeId }) => {
@@ -60,7 +53,6 @@ module.exports = (io) => {
       });
     });
     socket.on("register-team", async ({ teamId }) => {
-      console.log("🟢 register-team:", teamId, socket.id);
       await MultipleEmployee.findByIdAndUpdate({ _id: teamId }, {
         socketId: socket.id,
         isActive: true,
@@ -69,7 +61,6 @@ module.exports = (io) => {
 
     socket.on("register-toolshop", async ({ shopId }) => {
       if (!shopId || !mongoose.Types.ObjectId.isValid(shopId)) {
-        console.warn("❌ Invalid shopId:", shopId);
         return;
       }
 
@@ -105,7 +96,6 @@ module.exports = (io) => {
       }
     });
     socket.on("team-accept", async (payload) => {
-      console.log("🟢 team-accept received", payload);
       const result = await teamAccept({
         ...payload,
         io
@@ -177,12 +167,6 @@ module.exports = (io) => {
         );
         const user = await User.findById(booking.user).select("socketId");
         if (user?.socketId) {
-          console.log("📤 EMITTING team-assigned TO USER:", {
-            userId: user._id,
-            socketId: user.socketId,
-            bookingId: booking._id,
-          });
-
           io.to(user.socketId).emit("team-assigned", booking);
         }
 
@@ -201,36 +185,6 @@ module.exports = (io) => {
       }
     }
     );
-
-
-    /* ===============================
-       START WORK OTP
-    =============================== */
-    // socket.on("generate-start-otp", async ({ bookingId }) => {
-    //   const { booking, otp } = await generateStartOTP(bookingId);
-    //   if (!booking) return;
-
-    //   const user = await User.findById(booking.user);
-    //   user?.socketId &&
-    //     io.to(user.socketId).emit("start-work-otp", otp);
-    // });
-
-    // socket.on("verify-start-otp", async ({ bookingId, otp }) => {
-    //   const result = await verifyStartOTP(bookingId, otp);
-    //   if (!result.success) {
-    //     return socket.emit("otp-failed");
-    //   }
-
-    //   const booking = result.booking;
-    //   const employees = await SingleEmployee.find({
-    //     _id: { $in: booking.employees },
-    //   });
-
-    //   employees.forEach(emp => {
-    //     emp.socketId &&
-    //       io.to(emp.socketId).emit("otp-success", booking);
-    //   });
-    // });
 
     /* ===============================
     TOOL / PART REQUEST FLOW
@@ -293,7 +247,6 @@ module.exports = (io) => {
     // ToolShop accepts request
     socket.on("toolshop-accept", async ({ requestId, shopId }) => {
       try {
-        console.log("$$$$$$$$$$$$$$$$$$$$$$$$Toolshop accept socket event:", shopId, requestId);
         await toolshopAccept({ requestId, shopId, io });
       } catch (err) {
         console.error("toolshop-accept error:", err);

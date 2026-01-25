@@ -10,26 +10,37 @@ const Domainparts = require('../models/domainparts.model');
 const {
   findNearbyTeams,
   createBooking,
-  generateStartOTP,
   verifyStartOTP,
   requestTool,
   findNearbyToolShops,
- generateToolOTP,
   verifyPartOTP,
   assignNextTeam,
   assignNextToolshop,
   assignNextServicer,
-} = require("../services/booking.service")
-// const PartRequest = require("../models/partsrequest.model");
-// const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-// const PAYMENT_STATUS = require("../enum/payment.enum");
-
+} = require("../services/booking.service");
+const AppError = require("../utils/AppError");
+const Review = require("../models/review.model");
+const{ PART_REQUEST_STATUS }=require("../enum/partsstatus.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
-exports.searchNearbyservicer = async (req, res) => {
+exports.searchNearbyservicer = async (req, res, next) => {
   try {
-    const { address, coordinates, serviceCategoryName, serviceCount = 1 } = req.body;
+    const {
+      address,
+      coordinates,
+      serviceCategoryName,
+      serviceCount = 1,
+    } = req.body;
+
+    // Basic validation
+    if (!serviceCategoryName) {
+      return next(new AppError("serviceCategoryName is required", 400));
+    }
+
+    if (!address && !coordinates) {
+      return next(new AppError("Either address or coordinates must be provided", 400));
+    }
 
     const result = await findNearbyTeams({
       address,
@@ -38,17 +49,19 @@ exports.searchNearbyservicer = async (req, res) => {
       serviceCount,
     });
 
-    return res.status(200).json({ success: true, result });
+    return res.status(200).json({
+      success: true,
+      result,
+    });
   } catch (err) {
-    console.error("searchNearbyservicer error:", err.message);
-    return res.status(500).json({ message: err.message });
+    next(err); //  Let global error middleware respond
   }
 };
 
 /* ======================================================
    AUTO ASSIGN SERVICER (NO TEMP ID)
 ====================================================== */
-exports.autoAssignServicer = async (req, res) => {
+exports.autoAssignServicer = async (req, res, next) => {
   try {
     const {
       userId,
@@ -59,15 +72,22 @@ exports.autoAssignServicer = async (req, res) => {
       serviceCount = 1,
     } = req.body;
     const io = req.app.get("io");
+
+     if (!serviceCategoryName) {
+      return next(new AppError("serviceCategoryName is required", 400));
+    }
+
+    if (!address && !coordinates) {
+      return next(
+        new AppError("Either address or coordinates is required", 400)
+      );
+    }
     /* -------------------------
        Validate user + socket
     ------------------------- */
     const user = await User.findById(userId);
     if (!user || !user.socketId) {
-      return res.status(400).json({
-        success: false,
-        message: "User socket not registered",
-      });
+      return next(new AppError("Invalid user or user not connected", 400));
     }
 
     /* ======================================================
@@ -100,13 +120,9 @@ exports.autoAssignServicer = async (req, res) => {
         status: BOOKING_STATUS.NO_PROVIDER,
       });
 
-      return res.status(404).json({
-        success: false,
-        message: "No servicers available at the moment",
-        bookingId: booking._id,
-      });
+      return next(new AppError("No servicers available nearby", 404));
     }
-    /* =======f===============================================
+    /* ======================================================
         START AUTO-ASSIGN QUEUE
     ====================================================== */
     if (result.type === "single") {
@@ -136,38 +152,30 @@ exports.autoAssignServicer = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("autoAssignServicer error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 };
 
 /* ======================================================
    TEAM ASSIGN MEMBERS
 ====================================================== */
-exports.teamAssignMembers = async (req, res) => {
+exports.teamAssignMembers = async (req, res, next) => {
   try {
     const { bookingId, primaryEmployee, helpers = [] } = req.body;
 
     //  Fetch booking
     const booking = await Booking.findById(bookingId);
     if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
+      return next(new AppError("Booking not found", 404));
     }
 
     //  Validate booking state
     if (booking.status !== BOOKING_STATUS.PENDING) {
-      return res.status(400).json({
-        message: "Team assignment not allowed in current booking state",
-      });
+      return next(new AppError("Team assignment not allowed in current booking state", 400));
     }
 
     if (booking.serviceType !== "team") {
-      return res.status(400).json({
-        message: "Not a team booking",
-      });
+      return next(new AppError("Not a team booking", 400));
     }
 
     //  Assign team members atomically
@@ -188,118 +196,18 @@ exports.teamAssignMembers = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("teamAssignMembers error:", err.message);
-    return res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-// exports.teamAssignMembers = async (req, res) => {
-//   try {
-//     const loggedInEmp = req.employee;
-//     const { bookingId, primaryEmployee, helpers = [] } = req.body;
-
-//     if (loggedInEmp.role !== "multi_employee") {
-//       return res.status(403).json({ message: "Unauthorized" });
-//     }
-
-//     const booking = await Booking.findOne({
-//       _id: bookingId,
-//       serviceType: "team",
-//       status: BOOKING_STATUS.PENDING,
-//       servicerCompany: loggedInEmp._id,
-//     });
-
-//     if (!booking) {
-//       return res.status(404).json({ message: "Booking not found" });
-//     }
-
-//     const team = await MultipleEmployee.findById(loggedInEmp._id);
-
-//     if (!team) {
-//       return res.status(404).json({ message: "Team not found" });
-//     }
-
-//     // validate primary
-//     if (!team.members.includes(primaryEmployee)) {
-//       return res.status(400).json({ message: "Primary not in team" });
-//     }
-
-//     // validate helpers
-//     for (const h of helpers) {
-//       if (!team.members.includes(h)) {
-//         return res.status(400).json({ message: "Helper not in team" });
-//       }
-//     }
-
-//     if (helpers.length + 1 !== booking.employeeCount) {
-//       return res.status(400).json({
-//         message: `Requires ${booking.employeeCount} employees`
-//       });
-//     }
-
-//     booking.primaryEmployee = primaryEmployee;
-//     booking.employees = [primaryEmployee, ...helpers];
-//     await booking.save();
-
-//     await SingleEmployee.updateMany(
-//       { _id: { $in: booking.employees } },
-//       { availabilityStatus: "BUSY" }
-//     );
-
-//     return res.status(200).json({
-//       success: true,
-//       message: "Booking assigned successfully",
-//       booking,
-//     });
-
-//   } catch (err) {
-//     console.error("assignTeamToBooking error:", err);
-//     return res.status(500).json({ message: "Server error" });
-//   }
-// };
-
-
-/* ======================================================
-   START WORK OTP
-====================================================== */
-exports.generateStartOtpcontroller = async (req, res) => {
-  try {
-    const { bookingId } = req.body;
-
-    const booking = await Booking.findById(bookingId);
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    if (!booking.primaryEmployee) {
-      return res.status(400).json({
-        message: "Cannot generate OTP before employee assignment",
-      });
-    }
-
-    const { booking: updatedBooking, otp } =
-      await generateStartOTP(bookingId);
-
-    return res.status(200).json({
-      success: true,
-      booking: updatedBooking,
-      otp,
-    });
-
-  } catch (err) {
-    console.error("generateStartOtp error:", err.message);
-    return res.status(500).json({ message: err.message });
-  }
-};
-
-exports.verifystartOTPcontroller = async (req, res) => {
+exports.verifystartOTPcontroller = async (req, res, next) => {
   try {
     const { bookingId, otp } = req.body;
 
     const result = await verifyStartOTP(bookingId, otp);
 
     if (!result.success) {
-      return res.status(400).json({ message: "Invalid OTP" });
+      return next(new AppError("Invalid OTP", 400));
     }
 
     return res.status(200).json({
@@ -309,35 +217,15 @@ exports.verifystartOTPcontroller = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("verifyStartOtp error:", err.message);
-    return res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-/* ======================================================
-   TOOL REQUEST
-====================================================== */
-// exports.requestToolController = async (req, res) => {
-//   try {
-//     const { bookingId, toolName } = req.body;
-//     const booking = await requestTool(bookingId, toolName);
 
-//     return res.status(200).json({
-//       success: true,
-//       message: "Tool request sent",
-//       booking,
-//     });
-//   } catch (err) {
-//     console.error("requestTool error:", err.message);
-//     return res.status(500).json({ message: err.message });
-//   }
-// };
-
-exports.requestToolController = async (req, res) => {
+exports.requestToolController = async (req, res, next) => {
   try {
-    const employeeId = req.employeeId;// ✅ from employee middleware
+    const employeeId = req.employeeId;//  from employee middleware
     const { bookingId, parts = [], totalCost } = req.body;
-    console.log("REQUEST BODY:", req.body);
 
     const io = (req.app && req.app.get && req.app.get("io")) || req.io || null;
 
@@ -363,11 +251,10 @@ exports.requestToolController = async (req, res) => {
         }
 
         const name = p.partsname || p.partName;
-        if (!name) throw new Error("partsId or partName is required for each part");
+        if (!name) throw new AppError("partsId or partName is required", 400);
 
         const domainPart = await Domainparts.findOne({ partName: name });
-        if (!domainPart) throw new Error(`Domain part not found: ${name}`);
-
+        if (!domainPart) throw new AppError(`Part not found: ${name}`, 404);
         return {
           partsId: domainPart._id,
           partName: domainPart.partName,
@@ -392,7 +279,7 @@ exports.requestToolController = async (req, res) => {
       approvalByUser: false,
       io,
     });
-    // 🔔 notify user (if socket server available)
+
     if (io) {
       io.to(`booking_${bookingId}`).emit("part-request-created", {
         requestId: partRequest._id,
@@ -406,27 +293,21 @@ exports.requestToolController = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("requestTool error:", err.message);
-    res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
-
-
-
-// controllers/partApproval.controller.js
-exports.approvePartRequest = async (req, res) => {
+exports.approvePartRequest = async (req, res, next) => {
   try {
-    console.log("approvePartRequest called with params:", req.params);
     if (!req.user) {
-      return res.status(403).json({ message: "Only user can approve parts" });
+      return next(new AppError("Only user can approve parts", 403));
     }
 
     const { requestId } = req.params;
 
     const partRequest = await PartRequest.findById(requestId);
     if (!partRequest) {
-      return res.status(404).json({ message: "Part request not found" });
+      return next(new AppError("Part request not found", 404));
     }
 
     //  Ensure booking belongs to this user
@@ -436,7 +317,7 @@ exports.approvePartRequest = async (req, res) => {
     }).populate('user');
     console.log(booking);
     if (!booking) {
-      return res.status(403).json({ message: "Unauthorized booking" });
+      return next(new AppError("Unauthorized booking", 403));
     }
 
     //  Approve
@@ -455,13 +336,12 @@ exports.approvePartRequest = async (req, res) => {
       message: "Parts approved",
     });
   } catch (err) {
-    console.error("approvePartRequest:", err);
-    res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
 
-exports.getPartRequestById = async (req, res) => {
+exports.getPartRequestById = async (req, res, next) => {
   try {
     const { requestId } = req.params;
 
@@ -470,10 +350,7 @@ exports.getPartRequestById = async (req, res) => {
       .populate("bookingId", "address");
 
     if (!partRequest) {
-      return res.status(404).json({
-        success: false,
-        message: "Part request not found",
-      });
+      return next(new AppError("Part request not found", 404));
     }
 
     return res.status(200).json({
@@ -481,45 +358,37 @@ exports.getPartRequestById = async (req, res) => {
       partRequest,
     });
   } catch (err) {
-    console.error("getPartRequestById error:", err.message);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 };
-
-
-
 
 /* ======================================================
    NEARBY TOOL SHOPS
 ====================================================== */
-exports.nearbyToolShops = async (req, res) => {
+exports.nearbyToolShops = async (req, res, next) => {
   try {
     const { coordinates } = req.body;
     const shops = await findNearbyToolShops({ coordinates });
 
     return res.status(200).json({ success: true, shops });
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
 
 /* ======================================================
    AUTO ASSIGN TOOL SHOP
 ====================================================== */
-exports.autoAssignToolShop = async (req, res) => {
+exports.autoAssignToolShop = async (req, res, next) => {
   try {
     const { requestId } = req.body;
-    console.log("autoAssignToolShop called with requestId:", requestId);
 
     if (!requestId) {
-      return res.status(400).json({ message: "requestId is required" });
+      return next(new AppError("requestId is required", 400));
     }
     const partRequest = await PartRequest.findById(requestId).populate("bookingId");
     if (!partRequest) {
-      return res.status(404).json({ message: "Part request not found" });
+      return next(new AppError("Part request not found", 404));
     }
 
     const assignIo = (req.app && req.app.get && req.app.get("io")) || req.io || null;
@@ -535,65 +404,37 @@ exports.autoAssignToolShop = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("autoAssignToolShop error:", err.message);
-    return res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 };
-
-//* ======================================================
-//   GENERATE TOOL OTP        
-//* ======================================================    
-
-exports.generateToolOTPController = async (req, res) => {
-  try {
-    const { requestId } = req.body;
-
-    if (!requestId) {
-      return res.status(400).json({ message: "requestId is required" });
-    }
-
-    const genIo = (req.app && req.app.get && req.app.get("io")) || req.io || null;
-    const result = await generateToolOTP(requestId, genIo);
-
-    return res.status(200).json({
-      success: true,
-      message: "OTP generated successfully",
-      data: result,
-    });
-
-  } catch (err) {
-    console.error("generateToolOTP error:", err.message);
-    return res.status(400).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
-
 
 
 /* ======================================================
    VERIFY PART OTP
 ====================================================== */
-exports.verifyPartOTPcontroller = async (req, res) => {
+
+exports.verifyPartOTPcontroller = async (req, res, next) => {
   try {
     const { requestId, otp } = req.body;
-    
-     const io = (req.app && req.app.get && req.app.get("io")) || req.io || null;
+
+    if (!requestId || !otp) {
+      return next(new AppError("requestId and otp are required", 400));
+    }
+
+    const io = req.app?.get("io") || null;
+
     const result = await verifyPartOTP(requestId, otp, io);
 
-    if (!result.success) {
-      return res.status(400).json({ message: "Invalid OTP" });
-    }
-    await booking.save();
-
-    return res.status(200).json({ success: true, result });
+    return res.status(200).json({
+      success: true,
+      result,
+    });
   } catch (err) {
-    console.error("verifyPartOtp error:", err.message);
-    return res.status(500).json({ message: err.message });
+    next(err); //  Let global error middleware respond
   }
 };
-exports.getBookingById = async (req, res) => {
+
+exports.getBookingById = async (req, res, next) => {
   try {
     const { bookingId } = req.params;
 
@@ -602,10 +443,7 @@ exports.getBookingById = async (req, res) => {
       .populate("employees", "fullname phoneNo");
 
     if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking not found",
-      });
+      return next(new AppError("Booking not found", 404));
     }
 
     return res.status(200).json({
@@ -613,30 +451,26 @@ exports.getBookingById = async (req, res) => {
       booking,
     });
   } catch (err) {
-    console.error("getBookingById error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    next(err); //let Global error handler deal with it
   }
 };
 /*================================================
    REVIEW
 =================================================*/
-exports.submitReview = async (req, res) => {
+exports.submitReview = async (req, res, next) => {
   try {
     const { bookingId, rating, comment } = req.body;
     const userId = req.user._id;
     const booking = await Booking.findById(bookingId);
-    if (!booking) return res.status(400).json({ message: "Booking not found" });
+    if (!booking) return next(new AppError("Booking not found", 404));
 
     if (!booking.user.equals(userId)) {
-      return res.status(403).json({ message: "Not your booking" });
+      return next(new AppError("Not your booking", 403));
     }
 
     const existing = await Review.findOne({ booking: bookingId });
     if (existing) {
-      return res.status(400).json({ message: "Review already submitted for this booking" });
+      return next(new AppError("Review already submitted for this booking", 400));
     }
     const review=await Review.create({
       booking: bookingId,
@@ -655,14 +489,13 @@ exports.submitReview = async (req, res) => {
     });
   }
   catch (err) {
-    console.error("submitReview error:", err.message);
-    return res.status(500).json({ message: err.message });
+    next(err); //let Global error handler deal with it
   }
 }
 /* ======================================================
    PAYMENT SUCCESS
 ====================================================== */
-exports.paymentSuccess = async (req, res) => {
+exports.paymentSuccess = async (req, res, next) => {
   try {
     const {
       bookingId,
@@ -673,22 +506,18 @@ exports.paymentSuccess = async (req, res) => {
     } = req.body;
 
     if (!bookingId || !paymentMethod) {
-      return res.status(400).json({
-        message: "bookingId and paymentMethod are required"
-      });
+      return next(new AppError("bookingId and paymentMethod are required", 400));
     }
 
     const booking = await Booking.findById(bookingId);
 
     if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
+      return next(new AppError("Booking not found", 404));
     }
 
     // Prevent double payment
     if (booking.paymentStatus === PAYMENT_STATUS.PAID) {
-      return res.status(409).json({
-        message: "Booking already paid"
-      });
+      return next(new AppError("Payment already completed for this booking", 400));
     }
 
     /* ---------------- CASH FLOW ---------------- */
@@ -710,9 +539,7 @@ exports.paymentSuccess = async (req, res) => {
     /* ------------- RAZORPAY FLOW -------------- */
     if (paymentMethod === "RAZORPAY") {
       if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-        return res.status(400).json({
-          message: "Missing Razorpay payment details"
-        });
+        return next(new AppError("Razorpay payment details are required", 400));
       }
 
       const body = razorpayOrderId + "|" + razorpayPaymentId;
@@ -723,9 +550,7 @@ exports.paymentSuccess = async (req, res) => {
         .digest("hex");
 
       if (expectedSignature !== razorpaySignature) {
-        return res.status(400).json({
-          message: "Invalid Razorpay signature"
-        });
+        return next(new AppError("Invalid Razorpay signature", 400));
       }
 
       booking.paymentMethod = "RAZORPAY";
@@ -746,13 +571,10 @@ exports.paymentSuccess = async (req, res) => {
       });
     }
 
-    return res.status(400).json({
-      message: "Invalid payment method"
-    });
+    return next(new AppError("Unsupported payment method", 400));
 
   } catch (err) {
-    console.error("completeBooking error:", err.message);
-    return res.status(500).json({ message: "Server error" });
+    next(err); //let Global error handler deal with it
   }
 };
 
