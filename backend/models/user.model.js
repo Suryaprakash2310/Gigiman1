@@ -1,57 +1,62 @@
 const mongoose = require("mongoose");
 
-const UserSchema = new mongoose.Schema({
-  fullName: {
-    type: String,
-    required:false,
-  },
-
-  phoneNo: {
-    type: String,
-    required: true,
-  },
-
-  phoneMasked: {
-    type: String,
-  },
-  location: {
-    type: {
+const UserSchema = new mongoose.Schema(
+  {
+    fullName: {
       type: String,
-      enum: ["Point"],
-      default: "Point",
+      trim: true,
     },
-    coordinates: {
-      type: [Number],
+
+    phoneNo: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+
+    phoneMasked: String,
+
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+      },
+      coordinates: {
+        type: [Number],
+        validate: {
+          validator: function (v) {
+            return !v || v.length === 2;
+          },
+          message: "Coordinates must be [longitude, latitude]",
+        },
+      },
+    },
+
+    address: String,
+    avatar: String,
+
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    socketId: {
+      type: String,
       default: null,
     },
+
+    socketConnectedAt: Date,
   },
+  { timestamps: true }
+);
 
-  address: {
-    type: String,
-    required:false,
-  },
-
-  avatar: {
-    type: String,
-    required:false,
-  },
-
-  isVerified: {
-    type: Boolean,
-    default: false,
-  },
-
-  socketId: {
-    type: String,
-    default: null,
-  },
-
-  socketConnectedAt: {
-    type: Date,
-  },
-
-}, { timestamps: true });
-
-UserSchema.index({ location: "2dsphere" });
+UserSchema.index(
+  { location: "2dsphere" },
+  {
+    partialFilterExpression: {
+      "location.coordinates": { $exists: true }
+    }
+  }
+);
 
 module.exports = mongoose.model("User", UserSchema);
