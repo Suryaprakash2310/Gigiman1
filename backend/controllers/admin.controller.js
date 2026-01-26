@@ -7,6 +7,7 @@ const DomainService = require("../models/domainservice.model");
 const cloudinary = require('../config/cloudinary');
 const ServiceList = require('../models/serviceList.model');
 const mongoose = require('mongoose');
+const Domainparts=require("../models/domainparts.model")
 const AppError = require('../utils/AppError');
 exports.adminLogin = async (req, res, next) => {
   try {
@@ -364,3 +365,93 @@ exports.deleteServiceCategory = async (req, res, next) => {
     next(err); //let Global error handler deal with it
   }
 };
+
+exports.getServiceCategories = async (req, res) => {
+  const { DomainServiceId } = req.params;
+
+  const services = await ServiceList.find(
+    { DomainServiceId },
+    {
+      serviceName: 1,
+      DomainServiceId: 1, 
+    }
+  );
+
+  res.status(200).json({
+    services, 
+  });
+};
+
+exports.setDomainTool=async(req, res, next)=>{
+  try{
+    const{domainpartname,domainpartimage}=req.body;
+    if(!domainpartname || !domainpartimage){
+      return next(new AppError("domainpartname and domainpartimage is required",400));
+    }
+    const exisitingdomainpart=await Domainparts.findOne({domainpartname});
+    if(exisitingdomainpart){
+      return next(new AppError("exisiting Domain parts",400));
+    }
+    const upload=await cloudinary.uploader.upload(
+      domainpartimage,
+      {folder:"domain_parts"}
+    );
+    const parts=await Domainparts.create({
+      domainpartname,
+      domainpartimage:upload.secure_url,
+    });
+
+    return res.status(200).json({
+      success:true,
+      message:"Domain part added successfully",
+      parts,
+    })
+  }
+  catch(err){
+    next(err);
+  }
+}
+
+
+exports.editDomainToolById=async(req, res, next)=>{
+  try{
+    const {domainpartId}=req.params;
+    if (!mongoose.Types.ObjectId.isValid(domainpartId)) {
+      return next(new AppError("Invalid DomainserviceId", 400));
+    }
+    const update={};
+    if(req.body.domainpartname!=undefined){
+      update.domainpartname=req.body.domainpartname;
+    }
+    if(req.body.domainpartimage!=undefined){
+      update.domainpartimage=req.body.domainpartimage;
+    }
+    const domainpart=await DomainService.findByIdAndUpdate(
+      domainpartId,
+      {$set:update},
+      {new:true}
+    );
+    if(!domainpart){
+      return next(new AppError("Domain part not found",404));
+    }
+    return res.status(200).json({
+      domainpart,
+      success:true,
+    })
+  }
+  catch(err){
+    next(err);
+  }
+}
+
+exports.DelteDomainpartById=async(req, res, next)=>{
+  try{
+    const {domainpartId}=req.params;
+    const domainpart=await Domainparts.findById(domainpartId);
+    if(!domainpart){
+      return next(new AppError("domainpart not found",404));
+    }
+  }catch(err){
+    next(err);
+  }
+}
