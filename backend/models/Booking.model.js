@@ -67,7 +67,10 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-
+  durationInMinutes: {
+    type: Number,
+    required: true
+  },
   /* ---------------- BOOKING STATE ---------------- */
   status: {
     type: String,
@@ -111,40 +114,40 @@ const bookingSchema = new mongoose.Schema({
     default: null,
     index: true
   },
-scheduleDateTime: Date,
-    isScheduled: Boolean,
-    scheduleExecuted: {
-        type: Boolean,
-        default: false,
+  scheduleDateTime: Date,
+  isScheduled: Boolean,
+  scheduleExecuted: {
+    type: Boolean,
+    default: false,
+  },
+
+  address: {
+    type: String,
+    required: true,
+  },
+
+  location: {
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point",
     },
-
-    address: {
-        type: String,
-        required: true,
+    coordinates: {
+      type: [Number],
+      required: true,
     },
+  },
 
-    location: {
-        type: {
-            type: String,
-            enum: ["Point"],
-            default: "Point",
-        },
-        coordinates: {
-            type: [Number],
-            required: true,
-        },
-    },
+  StartWorkOTP: Number,
 
-    StartWorkOTP: Number,
+  requestedTool: String,
 
-    requestedTool: String,
+  selectedToolShop: {
+    type: mongoose.Types.ObjectId,
+    ref: "ToolShop",
+  },
 
-    selectedToolShop: {
-        type: mongoose.Types.ObjectId,
-        ref: "ToolShop",
-    },
-
-    toolOTP: Number,
+  toolOTP: Number,
   paymentStatus: {
     type: String,
     enum: Object.values(PAYMENT_STATUS),
@@ -156,13 +159,13 @@ scheduleDateTime: Date,
   razorpayPaymentId: String,
   razorpaySignature: String,
 
-    razorpayOrderId: String,
-    razorpayOrderPaymentId: String,
-    razorpaySignature: String,
-    employeeCount:{
-        type:Number,
-        required:true,
-    },
+  razorpayOrderId: String,
+  razorpayOrderPaymentId: String,
+  razorpaySignature: String,
+  employeeCount: {
+    type: Number,
+    required: true,
+  },
 
 }, { timestamps: true });
 

@@ -15,6 +15,7 @@ const {
   toolshopAccept,
   toolshopReject,
   verifyPartOTP,
+  verifyStartOTP,
 } = require("../services/booking.service");
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
@@ -281,13 +282,26 @@ module.exports = (io) => {
       }
     });
 
+    socket.on("verify-start-otp", async ({ bookingId, otp }) => {
+      try {
+        const result = await verifyStartOTP(bookingId, otp); 
+        if (!result.success) {
+          socket.emit("start-otp-failed", { message: "Invalid OTP" });
+          return;
+        } 
+        socket.emit("otp-success", result);
+      } catch (err) {
+        socket.emit("otp-failed", { message: err.message });
+      }   
+    });
+
     /* ===============================
        USER CANCEL
     =============================== */
     socket.on("user-cancel-booking", async ({ bookingId }) => {
       const booking = await Booking.findByIdAndUpdate(
         bookingId,
-        { status: BOOKING_STATUS.CANCELLED },
+        { status: BOOKING_STATUS.CANCALLED },
         { new: true }
       );
       if (!booking) return;

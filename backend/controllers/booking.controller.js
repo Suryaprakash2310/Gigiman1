@@ -204,7 +204,9 @@ exports.teamAssignMembers = async (req, res, next) => {
 exports.verifystartOTPcontroller = async (req, res, next) => {
   try {
     const { bookingId, otp } = req.body;
-
+    if (!bookingId || !otp) {
+      return next(new AppError("bookingId and otp are required", 400));
+    }
     const result = await verifyStartOTP(bookingId, otp);
 
     if (!result.success) {
@@ -438,18 +440,30 @@ exports.verifyPartOTPcontroller = async (req, res, next) => {
 exports.getBookingById = async (req, res, next) => {
   try {
     const { bookingId } = req.params;
+    if(!bookingId || bookingId==="undefined"){
+      return next(new AppError("bookingId is required",400));
+    }
 
     const booking = await Booking.findById(bookingId)
-      .populate("primaryEmployee", "fullname phoneNo")
-      .populate("employees", "fullname phoneNo");
+      .populate("primaryEmployee", "fullname")
+      .populate("servicerCompany", "ownerName");
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
     }
-
+    const result={
+      name:booking.primaryEmployee?.fullname || booking.servicerCompany?.ownerName,
+      work:booking.serviceCategoryName,
+      cost:`₹${booking.totalPrice}`,
+      workingHours:`${booking.durationInMinutes}minus`,
+      employeeCount: String(
+        booking.employeeCount||booking.employees?.length||1
+      ),
+      address: booking.address, 
+    }
     return res.status(200).json({
       success: true,
-      booking,
+      booking:result,
     });
   } catch (err) {
     next(err); //let Global error handler deal with it

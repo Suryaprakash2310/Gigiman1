@@ -589,6 +589,7 @@ exports.createBooking = async ({
     }
     const employeeCount = category.employeeCount;
     const pricePerService = category.price;
+    const durationInMinutes = category.durationInMinutes;
     const totalPrice = pricePerService * serviceCount;
     if (
         !Array.isArray(coordinates) ||
@@ -611,6 +612,7 @@ exports.createBooking = async ({
             domainService,
             serviceCount,
             pricePerService,
+            durationInMinutes,
             totalPrice,
             employeeCount: 1,
             status: BOOKING_STATUS.PENDING,
@@ -640,6 +642,7 @@ exports.createBooking = async ({
         serviceCount,
         pricePerService,
         totalPrice,
+        durationInMinutes,
         employeeCount,
         status: BOOKING_STATUS.PENDING,
         address,
@@ -653,6 +656,34 @@ exports.createBooking = async ({
         employeeCount,
     };
 };
+exports.generateStartOTP = async (bookingId) => {
+    const booking = await Booking.findById(bookingId);
+
+    if (!booking) {
+        throw new Error("Booking not found");
+    }
+
+    //  Employee must be assigned first
+    if (!booking.primaryEmployee) {
+        throw new Error("Cannot generate OTP before employee assignment");
+    }
+
+    // OTP only allowed before work starts
+    if (booking.status !== BOOKING_STATUS.PENDING) {
+        throw new Error("OTP can only be generated before work starts");
+    }
+
+    const otp = Math.floor(1000 + Math.random() * 9000);
+
+    booking.StartWorkOTP = otp;
+    await booking.save();
+    console.log("Stored OTP:", booking.StartWorkOTP);
+    console.log("Received OTP:", otp);
+
+
+    return { booking, otp };
+};
+
 
 exports.verifyStartOTP = async (bookingId, otp) => {
     const booking = await Booking.findById(bookingId);
@@ -675,13 +706,12 @@ exports.verifyStartOTP = async (bookingId, otp) => {
     if (booking.StartWorkOTP !== Number(otp)) {
         throw new AppError("Invalid OTP", 401);
     }
-
     // OTP verified → start work
     booking.StartWorkOTP = null;
     booking.status = BOOKING_STATUS.IN_PROGRESS;
     await booking.save();
 
-    return booking;
+    return { success: true, booking };
 };
 
 
