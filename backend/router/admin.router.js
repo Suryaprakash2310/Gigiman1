@@ -1,6 +1,6 @@
 const express=require('express');
 const { protect } = require('../middleware/auth.middleware');
-const { adminLogin, checkAuth, getEmployeecounts, Adddomainservice, SetSubService, getAllEmployee, DeleteDomainService, setServiceList, deleteServiceCategory, updateServiceCategory, EditDomainService, getServiceCategories } = require('../controllers/admin.controller');
+const { adminLogin, checkAuth, getEmployeecounts, Adddomainservice,  getAllEmployee, DeleteDomainService, setServiceList, deleteServiceCategory, updateServiceCategory, EditDomainService, getServiceCategories, setDomainTool, editDomainToolById } = require('../controllers/admin.controller');
 const { allowRoles } = require('../middleware/role.middleware');
 const router=express.Router();
 
@@ -29,5 +29,11 @@ router.put("/update-service-category/:serviceId/:categoryId",protect,allowRoles(
 router.delete("/delete-service-category/:serviceId/:categoryId",protect,allowRoles("admin"),deleteServiceCategory);
 
 router.get("/service-categories/:DomainServiceId",protect,allowRoles("admin"),getServiceCategories);
+
+router.post("/add-domainpart",protect,allowRoles("admin"),setDomainTool);
+
+router.put("/domainpart/:domainpartId",protect,allowRoles("admin"),editDomainToolById);
+
+router.delete("/delete-domainpart/:domainpartId",protect,allowRoles("admin"),DeleteDomainService);
 
 module.exports=router;

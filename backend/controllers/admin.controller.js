@@ -7,7 +7,7 @@ const DomainService = require("../models/domainservice.model");
 const cloudinary = require('../config/cloudinary');
 const ServiceList = require('../models/serviceList.model');
 const mongoose = require('mongoose');
-const Domainparts=require("../models/domainparts.model")
+const Domainparts = require("../models/domainparts.model")
 const AppError = require('../utils/AppError');
 exports.adminLogin = async (req, res, next) => {
   try {
@@ -373,85 +373,226 @@ exports.getServiceCategories = async (req, res) => {
     { DomainServiceId },
     {
       serviceName: 1,
-      DomainServiceId: 1, 
+      DomainServiceId: 1,
     }
   );
 
   res.status(200).json({
-    services, 
+    services,
   });
 };
 
-exports.setDomainTool=async(req, res, next)=>{
-  try{
-    const{domainpartname,domainpartimage}=req.body;
-    if(!domainpartname || !domainpartimage){
-      return next(new AppError("domainpartname and domainpartimage is required",400));
+exports.setDomainTool = async (req, res, next) => {
+  try {
+    const { domainpartname, domainpartimage, parts } = req.body;
+
+    /* ===============================
+       VALIDATION
+    =============================== */
+    if (!domainpartname || !domainpartimage) {
+      return next(new AppError(
+        "domainpartname and domainpartimage are required",
+        400
+      ));
     }
-    const exisitingdomainpart=await Domainparts.findOne({domainpartname});
-    if(exisitingdomainpart){
-      return next(new AppError("exisiting Domain parts",400));
+
+    if (!Array.isArray(parts) || parts.length === 0) {
+      return next(new AppError(
+        "At least one part is required",
+        400
+      ));
     }
-    const upload=await cloudinary.uploader.upload(
-      domainpartimage,
-      {folder:"domain_parts"}
-    );
-    const parts=await Domainparts.create({
-      domainpartname,
-      domainpartimage:upload.secure_url,
+
+    for (const part of parts) {
+      if (!part.partName || typeof part.price !== "number") {
+        return next(new AppError(
+          "Each part must have partName and numeric price",
+          400
+        ));
+      }
+    }
+
+    /* ===============================
+       DUPLICATE CHECK (CASE SAFE)
+    =============================== */
+    const existing = await Domainparts.findOne({
+      domainpartname: new RegExp(`^${domainpartname}$`, "i")
     });
 
-    return res.status(200).json({
-      success:true,
-      message:"Domain part added successfully",
-      parts,
-    })
-  }
-  catch(err){
-    next(err);
-  }
-}
+    if (existing) {
+      return next(new AppError(
+        "Domain part already exists",
+        409
+      ));
+    }
 
-
-exports.editDomainToolById=async(req, res, next)=>{
-  try{
-    const {domainpartId}=req.params;
-    if (!mongoose.Types.ObjectId.isValid(domainpartId)) {
-      return next(new AppError("Invalid DomainserviceId", 400));
-    }
-    const update={};
-    if(req.body.domainpartname!=undefined){
-      update.domainpartname=req.body.domainpartname;
-    }
-    if(req.body.domainpartimage!=undefined){
-      update.domainpartimage=req.body.domainpartimage;
-    }
-    const domainpart=await DomainService.findByIdAndUpdate(
-      domainpartId,
-      {$set:update},
-      {new:true}
+    /* ===============================
+       IMAGE UPLOAD
+    =============================== */
+    const upload = await cloudinary.uploader.upload(
+      domainpartimage,
+      {
+        folder: "domain_parts",
+        resource_type: "image"
+      }
     );
-    if(!domainpart){
-      return next(new AppError("Domain part not found",404));
-    }
-    return res.status(200).json({
-      domainpart,
-      success:true,
-    })
-  }
-  catch(err){
-    next(err);
-  }
-}
 
-exports.DelteDomainpartById=async(req, res, next)=>{
-  try{
-    const {domainpartId}=req.params;
-    const domainpart=await Domainparts.findById(domainpartId);
-    if(!domainpart){
-      return next(new AppError("domainpart not found",404));
-    }
-  }catch(err){
+    /* ===============================
+       CREATE DOCUMENT
+    =============================== */
+    const domainPart = await Domainparts.create({
+      domainpartname: domainpartname.trim(),
+      domainpartimage: upload.secure_url,
+      domainpartimagePublicId: upload.public_id,
+      parts
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Domain part added successfully",
+      domainPart
+    });
+
+  } catch (err) {
+    console.error("setDomainTool error:", err.message);
     next(err);
   }
-}
+};
+
+
+
+exports.editDomainToolById = async (req, res, next) => {
+  try {
+    const { domainpartId } = req.params;
+    const { domainpartname, domainpartimage, parts } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(domainpartId)) {
+      return next(new AppError("Invalid domain part ID", 400));
+    }
+
+    const domainPart = await Domainparts.findById(domainpartId);
+    if (!domainPart) {
+      return next(new AppError("Domain part not found", 404));
+    }
+
+    /* ===============================
+       NAME UPDATE (CASE SAFE)
+    =============================== */
+    if (domainpartname) {
+      const exists = await Domainparts.findOne({
+        _id: { $ne: domainpartId },
+        domainpartname: new RegExp(`^${domainpartname}$`, "i")
+      });
+
+      if (exists) {
+        return next(new AppError(
+          "Another domain part already uses this name",
+          409
+        ));
+      }
+
+      domainPart.domainpartname = domainpartname.trim();
+    }
+
+    /* ===============================
+       IMAGE UPDATE (CLOUD SAFE)
+    =============================== */
+    if (domainpartimage) {
+      // Delete old image
+      if (domainPart.domainpartimagePublicId) {
+        await cloudinary.uploader.destroy(
+          domainPart.domainpartimagePublicId
+        );
+      }
+
+      // Upload new image
+      const upload = await cloudinary.uploader.upload(
+        domainpartimage,
+        { folder: "domain_parts" }
+      );
+
+      domainPart.domainpartimage = upload.secure_url;
+      domainPart.domainpartimagePublicId = upload.public_id;
+    }
+
+    /* ===============================
+       PARTS UPDATE (OPTIONAL)
+    =============================== */
+    if (Array.isArray(parts)) {
+      // Build a lookup set of existing part names
+      const existingPartNames = new Set(
+        domainPart.parts.map(p => p.partName.toLowerCase())
+      );
+
+      for (const part of parts) {
+        if (!part.partName || typeof part.price !== "number") {
+          return next(new AppError(
+            "Each part must have partName and numeric price",
+            400
+          ));
+        }
+
+        const partKey = part.partName.toLowerCase();
+
+        // Skip duplicates
+        if (existingPartNames.has(partKey)) {
+          continue;
+        }
+
+        // Add only new parts
+        domainPart.parts.push({
+          partName: part.partName.trim(),
+          price: part.price
+        });
+
+        existingPartNames.add(partKey);
+      }
+    }
+
+    await domainPart.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Domain part updated successfully",
+      domainPart
+    });
+
+  } catch (err) {
+    console.error("editDomainToolById error:", err.message);
+    next(err);
+  }
+};
+
+exports.deleteDomainpartById = async (req, res, next) => {
+  try {
+    const { domainpartId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(domainpartId)) {
+      return next(new AppError("Invalid domain part ID", 400));
+    }
+
+    const domainPart = await Domainparts.findById(domainpartId);
+    if (!domainPart) {
+      return next(new AppError("Domain part not found", 404));
+    }
+
+    // Delete Cloudinary image
+    if (domainPart.domainpartimagePublicId) {
+      await cloudinary.uploader.destroy(
+        domainPart.domainpartimagePublicId
+      );
+    }
+
+    // Delete DB record
+    await domainPart.deleteOne();
+
+    return res.status(200).json({
+      success: true,
+      message: "Domain part deleted successfully"
+    });
+
+  } catch (err) {
+    console.error("deleteDomainpartById error:", err.message);
+    next(err);
+  }
+};

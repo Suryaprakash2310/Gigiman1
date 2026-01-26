@@ -596,7 +596,10 @@ exports.paymentSuccess = async (req, res, next) => {
 exports.getUserRecentBookingHistory = async (req, res, next) => {
   try {
     const userId = req.userId;
-    const bookings = await Booking.find({ user: userId })
+    const bookings = await Booking.find({ 
+      user: userId,
+      status: BOOKING_STATUS.COMPLETED
+     })
       .sort({ createdAt: -1 })
       .populate("primaryEmployee", "empId fullname")
       .populate("employees", "storeName teamId")
