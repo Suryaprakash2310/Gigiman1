@@ -659,13 +659,47 @@ exports.getPopularBookings = async (req, res, next) => {
         $sort: {
           totalBookings: -1
         }
+      },
+      {
+        $lookup: {
+          from: "servicelists",
+          let: { categoryName: "$_id" },
+          pipeline: [
+            { $unwind: "$serviceCategory" },
+            {
+              $match: {
+                $expr: {
+                  $eq: [
+                    "$serviceCategory.serviceCategoryName",
+                    "$$categoryName"
+                  ]
+                }
+              }
+            },
+            {
+              $project: {
+                _id: 0,
+                serviceName: 1,
+                serviceCategoryName: "$serviceCategory.serviceCategoryName",
+                serviceCategoryImage: "$serviceCategory.servicecategoryImage"
+              }
+            }
+          ],
+          as: "serviceInfo"
+        }
+      },
+      {
+        $unwind:{
+          path:"$serviceInfo",
+          preserveNullAndEmptyArrays:true
+        }
       }
     ])
     return res.status(200).json({
       success: true,
       rangeDays: Number(days),
-      totalServices: popular.length,
-      popularServices: popular
+      totalServices: popularBookings.length,
+      popularServices: popularBookings
     });
 
 

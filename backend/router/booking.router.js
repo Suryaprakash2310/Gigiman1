@@ -9,7 +9,6 @@ const bookingController = require("../controllers/booking.controller");
 =============================== */
 router.post("/search", bookingController.searchNearbyservicer);
 router.post("/auto-assign", bookingController.autoAssignServicer);
-router.get("/:bookingId", bookingController.getBookingById);
 /* ===============================
    BOOKING
 =============================== */
@@ -45,6 +44,12 @@ router.post("/payment/success", bookingController.paymentSuccess);
 router.get("history/user",userProtect,bookingController.getUserRecentBookingHistory);
 router.get("history/servicer",protect,bookingController.getEmployeeRecentBookingHistory);
 
-//popular bookings
-router.get("/popularbookings",bookingController.getPopularBookings)
+/* ===============================
+   POPULAR BOOKINGS
+=============================== */
+router.get("/popularbookings", bookingController.getPopularBookings);
+
+
+router.get("/:bookingId", bookingController.getBookingById);
+
 module.exports = router;
