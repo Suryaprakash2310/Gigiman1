@@ -228,23 +228,52 @@ exports.getServiceCategoryById = async (req, res, next) => {
 
     const categoryObjectId = new mongoose.Types.ObjectId(serviceCategoryId);
 
-    const service = await ServiceList.findOne(
-      { "serviceCategory._id": categoryObjectId }
-    ).lean();
+    // const service = await ServiceList.findOne(
+    //   { "serviceCategory._id": categoryObjectId }
+    // ).lean();
 
-    if (!service) {
-      return next(new AppError("Service category not found", 404));
+    // if (!service) {
+    //   return next(new AppError("Service category not found", 404));
+    // }
+
+    // const category = service.serviceCategory.find(
+    //   (cat) => cat._id.toString() === serviceCategoryId
+    // );
+
+    const service=await ServiceList.aggregate([
+      {$unwind:"$serviceCategory"},
+      {
+        $match:{
+          "serviceCategory._id":categoryObjectId
+        }
+      },
+      {
+        $project:{
+          _id:1,
+          serviceName:1,
+          domainServiceId:1,
+          serviceCategory:{
+            _id:"$serviceCategory._id",
+            serviceCategoryName:"$serviceCategory.serviceCategoryName",
+            description:"$serviceCategory.description",
+            servicecategoryImage:"$serviceCategory.servicecategoryImage",
+            price:"$serviceCategory.price",
+            durationInMinutes:"$serviceCategory.durationInMinutes",
+            employeeCount:"$serviceCategory.employeeCount",
+          }
+        }
+      },
+      {$limit:1}
+    ])
+    if(!service || service.length===0){
+      return next(new AppError("Service category not found",404));
     }
-
-    const category = service.serviceCategory.find(
-      (cat) => cat._id.toString() === serviceCategoryId
-    );
 
     res.status(200).json({
       success: true,
-      serviceName: service.serviceName,
-      domainServiceId: service.DomainServiceId,
-      serviceCategory: category,
+      serviceName: service[0].serviceName,
+      domainServiceId: service[0].domainServiceId,
+      serviceCategory: service[0].serviceCategory,
     });
 
   } catch (err) {
@@ -258,10 +287,21 @@ exports.ShowsubserviceId = async (req, res, next) => {
     const { domainServiceId } = req.params;
     if (!domainServiceId) {
       return next(new AppError("domainServiceId is required", 400));
-    } 
+    }
     const services = await ServiceList.find({
       DomainServiceId: domainServiceId
-    })
+    },
+      {
+        serviceName:1,
+        "serviceCategory._id":1,
+        "serviceCategory.serviceCategoryName":1,
+        "serviceCategory.description":1,
+        "serviceCategory.servicecategoryImage":1,
+        "serviceCategory.price":1,
+        "serviceCategory.durationInMinutes":1,
+        "serviceCategory.employeeCount":1,
+        createdAt:1,
+      })
       .sort({ createdAt: 1 }) // oldest first, optional
       .lean();
 

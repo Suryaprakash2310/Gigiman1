@@ -3,6 +3,7 @@ const SingleEmployee=require('../models/singleEmployee.model');
 const MultipleEmployee=require('../models/multipleEmployee.model');
 const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
+const Review=require('../models/review.model');
 const AppError = require('../utils/AppError');
 
 exports.getProfile = async (req, res, next) => {
@@ -94,4 +95,42 @@ exports.editprofile=async(req, res, next)=>{
     }catch(err){
       next(err);
     }
+}
+
+exports.getMyJobReview=async(req, res, next)=>{
+  try{
+    const employee=req.employee;
+    let filter={};
+
+    if(employee.role===ROLES.SINGLE_EMPLOYEE){
+      filter.$or=[{primaryEmployee:employee._id},
+        {helpers:employee._id}
+      ]
+    }
+    else if(employee.role===ROLES.MULTIPLE_EMPLOYEE){
+      filter.company=employee._id;
+    }
+    else {
+      return next(new AppError("Access denied",403));
+    }
+
+    const reviews=await Review.find(filter)
+    .populate("user","fullName phoneMasked")
+    .populate("primaryEmployee","empId fullname")
+    .populate("company","ownerName TeamId")
+    .populate("helpers","empId fullname")
+    .populate("booking","serviceCategoryName totalPrice completedAt")
+
+    if(reviews.length===0){
+      return next(new AppError("No reviews found",404));
+    }
+
+    return res.status(200).json({
+      success: true,
+      reviews
+    });
+
+  }catch(err){
+    next(err);
+  }
 }
