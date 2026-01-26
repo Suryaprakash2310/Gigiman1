@@ -6,7 +6,6 @@ const domainPartSchema = new mongoose.Schema({
     required: true,
     trim: true,
     unique: true,
-    index: true
   },
 
   domainpartimage: {
@@ -39,6 +38,5 @@ const domainPartSchema = new mongoose.Schema({
    INDEXES
 =============================== */
 domainPartSchema.index({ "parts.partName": "text" });
-domainPartSchema.index({ domainpartname: 1 });
 
 module.exports = mongoose.model("Domainparts", domainPartSchema);
