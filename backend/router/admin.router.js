@@ -28,6 +28,6 @@ router.put("/update-service-category/:serviceId/:categoryId",protect,allowRoles(
 
 router.delete("/delete-service-category/:serviceId/:categoryId",protect,allowRoles("admin"),deleteServiceCategory);
 
-router.get("/service-categories",protect,allowRoles("admin"),getServiceCategories);
+router.get("/service-categories/:DomainServiceId",protect,allowRoles("admin"),getServiceCategories);
 
 module.exports=router;
