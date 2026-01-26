@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const crypto = require("crypto");
-const { PAYMENT_STATUS } = require("../enum/payment.enum");
-const { BOOKING_STATUS } = require("../enum/bookingstatus.enum");
+const  PAYMENT_STATUS  = require("../enum/payment.enum");
+const  BOOKING_STATUS  = require("../enum/bookingstatus.enum");
 const Booking = require("../models/Booking.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
