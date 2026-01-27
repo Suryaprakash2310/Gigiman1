@@ -725,7 +725,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const shop = await ToolShop.findOneAndUpdate(
         {
             isActive: true,
-            activeRequests: { $lt: "$maxCapacity" },
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
@@ -738,12 +737,16 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
             },
         },
         {
+            $set: {
+                shopStatus: "OFFERED",
+                offerRequestId: requestId,
+            },
             $inc: { activeRequests: 1 },
-            $push: { activeRequestIds: requestId }
+            $push: { activeRequestIds: requestId },
         },
         { new: true }
     );
-
+    console.log(shop);
 
     //  No shop available
     if (!shop) {
@@ -786,13 +789,13 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         _id: shopId,
         offerRequestId: requestId,
     });
-
+    console.log(shop);
     if (!shop) {
         return;
     }
 
     const otp = Math.floor(1000 + Math.random() * 9000);
-
+    console.log(otp);
     const request = await PartRequest.findOneAndUpdate(
         {
             _id: requestId,
@@ -923,7 +926,7 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
             requestId: partRequest._id,
             parts,
             totalCost,
-        }, );
+        },);
     }
 
     return partRequest;

@@ -19,6 +19,7 @@ const {
 } = require("../services/booking.service");
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 //const mongoose = require("mongoose");
 
 const isValidId = id =>
@@ -198,7 +199,6 @@ module.exports = (io) => {
 
         const booking = await Booking.findById(bookingId);
         const user = await User.findById(booking.user).select("socketId");
-
         if (user?.socketId) {
           io.to(user.socketId).emit("tool-approval-required", {
             requestId: partRequest._id,
@@ -217,11 +217,11 @@ module.exports = (io) => {
         const req = await PartRequest.findOneAndUpdate(
           {
             _id: requestId,
-            status: "requested",
+            status: PART_REQUEST_STATUS.REQUESTED,
           },
           {
             $set: {
-              status: "approved",
+              status: PART_REQUEST_STATUS.APPROVED,
               approvalByUser: true,
             },
           },
@@ -247,7 +247,8 @@ module.exports = (io) => {
 
     // ToolShop accepts request
     socket.on("toolshop-accept", async ({ requestId, shopId }) => {
-      try {
+      try {console.log("toolshop-accept event received");
+        console.log(requestId,shopId);
         await toolshopAccept({ requestId, shopId, io });
       } catch (err) {
         console.error("toolshop-accept error:", err);

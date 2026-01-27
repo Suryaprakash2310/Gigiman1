@@ -20,7 +20,7 @@ const {
 } = require("../services/booking.service");
 const AppError = require("../utils/AppError");
 const Review = require("../models/review.model");
-const { PART_REQUEST_STATUS } = require("../enum/partsstatus.enum");
+const PART_REQUEST_STATUS  = require("../enum/partsstatus.enum");
 const ROLES = require("../enum/role.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
@@ -519,6 +519,7 @@ exports.paymentSuccess = async (req, res, next) => {
       razorpayPaymentId,
       razorpaySignature
     } = req.body;
+    console.log(bookingId);
 
     if (!bookingId || !paymentMethod) {
       return next(new AppError("bookingId and paymentMethod are required", 400));
@@ -600,7 +601,7 @@ exports.getUserRecentBookingHistory = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .populate("primaryEmployee", "empId fullname")
       .populate("employees", "storeName teamId")
-      .populate("selectedToolshop", "toolShopId storeLocation")
+      .populate("selectedToolShop", "toolShopId storeLocation");
     if (!bookings || bookings.length === 0) {
       next(new AppError("No bookings found", 404));
     }
@@ -616,36 +617,165 @@ exports.getUserRecentBookingHistory = async (req, res, next) => {
 
 exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
   try {
-    const { role, data } = req.employee;
-    let filter = {};
+    if (!req.employee) {
+      return next(new AppError("Unauthorized", 401));
+    }
+
+    const employee = req.employee;
+    const role = employee.role;
+
+    let baseFilter = {};
+
+    /* ===============================
+       ROLE FILTERING
+    =============================== */
+
+    // SINGLE EMPLOYEE (Leader OR Helper)
     if (role === ROLES.SINGLE_EMPLOYEE) {
-      filter.$or = [{ primaryEmployee: data._id }
-        , { employees: data._id }];
+      baseFilter.$or = [
+        { primaryEmployee: employee._id },
+        { employees: employee._id }
+      ];
     }
+
+    // MULTIPLE EMPLOYEE (Team / Company)
     else if (role === ROLES.MULTIPLE_EMPLOYEE) {
-      filter.servicerCompany = data._id;
+      baseFilter.servicerCompany = employee._id;
     }
+
+    // TOOL SHOP
     else if (role === ROLES.TOOL_SHOP) {
-      filter.selectedToolshop = data._id;
+      baseFilter.selectedToolShop = employee._id;
     }
-    const bookings = await Booking.find(filter)
-      .sort({ createdAt: -1 })
-      .populate("user", "fullname phoneMasked")
-      .populate("primaryEmployee", "empId fullname")
-      .populate("servicerCompany", "storeName TeamId")
-      .populate("selectedToolshop", "toolShopId storeLocation");
-    if (!bookings || bookings.length === 0) {
-      return next(new AppError("No bookings found", 404));
+
+    // ADMIN
+    else if (role === ROLES.ADMIN) {
+      baseFilter = {};
     }
+
+    /* ===============================
+       TIME WINDOWS
+    =============================== */
+    const now = new Date();
+
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - 7);
+
+    const startOfMonth = new Date(now);
+    startOfMonth.setMonth(now.getMonth() - 1);
+
+    /* ===============================
+       QUERIES
+    =============================== */
+    const [
+      allBookings,
+      todayCount,
+      weekCount,
+      monthCount,
+      completedStats,
+      statusBreakdown,
+      popularServices
+    ] = await Promise.all([
+
+      // FULL HISTORY
+      Booking.find(baseFilter)
+        .sort({ createdAt: -1 })
+        .populate("user", "fullname phoneMasked")
+        .populate("primaryEmployee", "empId fullname")
+        .populate("employees", "empId fullname")
+        .populate("servicerCompany", "storeName TeamId")
+        .populate("selectedToolShop", "shopName storeLocation"),
+
+      // TODAY
+      Booking.countDocuments({
+        ...baseFilter,
+        createdAt: { $gte: startOfToday }
+      }),
+
+      // LAST 7 DAYS
+      Booking.countDocuments({
+        ...baseFilter,
+        createdAt: { $gte: startOfWeek }
+      }),
+
+      // LAST 30 DAYS
+      Booking.countDocuments({
+        ...baseFilter,
+        createdAt: { $gte: startOfMonth }
+      }),
+
+      // REVENUE + COMPLETED JOBS
+      Booking.aggregate([
+        { $match: { ...baseFilter, status: BOOKING_STATUS.COMPLETED } },
+        {
+          $group: {
+            _id: null,
+            totalJobs: { $sum: 1 },
+            totalRevenue: { $sum: "$totalPrice" }
+          }
+        }
+      ]),
+
+      // STATUS BREAKDOWN
+      Booking.aggregate([
+        { $match: baseFilter },
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+
+      // POPULAR SERVICES
+      Booking.aggregate([
+        { $match: { ...baseFilter, status: BOOKING_STATUS.COMPLETED } },
+        {
+          $group: {
+            _id: "$serviceCategoryName",
+            totalBookings: { $sum: 1 }
+          }
+        },
+        { $sort: { totalBookings: -1 } },
+        { $limit: 5 }
+      ])
+    ]);
+
+    const revenueData = completedStats[0] || {
+      totalJobs: 0,
+      totalRevenue: 0
+    };
+
     return res.status(200).json({
-      bookings,
-      total: bookings.length,
       success: true,
-    })
+
+      /* ===============================
+         STATS
+      =============================== */
+      stats: {
+        todayBookings: todayCount,
+        last7DaysBookings: weekCount,
+        last30DaysBookings: monthCount,
+        totalCompletedJobs: revenueData.totalJobs,
+        totalRevenue: revenueData.totalRevenue,
+        statusBreakdown,
+        popularServices
+      },
+
+      /* ===============================
+         HISTORY
+      =============================== */
+      totalBookings: allBookings.length,
+      bookings: allBookings
+    });
+
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
-}
+};
 
 
 exports.getPopularBookings = async (req, res, next) => {

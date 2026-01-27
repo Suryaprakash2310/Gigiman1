@@ -26,6 +26,15 @@ router.post("/otp/start/verify", bookingController.verifystartOTPcontroller);
 
 router.post("/tool/request", protect, bookingController.requestToolController);
 
+router.post("/approve/:requestId", userProtect, bookingController.approvePartRequest);
+
+
+router.get(
+  "/parts/part-request/:requestId",
+  protect,
+  bookingController.getPartRequestById
+);
+
 router.post("/tool/nearby",bookingController.nearbyToolShops);
 
 router.post("/tool/auto-assign",bookingController.autoAssignToolShop);
@@ -41,8 +50,8 @@ router.post("/payment/success", bookingController.paymentSuccess);
 
 
 //Booking history
-router.get("history/user",userProtect,bookingController.getUserRecentBookingHistory);
-router.get("history/servicer",protect,bookingController.getEmployeeRecentBookingHistory);
+router.get("/history/user",userProtect,bookingController.getUserRecentBookingHistory);
+router.get("/history/servicer",protect,bookingController.getEmployeeRecentBookingHistory);
 
 /* ===============================
    POPULAR BOOKINGS
