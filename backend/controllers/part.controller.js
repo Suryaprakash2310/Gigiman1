@@ -8,8 +8,8 @@ const AppError = require('../utils/AppError');
 exports.showCategories = async (req, res, next) => {
   try {
     const categories = await Domainparts.aggregate([
-      { $project: { _id: 1, domainPartsName: 1 } },
-      { $sort: { domainPartsName: 1 } },
+      { $project: { _id: 1, domainpartname: 1 } },
+      { $sort: { domainpartname: 1 } },
     ]);
     if(!categories || categories.length === 0){
       return next(new AppError("No categories found", 404));
@@ -24,6 +24,27 @@ exports.showCategories = async (req, res, next) => {
     next(err); //let Global error handler deal with it
   }
 };
+
+exports.showpartById=async(req,res,next)=>{
+  try{
+    const {DomainpartId}=req.params;
+    if(!mongoose.Types.ObjectId.isValid(DomainpartId)){
+      return next(new AppError("DomainpartId is invaild",400));
+    }
+    const domain=await Domainparts.findById(DomainpartId);
+    if(!domain){
+      return next(new AppError("Domainpart is not found",404));
+    }
+    return res.status(200).json({
+      success:true,
+      message:"Domainpart showing",
+      domain,
+    })
+
+  }catch(err){
+    next(err);
+  }
+}
 //showparts
 exports.showParts = async (req, res, next) => {
   try {

@@ -1,9 +1,11 @@
 const express=require('express');
 const router=express.Router();
-const { showCategories, showParts, searchDomainCategories, searchParts, createPartRequest } = require('../controllers/part.controller');
+const { showCategories, showParts, searchDomainCategories, searchParts, createPartRequest, showpartById } = require('../controllers/part.controller');
 
 
-router.get("/categories",showCategories);
+router.get("/showcategories",showCategories);
+
+router.get("/showpart/:DomainpartId",showpartById);
 
 //  Show parts for a selected category
 router.get("/showparts", showParts);
