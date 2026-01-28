@@ -3,6 +3,7 @@ const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const PAYMENT_STATUS = require("../enum/payment.enum");
 const SERVICE_TYPE = require("../enum/bookingservicetype.enum");
 const BOOKING_TYPE = require("../enum/bookingtype.enum");
+const PAYMENT_METHOD = require("../enum/paymentmethod.enum");
 
 const bookingSchema = new mongoose.Schema({
 
@@ -110,7 +111,7 @@ const bookingSchema = new mongoose.Schema({
   /* ---------------- PAYMENT ---------------- */
   paymentMethod: {
     type: String,
-    enum: ["CASH", "RAZORPAY"],
+    enum: Object.values(PAYMENT_METHOD),
     default: null,
     index: true
   },

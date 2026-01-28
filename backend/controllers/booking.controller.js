@@ -22,6 +22,7 @@ const AppError = require("../utils/AppError");
 const Review = require("../models/review.model");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const ROLES = require("../enum/role.enum");
+const PAYMENT_METHOD = require("../enum/paymentmethod.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
@@ -482,7 +483,6 @@ exports.submitReview = async (req, res, next) => {
     }
     const userId = req.user._id;
     const booking = await Booking.findById(bookingId);
-    console.log(booking);
     if (!booking) return next(new AppError("Booking not found", 404));
 
     if (!booking.user.equals(userId)) {
@@ -503,7 +503,6 @@ exports.submitReview = async (req, res, next) => {
       rating,
       comment
     })
-    console.log(review);
     return res.status(201).json({
       success: true,
       message: "Review submitted successfully",
@@ -526,7 +525,6 @@ exports.paymentSuccess = async (req, res, next) => {
       razorpayPaymentId,
       razorpaySignature
     } = req.body;
-    console.log(bookingId);
 
     if (!bookingId || !paymentMethod) {
       return next(new AppError("bookingId and paymentMethod are required", 400));
@@ -545,8 +543,8 @@ exports.paymentSuccess = async (req, res, next) => {
     const io = req.app?.get("io") || null;
 
     /* ---------------- CASH FLOW ---------------- */
-    if (paymentMethod === "CASH") {
-      booking.paymentMethod = "CASH";
+    if (paymentMethod === PAYMENT_METHOD.CASH) {
+      booking.paymentMethod = PAYMENT_METHOD.CASH;
       booking.paymentStatus = PAYMENT_STATUS.PAID;
       booking.status = BOOKING_STATUS.COMPLETED;
       booking.completedAt = new Date();
@@ -568,7 +566,7 @@ exports.paymentSuccess = async (req, res, next) => {
     }
 
     /* ------------- RAZORPAY FLOW -------------- */
-    if (paymentMethod === "RAZORPAY") {
+    if (paymentMethod === PAYMENT_METHOD.RAZORPAY) {
       if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
         return next(new AppError("Razorpay payment details are required", 400));
       }
@@ -584,7 +582,7 @@ exports.paymentSuccess = async (req, res, next) => {
         return next(new AppError("Invalid Razorpay signature", 400));
       }
 
-      booking.paymentMethod = "RAZORPAY";
+      booking.paymentMethod =PAYMENT_METHOD.RAZORPAY;
       booking.razorpayOrderId = razorpayOrderId;
       booking.razorpayPaymentId = razorpayPaymentId;
       booking.razorpaySignature = razorpaySignature;

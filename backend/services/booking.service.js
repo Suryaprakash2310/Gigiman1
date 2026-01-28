@@ -205,11 +205,30 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
     }
 
+    const booking = await Booking.findById(bookingId)
+        .populate("user", "fullname phoneMasked")
+        .lean();
+
+    if (!booking) return;
+
+    const payload = {
+        bookingId: booking._id,
+        service: booking.serviceCategoryName,
+        totalPrice: booking.totalPrice,
+        address: booking.address,
+        user: {
+            name: booking.user?.fullname,
+            phone: booking.user?.phoneMasked
+        },
+        employeeCount: booking.employeeCount,
+        createdAt: booking.createdAt
+    };
+
     //  Emit immediately (FAST)
     if (servicer.socketId) {
         io.to(servicer.socketId).emit(
             "new-booking-request",
-            { bookingId },
+            { bookingId ,payload},
         );
     }
 
@@ -283,16 +302,16 @@ exports.servicerReject = async ({ bookingId, employeeId, coordinates, io }) => {
         availabilityStatus: "OFFERED",
     });
 
-    if (!employee) return;
+    if (!employee) throw new AppError("employee not found", 404);
     await SingleEmployee.findByIdAndUpdate(employeeId, {
         availabilityStatus: "AVAILABLE",
         offerBookingId: null,
     });
 
     const booking = await Booking.findById(bookingId);
-    if (!booking) return;
+    if (!booking) throw new AppError("booking not found", 404);
 
-    // Retry assignment (fast, loop-free)
+    // Retry assignment 
     exports.assignNextServicer({
         bookingId,
         coordinates: booking.location.coordinates,
@@ -725,6 +744,7 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const shop = await ToolShop.findOneAndUpdate(
         {
             isActive: true,
+            activeRequests: { $lt: "$maxCapacity" },
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
