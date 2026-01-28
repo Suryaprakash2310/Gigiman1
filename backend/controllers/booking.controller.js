@@ -17,6 +17,7 @@ const {
   assignNextTeam,
   assignNextToolshop,
   assignNextServicer,
+  resetAvailability,
 } = require("../services/booking.service");
 const AppError = require("../utils/AppError");
 const Review = require("../models/review.model");
@@ -475,8 +476,8 @@ exports.getBookingById = async (req, res, next) => {
 =================================================*/
 exports.submitReview = async (req, res, next) => {
   try {
-    const {  rating, comment } = req.body;
-    const{ bookingId } = req.params;
+    const { rating, comment } = req.body;
+    const { bookingId } = req.params;
 
     if (!bookingId) {
       return next(new AppError("bookingId is required", 400));
@@ -513,6 +514,9 @@ exports.submitReview = async (req, res, next) => {
     next(err); //let Global error handler deal with it
   }
 }
+
+
+
 /* ======================================================
    PAYMENT SUCCESS
 ====================================================== */
@@ -531,6 +535,7 @@ exports.paymentSuccess = async (req, res, next) => {
     }
 
     const booking = await Booking.findById(bookingId).populate("user");
+    const io = req.app?.get("io") || null;
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
@@ -540,7 +545,7 @@ exports.paymentSuccess = async (req, res, next) => {
     if (booking.paymentStatus === PAYMENT_STATUS.PAID) {
       return next(new AppError("Payment already completed for this booking", 400));
     }
-    const io = req.app?.get("io") || null;
+
 
     /* ---------------- CASH FLOW ---------------- */
     if (paymentMethod === PAYMENT_METHOD.CASH) {
@@ -549,14 +554,15 @@ exports.paymentSuccess = async (req, res, next) => {
       booking.status = BOOKING_STATUS.COMPLETED;
       booking.completedAt = new Date();
       await booking.save();
-      if(bookingId){
+      await resetAvailability(booking);
+      if (bookingId) {
         console.log("emitting booking-completed for bookingId:", bookingId);
-       io.to(booking?.user?.socketId).emit("booking-completed", {
-        
-        bookingId,
-      }); 
+        io.to(booking?.user?.socketId).emit("booking-completed", {
+
+          bookingId,
+        });
       }
-      
+
 
       return res.status(200).json({
         success: true,
@@ -582,7 +588,7 @@ exports.paymentSuccess = async (req, res, next) => {
         return next(new AppError("Invalid Razorpay signature", 400));
       }
 
-      booking.paymentMethod =PAYMENT_METHOD.RAZORPAY;
+      booking.paymentMethod = PAYMENT_METHOD.RAZORPAY;
       booking.razorpayOrderId = razorpayOrderId;
       booking.razorpayPaymentId = razorpayPaymentId;
       booking.razorpaySignature = razorpaySignature;
@@ -592,10 +598,11 @@ exports.paymentSuccess = async (req, res, next) => {
       booking.completedAt = new Date();
 
       await booking.save();
+      await resetAvailability(booking);
       io.to(booking?.user?.socketId).emit("booking-completed", {
-        
+
         bookingId,
-      }); 
+      });
 
 
       return res.status(200).json({

@@ -206,7 +206,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     }
 
     const booking = await Booking.findById(bookingId)
-        .populate("user", "fullname phoneMasked")
+        .populate("user", "fullname")
         .lean();
 
     if (!booking) return;
@@ -218,7 +218,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         address: booking.address,
         user: {
             name: booking.user?.fullname,
-            phone: booking.user?.phoneMasked
         },
         employeeCount: booking.employeeCount,
         createdAt: booking.createdAt
@@ -228,7 +227,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     if (servicer.socketId) {
         io.to(servicer.socketId).emit(
             "new-booking-request",
-            { bookingId ,payload},
+            { payload },
         );
     }
 
@@ -984,4 +983,28 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
         success: true,
         req,
     };
+};
+
+exports.resetAvailability = async (booking) => {
+    // SINGLE EMPLOYEE
+    if (booking.primaryEmployee) {
+        await SingleEmployee.findByIdAndUpdate(
+            booking.primaryEmployee,
+            {
+                availabilityStatus: "AVAILABLE",
+                offerBookingId: null
+            }
+        );
+    }
+
+    // TEAM
+    if (booking.servicerCompany) {
+        await MultipleEmployee.findByIdAndUpdate(
+            booking.servicerCompany,
+            {
+                teamStatus: "AVAILABLE",
+                offerBookingId: null
+            }
+        );
+    }
 };
