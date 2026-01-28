@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const crypto = require("crypto");
-const  PAYMENT_STATUS  = require("../enum/payment.enum");
-const  BOOKING_STATUS  = require("../enum/bookingstatus.enum");
+const PAYMENT_STATUS = require("../enum/payment.enum");
+const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const Booking = require("../models/Booking.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
@@ -20,7 +20,7 @@ const {
 } = require("../services/booking.service");
 const AppError = require("../utils/AppError");
 const Review = require("../models/review.model");
-const PART_REQUEST_STATUS  = require("../enum/partsstatus.enum");
+const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const ROLES = require("../enum/role.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
@@ -440,8 +440,8 @@ exports.verifyPartOTPcontroller = async (req, res, next) => {
 exports.getBookingById = async (req, res, next) => {
   try {
     const { bookingId } = req.params;
-    if(!bookingId || bookingId==="undefined"){
-      return next(new AppError("bookingId is required",400));
+    if (!bookingId || bookingId === "undefined") {
+      return next(new AppError("bookingId is required", 400));
     }
 
     const booking = await Booking.findById(bookingId)
@@ -451,19 +451,19 @@ exports.getBookingById = async (req, res, next) => {
     if (!booking) {
       return next(new AppError("Booking not found", 404));
     }
-    const result={
-      name:booking.primaryEmployee?.fullname || booking.servicerCompany?.ownerName,
-      work:booking.serviceCategoryName,
-      cost:`₹${booking.totalPrice}`,
-      workingHours:`${booking.durationInMinutes}minus`,
+    const result = {
+      name: booking.primaryEmployee?.fullname || booking.servicerCompany?.ownerName,
+      work: booking.serviceCategoryName,
+      cost: `₹${booking.totalPrice}`,
+      workingHours: `${booking.durationInMinutes}minus`,
       employeeCount: String(
-        booking.employeeCount||booking.employees?.length||1
+        booking.employeeCount || booking.employees?.length || 1
       ),
-      address: booking.address, 
+      address: booking.address,
     }
     return res.status(200).json({
       success: true,
-      booking:result,
+      booking: result,
     });
   } catch (err) {
     next(err); //let Global error handler deal with it
@@ -474,9 +474,15 @@ exports.getBookingById = async (req, res, next) => {
 =================================================*/
 exports.submitReview = async (req, res, next) => {
   try {
-    const { bookingId, rating, comment } = req.body;
+    const {  rating, comment } = req.body;
+    const{ bookingId } = req.params;
+
+    if (!bookingId) {
+      return next(new AppError("bookingId is required", 400));
+    }
     const userId = req.user._id;
     const booking = await Booking.findById(bookingId);
+    console.log(booking);
     if (!booking) return next(new AppError("Booking not found", 404));
 
     if (!booking.user.equals(userId)) {
@@ -493,10 +499,11 @@ exports.submitReview = async (req, res, next) => {
       serviceType: booking.serviceType,
       primaryEmployee: booking.primaryEmployee,
       helpers: booking.employees || [],
-      company: booking.employees || [],
+      company: booking.servicerCompany || [],
       rating,
       comment
     })
+    console.log(review);
     return res.status(201).json({
       success: true,
       message: "Review submitted successfully",
@@ -525,7 +532,7 @@ exports.paymentSuccess = async (req, res, next) => {
       return next(new AppError("bookingId and paymentMethod are required", 400));
     }
 
-    const booking = await Booking.findById(bookingId);
+    const booking = await Booking.findById(bookingId).populate("user");
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
@@ -535,6 +542,7 @@ exports.paymentSuccess = async (req, res, next) => {
     if (booking.paymentStatus === PAYMENT_STATUS.PAID) {
       return next(new AppError("Payment already completed for this booking", 400));
     }
+    const io = req.app?.get("io") || null;
 
     /* ---------------- CASH FLOW ---------------- */
     if (paymentMethod === "CASH") {
@@ -542,8 +550,15 @@ exports.paymentSuccess = async (req, res, next) => {
       booking.paymentStatus = PAYMENT_STATUS.PAID;
       booking.status = BOOKING_STATUS.COMPLETED;
       booking.completedAt = new Date();
-
       await booking.save();
+      if(bookingId){
+        console.log("emitting booking-completed for bookingId:", bookingId);
+       io.to(booking?.user?.socketId).emit("booking-completed", {
+        
+        bookingId,
+      }); 
+      }
+      
 
       return res.status(200).json({
         success: true,
@@ -579,6 +594,11 @@ exports.paymentSuccess = async (req, res, next) => {
       booking.completedAt = new Date();
 
       await booking.save();
+      io.to(booking?.user?.socketId).emit("booking-completed", {
+        
+        bookingId,
+      }); 
+
 
       return res.status(200).json({
         success: true,
@@ -597,10 +617,10 @@ exports.paymentSuccess = async (req, res, next) => {
 exports.getUserRecentBookingHistory = async (req, res, next) => {
   try {
     const userId = req.userId;
-    const bookings = await Booking.find({ 
+    const bookings = await Booking.find({
       user: userId,
       status: BOOKING_STATUS.COMPLETED
-     })
+    })
       .sort({ createdAt: -1 })
       .populate("primaryEmployee", "empId fullname")
       .populate("employees", "storeName teamId")
@@ -836,9 +856,9 @@ exports.getPopularBookings = async (req, res, next) => {
         }
       },
       {
-        $unwind:{
-          path:"$serviceInfo",
-          preserveNullAndEmptyArrays:true
+        $unwind: {
+          path: "$serviceInfo",
+          preserveNullAndEmptyArrays: true
         }
       }
     ])
