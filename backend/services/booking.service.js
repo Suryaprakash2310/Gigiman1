@@ -206,7 +206,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     }
 
     const booking = await Booking.findById(bookingId)
-        .populate("user", "fullname phoneMasked")
+        .populate("user", "fullName")
         .lean();
 
     if (!booking) return;
@@ -217,7 +217,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         totalPrice: booking.totalPrice,
         address: booking.address,
         user: {
-            name: booking.user?.fullname,
+            name: booking.user?.fullName,
             phone: booking.user?.phoneMasked
         },
         employeeCount: booking.employeeCount,
@@ -228,7 +228,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     if (servicer.socketId) {
         io.to(servicer.socketId).emit(
             "new-booking-request",
-            { bookingId ,payload},
+            { payload},
         );
     }
 
