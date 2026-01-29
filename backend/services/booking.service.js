@@ -985,3 +985,27 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
         req,
     };
 };
+
+exports.resetAvailability = async (booking) => {
+    // SINGLE EMPLOYEE
+    if (booking.primaryEmployee) {
+        await SingleEmployee.findByIdAndUpdate(
+            booking.primaryEmployee,
+            {
+                availabilityStatus: "AVAILABLE",
+                offerBookingId: null
+            }
+        );
+    }
+
+    // TEAM
+    if (booking.servicerCompany) {
+        await MultipleEmployee.findByIdAndUpdate(
+            booking.servicerCompany,
+            {
+                teamStatus: "AVAILABLE",
+                offerBookingId: null
+            }
+        );
+    }
+};
