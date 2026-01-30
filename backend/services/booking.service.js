@@ -789,9 +789,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const shop = await ToolShop.findOneAndUpdate(
         {
             isActive: true,
-            $expr: {
-                $lt: ["$activeRequests", "$maxCapacity"]
-            },
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
@@ -805,7 +802,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         },
         {
             $set: {
-                shopStatus: "OFFERED",
                 offerRequestId: requestId,
             },
             $inc: { activeRequests: 1 },
