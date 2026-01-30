@@ -500,7 +500,7 @@ exports.submitReview = async (req, res, next) => {
       serviceType: booking.serviceType,
       primaryEmployee: booking.primaryEmployee,
       helpers: booking.employees || [],
-      company: booking.servicerCompany || [],
+      company: booking.servicerCompany || null,
       rating,
       comment
     })
