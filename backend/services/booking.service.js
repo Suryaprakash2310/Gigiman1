@@ -805,7 +805,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
                 offerRequestId: requestId,
             },
             $inc: { activeRequests: 1 },
-            $push: { activeRequestIds: requestId },
         },
         { new: true }
     );
