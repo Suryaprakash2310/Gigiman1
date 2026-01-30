@@ -46,6 +46,7 @@ router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
    PAYMENT
 =============================== */
 router.post("/review/:bookingId",userProtect, bookingController.submitReview);
+router.post("/createorder/:bookingId",bookingController.createOrderController);
 router.post("/payment/success", bookingController.paymentSuccess);
 
 

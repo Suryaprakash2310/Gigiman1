@@ -9,11 +9,11 @@ const AppError = require("../utils/AppError");
 require('dotenv').config();
 //token generation
 const generateToken = (user) => {
-  return jwt.sign({ 
+  return jwt.sign({
     id: user._id,
-    role:user.role ||"user"
+    role: user.role || "user"
   }, process.env.JWT_KEY,
-  { expiresIn: '7d' });
+    { expiresIn: '7d' });
 };
 
 //Send-otp always
@@ -226,34 +226,42 @@ exports.getProfile = async (req, res, next) => {
 
 exports.editprofile = async (req, res, next) => {
   try {
-    const userId = req.userId;
     const { fullName, latitude, longitude, avatar } = req.body;
-    const user = await User.findById(userId);
-    if (!user) {
-      return next(new AppError("User not found", 404));
-    }
-    if (fullName) {
+    const userId =req.user._id;
+    const user=await User.findById(userId);
+    console.log(user);
+    if (!user) return next(new AppError("User not found", 404));
+
+    if (fullName !== undefined) {
       user.fullName = fullName;
     }
-    if (latitude && longitude) {
-      user.location = {
-        type: "Point",
-        coordinates: [longitude, latitude]
-      };
+
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+        user.location = { type: "Point", coordinates: [lng, lat] };
+      }
     }
+
     if (avatar) {
+      // ensure avatar is a valid data URI or remote URL; cloudinary accepts both
       const uploadResult = await cloudinary.uploader.upload(avatar, {
         folder: "user/avatars",
         transformation: [{ width: 300, height: 300, crop: "fill" }]
-      })
+      });
       user.avatar = uploadResult.secure_url;
     }
+    console.log(user);
     await user.save();
+
+    // re-fetch to ensure populated/default fields are current
+    const updatedUser = await User.findById(userId);
 
     res.json({
       message: "profile updated",
       success: true,
-      user,
+      user: updatedUser,
     });
   } catch (err) {
     next(err); //let Global error handler deal with it

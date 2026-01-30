@@ -121,7 +121,18 @@ const bookingSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-
+  rejectedEmployees: [{
+    type: mongoose.Types.ObjectId,
+    ref: "SingleEmployee"
+  }],
+  rejectedMultipleEmployee: [{
+    type: mongoose.Types.ObjectId,
+    ref: "MultipleEmployee"
+  }],
+  rejectedToolShop: [{
+    type: mongoose.Types.ObjectId,
+    ref: "Shop"
+  }],
   address: {
     type: String,
     required: true,

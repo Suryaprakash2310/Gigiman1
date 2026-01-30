@@ -10,7 +10,7 @@ router.post("/register",tempProtect,completeProfile);
 router.post("/send-otp",sendOtp);
 router.post("/verify-otp",verifyOtp);
 router.get("/profile",userProtect,getProfile);
-router.patch("/edit-profile", userProtect, editprofile);
+router.put("/edit-profile", userProtect, editprofile);
 
 
 module.exports=router;

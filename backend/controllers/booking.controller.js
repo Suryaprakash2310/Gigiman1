@@ -24,6 +24,7 @@ const Review = require("../models/review.model");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const ROLES = require("../enum/role.enum");
 const PAYMENT_METHOD = require("../enum/paymentmethod.enum");
+const { verifyPayment, createOrder } = require("../transaction/razorpay.config");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
@@ -447,14 +448,13 @@ exports.getBookingById = async (req, res, next) => {
     }
 
     const booking = await Booking.findById(bookingId)
-      .populate("primaryEmployee", "fullname")
-      .populate("servicerCompany", "ownerName");
+      .populate("user", "fullName")
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
     }
     const result = {
-      name: booking.primaryEmployee?.fullname || booking.servicerCompany?.ownerName,
+      name: booking.user?.fullName,
       work: booking.serviceCategoryName,
       cost: `₹${booking.totalPrice}`,
       workingHours: `${booking.durationInMinutes}minus`,
@@ -515,6 +515,35 @@ exports.submitReview = async (req, res, next) => {
   }
 }
 
+exports.createOrderController = async (req, res, next) => {
+  try {
+    const { bookingId } = req.params;
+
+    if (!bookingId) {
+      return next(new AppError("bookingId is required", 400));
+    }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return next(new AppError("Booking not found", 404));
+    }
+
+    if (booking.paymentStatus === PAYMENT_STATUS.PAID) {
+      return next(new AppError("Already paid", 400));
+    }
+
+    const order = await createOrder(bookingId, booking.totalAmount);
+
+    return res.status(200).json({
+      success: true,
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 
 /* ======================================================
@@ -577,33 +606,27 @@ exports.paymentSuccess = async (req, res, next) => {
         return next(new AppError("Razorpay payment details are required", 400));
       }
 
-      const body = razorpayOrderId + "|" + razorpayPaymentId;
+      const result = await verifyPayment({
+        bookingId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature
+      });
 
-      const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-        .update(body)
-        .digest("hex");
-
-      if (expectedSignature !== razorpaySignature) {
+      if (!result.success) {
         return next(new AppError("Invalid Razorpay signature", 400));
       }
 
       booking.paymentMethod = PAYMENT_METHOD.RAZORPAY;
-      booking.razorpayOrderId = razorpayOrderId;
-      booking.razorpayPaymentId = razorpayPaymentId;
-      booking.razorpaySignature = razorpaySignature;
-
-      booking.paymentStatus = PAYMENT_STATUS.PAID;
       booking.status = BOOKING_STATUS.COMPLETED;
       booking.completedAt = new Date();
-
       await booking.save();
+
       await resetAvailability(booking);
+
       io.to(booking?.user?.socketId).emit("booking-completed", {
-
-        bookingId,
+        bookingId
       });
-
 
       return res.status(200).json({
         success: true,

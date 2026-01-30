@@ -169,11 +169,31 @@ exports.findNearbyTeams = async ({
 
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
+    const booking = await Booking.findById(bookingId)
+        .select("rejectEmployees")
+        .populate("user", "fullName")
+        .lean();
+
+    if (!booking)
+        throw new AppError("Booking not found", 404);
+    const rejectdIds = booking?.rejectedEmployees || [];
+    const payload = {
+        bookingId: booking._id,
+        service: booking.serviceCategoryName,
+        totalPrice: booking.totalPrice,
+        address: booking.address,
+        user: {
+            name: booking.user?.fullName,
+        },
+        employeeCount: booking.employeeCount,
+        createdAt: booking.createdAt
+    };
 
 
     //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
+            _id: { $nin: rejectdIds },
             isActive: true,
             availabilityStatus: "AVAILABLE",
             $or: [
@@ -195,6 +215,16 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         },
         { new: true }
     );
+
+    if (booking.dispatchAttempts >= 5) {
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED",
+        })
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId)
+            io.to(booking?.user?.socketId).emit("no-servicer-available");
+    }
+
     //  No provider
     if (!servicer) {
         const booking = await Booking.findById(bookingId).populate("user");
@@ -205,24 +235,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
     }
 
-    const booking = await Booking.findById(bookingId)
-        .populate("user", "fullName")
-        .lean();
-
-    if (!booking) return;
-
-    const payload = {
-        bookingId: booking._id,
-        service: booking.serviceCategoryName,
-        totalPrice: booking.totalPrice,
-        address: booking.address,
-        user: {
-            name: booking.user?.fullName,
-            phone: booking.user?.phoneMasked
-        },
-        employeeCount: booking.employeeCount,
-        createdAt: booking.createdAt
-    };
 
     //  Emit immediately (FAST)
     if (servicer.socketId) {
@@ -242,6 +254,10 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
         if (!stillOffered) return;
 
+        await Booking.findByIdAndUpdate(bookingId, {
+            $addToSet: { rejectedEmployees: servicer._id },
+            $inc: { dispatchAttemps: 1 },
+        })
         await SingleEmployee.findByIdAndUpdate(servicer._id, {
             availabilityStatus: "AVAILABLE",
             offerBookingId: null,
@@ -295,21 +311,23 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
 };
 
 
-exports.servicerReject = async ({ bookingId, employeeId, coordinates, io }) => {
+exports.servicerReject = async ({ bookingId, employeeId, io }) => {
     const employee = await SingleEmployee.findOne({
         _id: employeeId,
         offerBookingId: bookingId,
         availabilityStatus: "OFFERED",
     });
+    const booking = await Booking.findByIdAndUpdate(bookingId, {
+        $addToSet: { rejectedEmployees: employeeId },
+        $inc: { dispatchAttempts: 5 },
+    })
+    if (!booking) throw new AppError("booking not found", 404);
 
     if (!employee) throw new AppError("employee not found", 404);
     await SingleEmployee.findByIdAndUpdate(employeeId, {
         availabilityStatus: "AVAILABLE",
         offerBookingId: null,
     });
-
-    const booking = await Booking.findById(bookingId);
-    if (!booking) throw new AppError("booking not found", 404);
 
     // Retry assignment 
     exports.assignNextServicer({
@@ -325,9 +343,18 @@ exports.servicerReject = async ({ bookingId, employeeId, coordinates, io }) => {
 exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) => {
     const [lng, lat] = coordinates;
 
+    const booking = await Booking.find(bookingId)
+        .select("rejectedMultipleEmployee")
+
+    if (!booking) return;
+
+    const rejectdIds = booking?.rejectedEmployees || [];
+
+
     //  Pick + lock ONE TEAM atomically
     const team = await MultipleEmployee.findOneAndUpdate(
         {
+            _id: { $nin: rejectdIds },
             isActive: true,
             teamStatus: "AVAILABLE",
             $or: [
@@ -350,6 +377,15 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
         },
         { new: true }
     );
+
+    if (booking.dispatchAttempts >= 5) {
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED",
+        })
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId)
+            io.to(booking?.user?.socketId).emit("no-servicer-available");
+    }
 
     //  No team available
     if (!team) {
@@ -385,6 +421,10 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             teamStatus: "AVAILABLE",
             offerBookingId: null,
         });
+        await Booking.findByIdAndUpdate(bookingId, {
+            $addToSet: { rejectedMultipleEmployee: servicer._id },
+            $inc: { dispatchAttemps: 1 },
+        })
 
         exports.assignNextTeam({
             bookingId,
@@ -559,7 +599,12 @@ exports.teamReject = async ({ bookingId, teamId, io }) => {
         offerBookingId: null,
     });
 
-    const booking = await Booking.findById(bookingId);
+    const booking = await Booking.findByIdAndUpdate(bookingId,
+        {
+            $addToSet: { rejectedMultipleEmployee: teamId },
+            $inc: { dispatchAttempts: 1 },
+        }
+    );
     if (!booking) return;
 
     exports.assignNextTeam({
@@ -744,7 +789,9 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const shop = await ToolShop.findOneAndUpdate(
         {
             isActive: true,
-            activeRequests: { $lt: "$maxCapacity" },
+            $expr: {
+                $lt: ["$activeRequests", "$maxCapacity"]
+            },
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
