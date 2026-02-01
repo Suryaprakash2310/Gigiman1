@@ -13,7 +13,7 @@ const domainserviceschema=mongoose.Schema({
 },{timestamps:true});
 
 //fast sorting
-domainserviceschema.index({ domainName: 1 });
+domainserviceschema.index({ domainName: 1 ,serviceImage:1});
 
 
 module.exports=mongoose.model("DomainService",domainserviceschema);

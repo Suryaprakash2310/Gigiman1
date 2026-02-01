@@ -240,7 +240,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     if (servicer.socketId) {
         io.to(servicer.socketId).emit(
             "new-booking-request",
-            { payload},
+            { payload },
         );
     }
 
@@ -799,12 +799,10 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
                     $maxDistance: SEARCH_RADIUS_METERS,
                 },
             },
+            activeRequests: { $lt: 5 },
         },
         {
-            $set: {
-                offerRequestId: requestId,
-            },
-            $inc: { activeRequests: 1 },
+            $set: { offerRequestId: requestId },
         },
         { new: true }
     );
@@ -1011,6 +1009,17 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     req.status = PART_REQUEST_STATUS.COLLECTED;
     req.otp = null;
     await req.save();
+    const shop = await ToolShop.findOne({
+        _id: shopId,
+        offerRequestId: requestId,
+    });
+
+    if (!shop) return;
+
+    await ToolShop.findByIdAndUpdate(shopId, {
+        $inc: { activeRequests: -1 },
+        offerRequestId: null,
+    });
     const employee = await SingleEmployee.findById(req.employeeId).select("socketId");
     if (io && employee?.socketId) {
         try {

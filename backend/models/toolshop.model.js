@@ -60,7 +60,7 @@ const toolshopSchema = new mongoose.Schema(
       default: null
     },
     blockedUntil: {
-      type: String,
+      type: Date,
       default: null
     },
     activeRequests: {

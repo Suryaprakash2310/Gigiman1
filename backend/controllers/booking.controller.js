@@ -97,7 +97,7 @@ exports.autoAssignServicer = async (req, res, next) => {
     /* ======================================================
         CREATE BOOKING (ALWAYS FIRST)
     ====================================================== */
-    const { booking, serviceType, employeeCount } = await createBooking({
+    const { booking } = await createBooking({
       userId,
       serviceCategoryName,
       domainService,

@@ -17,5 +17,5 @@ router.get("/search-domain", searchDomainCategories);
 router.get("/search-parts", searchParts);
 
 
-router.post("/create-parts-request",createPartRequest);
+// router.post("/create-parts-request",createPartRequest);
 module.exports=router;
