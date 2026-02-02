@@ -5,7 +5,7 @@ const reviewSchema=mongoose.Schema({
         type:mongoose.Types.ObjectId,
         ref:"Booking",
         required:true,
-        unqiue:true,
+        unique:true,
     },
     user:{
         type:mongoose.Types.ObjectId,

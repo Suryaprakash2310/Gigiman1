@@ -29,11 +29,7 @@ router.post("/tool/request", protect, bookingController.requestToolController);
 router.post("/approve/:requestId", userProtect, bookingController.approvePartRequest);
 
 
-router.get(
-  "/parts/part-request/:requestId",
-  protect,
-  bookingController.getPartRequestById
-);
+router.get("/parts/part-request/:requestId",protect,bookingController.getPartRequestById);
 
 router.post("/tool/nearby",bookingController.nearbyToolShops);
 
@@ -46,6 +42,7 @@ router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
    PAYMENT
 =============================== */
 router.post("/review/:bookingId",userProtect, bookingController.submitReview);
+router.get("/review",protect,bookingController.getReviewByservice);
 router.post("/createorder/:bookingId",bookingController.createOrderController);
 router.post("/payment/success", bookingController.paymentSuccess);
 

@@ -902,3 +902,49 @@ exports.getPopularBookings = async (req, res, next) => {
     next(err); //let Global error handler deal with it
   }
 }
+
+exports.getReviewByService = async (req, res, next) => {
+  try {
+    if (!req.employeeId) {
+      return next(new AppError("Unauthorized", 401));
+    }
+
+    const employeeId = new mongoose.Types.ObjectId(req.employeeId);
+
+    const data = await Review.aggregate([
+      {
+        $match: {
+          primaryEmployee: employeeId
+        }
+      },
+      {
+        $group: {
+          _id: "$primaryEmployee",
+          totalReviews: { $sum: 1 },
+          avgRating: { $avg: "$rating" },
+          comments: { $push: "$comment" }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          totalReviews: 1,
+          avgRating: { $round: ["$avgRating", 1] },
+          comments: 1
+        }
+      }
+    ]);
+
+    return res.status(200).json(
+      data[0] || {
+        totalReviews: 0,
+        avgRating: 0,
+        comments: []
+      }
+    );
+
+  } catch (err) {
+    next(err);
+  }
+};
+
