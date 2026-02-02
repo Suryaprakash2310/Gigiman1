@@ -9,6 +9,7 @@ const bookingController = require("../controllers/booking.controller");
 =============================== */
 router.post("/search", bookingController.searchNearbyservicer);
 router.post("/auto-assign", bookingController.autoAssignServicer);
+router.post('/schedule',bookingController.scheduleBooking);
 /* ===============================
    BOOKING
 =============================== */

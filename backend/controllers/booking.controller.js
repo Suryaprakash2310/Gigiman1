@@ -948,3 +948,44 @@ exports.getReviewByService = async (req, res, next) => {
   }
 };
 
+
+exports.scheduleBooking = async (req, res, next) => {
+  try {
+    const {
+      serviceCategoryName,
+      coordinates,
+      address,
+      scheduleDateTime,
+      employeeCount,
+      totalPrice,
+      durationInMinutes
+    } = req.body;
+
+    const booking = await Booking.create({
+      user: req.userId,
+      serviceCategoryName,
+      address,
+      location: {
+        type: "Point",
+        coordinates
+      },
+      employeeCount,
+      totalPrice,
+      durationInMinutes,
+
+      isScheduled: true,
+      scheduleDateTime,
+      scheduleExecuted: false,
+      assignmentStatus: "SEARCHING"
+    });
+
+    return res.json({
+      success: true,
+      message: "Booking scheduled",
+      bookingId: booking._id
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
