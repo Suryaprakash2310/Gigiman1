@@ -532,7 +532,7 @@ exports.createOrderController = async (req, res, next) => {
       return next(new AppError("Already paid", 400));
     }
 
-    const order = await createOrder(bookingId, booking.totalAmount);
+    const order = await createOrder(bookingId, booking.totalPrice);
 
     return res.status(200).json({
       success: true,

@@ -1,6 +1,7 @@
 const Booking= require('../models/Booking.model');
 const PAYMENT_STATUS=require('../enum/payment.enum');
-
+const razorpay = require('../config/razorpay');   // ✅ REQUIRED
+const crypto = require('crypto');  
 exports.createOrder = async (bookingId, amount) => {
     //create Razorpay order
     const options = {
@@ -31,7 +32,7 @@ exports.verifyPayment = async ({
     const body = razorpayOrderId + "|" + razorpayPaymentId;
     //hashing
     const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .createHmac("sha256", process.env.RZ_KEY_SECRET)
         .update(body.toString())
         .digest("hex");
     //comparing signatures
