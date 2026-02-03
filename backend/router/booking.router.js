@@ -43,7 +43,7 @@ router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
    PAYMENT
 =============================== */
 router.post("/review/:bookingId",userProtect, bookingController.submitReview);
-router.get("/review",protect,bookingController.getReviewByservice);
+router.get("/review",protect,bookingController.getReviewByService);
 router.post("/createorder/:bookingId",bookingController.createOrderController);
 router.post("/payment/success", bookingController.paymentSuccess);
 
