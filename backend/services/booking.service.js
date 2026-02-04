@@ -264,7 +264,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         });
 
         exports.assignNextServicer({ bookingId, coordinates, io });
-    }, 150000); //  2.5 minutes
+    }, 50000); //  2.5 minutes
 };
 
 
@@ -432,7 +432,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             employeeCount,
             io,
         });
-    }, 150000); // 2.5 min
+    }, 50000); // 2.5 min
 };
 
 
@@ -840,7 +840,7 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         });
 
         exports.assignNextToolshop({ requestId, coordinates, io });
-    }, 15000);
+    }, 5000);
 };
 
 

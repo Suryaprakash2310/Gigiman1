@@ -72,63 +72,6 @@ module.exports = (io) => {
         isActive: true,
       });
     });
-    crons.schedule("* * * * *", async () => {
-    try {
-      const now = new Date();
-
-      // Find due bookings and LOCK them atomically
-      const bookings = await Booking.find({
-        isScheduled: true,
-        scheduleExecuted: false,
-        scheduleDateTime: { $lte: now },
-        status: BOOKING_STATUS.PENDING
-      }).limit(10); // batch for safety
-
-      for (const booking of bookings) {
-        // Lock this booking so another server doesn't run it
-        const locked = await Booking.findOneAndUpdate(
-          {
-            _id: booking._id,
-            scheduleExecuted: false
-          },
-          {
-            $set: {
-              scheduleExecuted: true,
-              assignmentStatus: "SEARCHING"
-            }
-          },
-          { new: true }
-        );
-
-        if (!locked) continue;
-
-        console.log("🚀 Dispatching scheduled booking:", locked._id);
-
-        const coordinates = locked.location.coordinates;
-
-        // Single employee
-        if (locked.employeeCount === 1) {
-          await assignNextServicer({
-            bookingId: locked._id,
-            coordinates,
-            io
-          });
-        } 
-        // Team
-        else {
-          await assignNextTeam({
-            bookingId: locked._id,
-            coordinates,
-            employeeCount: locked.employeeCount,
-            io
-          });
-        }
-      }
-
-    } catch (err) {
-      console.error("Scheduler error:", err.message);
-    }
-  });
     /* ===============================
        ACCEPT / REJECT
     =============================== */

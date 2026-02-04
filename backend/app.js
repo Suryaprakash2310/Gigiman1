@@ -16,9 +16,10 @@ const adminrouter=require('./router/admin.router');
 const user=require('./router/user.router');
 const bookingRouter=require('./router/booking.router');
 const activestateRouter=require('./router/activestatus.router');
-
+const { startScheduler } = require("./scheduler/bookingScheduler");
 dotenv.config();
 const app = express();
+
 
 // ------------------- MIDDLEWARE -------------------
 app.use(express.json({ limit: "20mb" }));
@@ -36,6 +37,7 @@ const server=http.createServer(app);
 const io=socketConfig(server);
 
 app.set("io", io);
+startScheduler(io);
 // ------------------- ROUTES -------------------
 app.get("/", (req, res) => res.send("API is running..."));
 
