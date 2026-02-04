@@ -85,16 +85,40 @@ const bookingSchema = new mongoose.Schema({
     enum: Object.values(BOOKING_TYPE),
     default: BOOKING_TYPE.ONDEMAND
   },
-  bookingMode: {
-    type: String,
-    enum: ["VISIT", "CATEGORY"],
-    default: "VISIT"
+  visitMode: {
+    type: Boolean,
+    default: false,
+    index: true
   },
 
-  visitCharge: {
-    type: Number,
-    default: 99
+  proposalStatus: {
+    type: String,
+    enum: ["NONE", "PROPOSED", "APPROVED", "REJECTED"],
+    default: "NONE",
+    index: true
   },
+
+  proposedService: {
+    serviceCategoryId: {
+      type: mongoose.Types.ObjectId
+    },
+    serviceCategoryName: String,
+    price: Number,
+    durationInMinutes: Number,
+    employeeCount: Number,
+    proposedAt: Date
+  },
+
+  proposalHistory: [{
+    serviceCategoryName: String,
+    price: Number,
+    proposedBy: {
+      type: mongoose.Types.ObjectId,
+      ref: "SingleEmployee"
+    },
+    status: String,
+    proposedAt: Date
+  }],
   assignmentStatus: {
     type: String,
     enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED"],

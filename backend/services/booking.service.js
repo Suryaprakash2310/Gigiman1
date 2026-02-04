@@ -166,34 +166,56 @@ exports.findNearbyTeams = async ({
    3. SINGLE EMPLOYEE AUTO ASSIGN QUEUE
 ====================================================== */
 
-
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
+
+    /* ---------------- GET BOOKING ---------------- */
     const booking = await Booking.findById(bookingId)
-        .select("rejectEmployees")
-        .populate("user", "fullName")
+        .select("domainService rejectedEmployees user serviceCategoryName totalPrice address employeeCount createdAt")
+        .populate("user", "fullname socketId")
         .lean();
 
-    if (!booking)
+    if (!booking) {
         throw new AppError("Booking not found", 404);
-    const rejectdIds = booking?.rejectedEmployees || [];
+    }
+
+    const rejectedIds = booking.rejectedEmployees || [];
+
+    /* ---------------- FIND CAPABLE EMPLOYEES ---------------- */
+    const capable = await EmployeeService.find({
+        capableservice: booking.domainService
+    }).select("employeeId");
+
+    const capableIds = capable.map(e =>
+        new mongoose.Types.ObjectId(e.employeeId)
+    );
+
+    if (!capableIds.length) {
+        io.to(booking.user.socketId).emit("no-servicer-available");
+        return;
+    }
+
+    /* ---------------- DISPATCH PAYLOAD ---------------- */
     const payload = {
         bookingId: booking._id,
         service: booking.serviceCategoryName,
         totalPrice: booking.totalPrice,
         address: booking.address,
         user: {
-            name: booking.user?.fullName,
+            name: booking.user?.fullname
         },
         employeeCount: booking.employeeCount,
-        createdAt: booking.createdAt
+        createdAt: booking.createdAt,
+        bookingMode: "VISIT"
     };
 
-
-    //  Pick + lock ONE provider atomically
+    /* ---------------- PICK SERVICER ---------------- */
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
-            _id: { $nin: rejectdIds },
+            _id: {
+                $in: capableIds,
+                $nin: rejectedIds
+            },
             isActive: true,
             availabilityStatus: "AVAILABLE",
             $or: [
@@ -203,69 +225,54 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             location: {
                 $near: {
                     $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: SEARCH_RADIUS_METERS,
-                },
-            },
+                    $maxDistance: SEARCH_RADIUS_METERS
+                }
+            }
         },
         {
             $set: {
                 availabilityStatus: "OFFERED",
-                offerBookingId: bookingId,
-            },
+                offerBookingId: bookingId
+            }
         },
         { new: true }
     );
 
-    if (booking.dispatchAttempts >= 5) {
-        await Booking.findByIdAndUpdate(bookingId, {
-            assignmentStatus: "FAILED",
-        })
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId)
-            io.to(booking?.user?.socketId).emit("no-servicer-available");
-    }
-
-    //  No provider
+    /* ---------------- NO PROVIDER ---------------- */
     if (!servicer) {
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId) {
-            io.to(booking.user.socketId).emit("no-servicer-available");
-        }
+        io.to(booking.user.socketId).emit("no-servicer-available");
         return;
-
     }
 
-
-    //  Emit immediately (FAST)
+    /* ---------------- SEND TO SERVICER ---------------- */
     if (servicer.socketId) {
-        io.to(servicer.socketId).emit(
-            "new-booking-request",
-            { payload },
-        );
+        io.to(servicer.socketId).emit("new-booking-request", payload);
     }
 
-    //  Single timeout (retry, NOT loop)
+    /* ---------------- TIMEOUT / REJECT HANDLING ---------------- */
     setTimeout(async () => {
         const stillOffered = await SingleEmployee.findOne({
             _id: servicer._id,
             offerBookingId: bookingId,
-            availabilityStatus: "OFFERED",
+            availabilityStatus: "OFFERED"
         });
 
         if (!stillOffered) return;
 
         await Booking.findByIdAndUpdate(bookingId, {
             $addToSet: { rejectedEmployees: servicer._id },
-            $inc: { dispatchAttemps: 1 },
-        })
+            $inc: { dispatchAttempts: 1 }
+        });
+
         await SingleEmployee.findByIdAndUpdate(servicer._id, {
             availabilityStatus: "AVAILABLE",
-            offerBookingId: null,
+            offerBookingId: null
         });
 
         exports.assignNextServicer({ bookingId, coordinates, io });
-    }, 50000); //  2.5 minutes
+    }, 50000);
 };
+
 
 
 exports.servicerAccept = async (bookingId, employeeId, io) => {
@@ -339,29 +346,29 @@ exports.servicerReject = async ({ bookingId, employeeId, io }) => {
 
 
 exports.convertVisitToService = async ({
-  bookingId,
-  price,
-  durationInMinutes,
-  employeeCount,
-  io
-}) => {
-  const booking = await Booking.findById(bookingId).populate("user");
-  if (!booking || booking.bookingMode !== "VISIT") return;
-
-  booking.bookingMode = "CATEGORY";
-  booking.serviceCategoryName = "Converted Service";
-  booking.totalPrice = price;
-  booking.durationInMinutes = durationInMinutes;
-  booking.employeeCount = employeeCount;
-
-  await booking.save();
-
-  io.to(booking.user.socketId).emit("service-proposed", {
     bookingId,
     price,
     durationInMinutes,
-    employeeCount
-  });
+    employeeCount,
+    io
+}) => {
+    const booking = await Booking.findById(bookingId).populate("user");
+    if (!booking || booking.bookingMode !== "VISIT") return;
+
+    booking.bookingMode = "CATEGORY";
+    booking.serviceCategoryName = "Converted Service";
+    booking.totalPrice = price;
+    booking.durationInMinutes = durationInMinutes;
+    booking.employeeCount = employeeCount;
+
+    await booking.save();
+
+    io.to(booking.user.socketId).emit("service-proposed", {
+        bookingId,
+        price,
+        durationInMinutes,
+        employeeCount
+    });
 };
 
 /* ======================================================
@@ -1083,5 +1090,140 @@ exports.resetAvailability = async (booking) => {
                 offerBookingId: null
             }
         );
+    }
+};
+
+
+exports.proposeVisitServiceSocket = async (
+    { bookingId, employeeId, serviceCategoryId },
+    socket,
+    io
+) => {
+    try {
+        const booking = await Booking.findOne({
+            _id: bookingId,
+            visitMode: true,
+            primaryEmployee: employeeId,
+            proposalStatus: { $in: ["NONE", "REJECTED"] }
+        });
+
+        if (!booking) return;
+
+        const service = await ServiceList.findOne({
+            "serviceCategory._id": serviceCategoryId
+        }).lean();
+
+        if (!service) return;
+
+        const category = service.serviceCategory.find(
+            c => c._id.toString() === serviceCategoryId
+        );
+
+        const proposal = {
+            serviceCategoryId,
+            serviceCategoryName: category.serviceCategoryName,
+            price: category.price,
+            durationInMinutes: category.durationInMinutes,
+            employeeCount: category.employeeCount,
+            proposedAt: new Date()
+        };
+
+        booking.proposedService = proposal;
+        booking.proposalStatus = "PROPOSED";
+
+        booking.proposalHistory.push({
+            serviceCategoryName: category.serviceCategoryName,
+            price: category.price,
+            proposedBy: employeeId,
+            status: "PROPOSED",
+            proposedAt: new Date()
+        });
+
+        await booking.save();
+
+        // Notify USER
+        io.to(booking.user.toString()).emit("service-proposed", {
+            bookingId,
+            proposal
+        });
+
+    } catch (err) {
+        console.error("proposeVisitServiceSocket:", err.message);
+    }
+};
+
+
+exports.approveVisitServiceSocket = async (
+    { bookingId, userId, approve },
+    socket,
+    io
+) => {
+    try {
+        const booking = await Booking.findOne({
+            _id: bookingId,
+            user: userId,
+            proposalStatus: "PROPOSED"
+        });
+
+        if (!booking) return;
+
+        const employee = await SingleEmployee.findById(
+            booking.primaryEmployee
+        ).select("socketId");
+
+        // ---------------- REJECT ----------------
+        if (!approve) {
+            booking.proposalStatus = "REJECTED";
+
+            booking.proposalHistory.push({
+                serviceCategoryName: booking.proposedService.serviceCategoryName,
+                price: booking.proposedService.price,
+                proposedBy: booking.primaryEmployee,
+                status: "REJECTED",
+                proposedAt: new Date()
+            });
+
+            await booking.save();
+
+            if (employee?.socketId) {
+                io.to(employee.socketId).emit("service-rejected", { bookingId });
+            }
+
+            return;
+        }
+
+        // ---------------- APPROVE ----------------
+        const p = booking.proposedService;
+
+        booking.serviceCategoryName = p.serviceCategoryName;
+        booking.pricePerService = p.price;
+        booking.totalPrice = p.price;
+        booking.durationInMinutes = p.durationInMinutes;
+        booking.employeeCount = p.employeeCount;
+
+        booking.visitMode = false;
+        booking.proposalStatus = "APPROVED";
+        booking.status = "ASSIGNED";
+
+        booking.proposalHistory.push({
+            serviceCategoryName: p.serviceCategoryName,
+            price: p.price,
+            proposedBy: booking.primaryEmployee,
+            status: "APPROVED",
+            proposedAt: new Date()
+        });
+
+        await booking.save();
+
+        if (employee?.socketId) {
+            io.to(employee.socketId).emit("service-approved", {
+                bookingId,
+                service: p.serviceCategoryName,
+                totalPrice: p.price
+            });
+        }
+
+    } catch (err) {
+        console.error("approveVisitServiceSocket:", err.message);
     }
 };

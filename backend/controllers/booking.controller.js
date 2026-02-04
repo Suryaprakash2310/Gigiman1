@@ -7,6 +7,7 @@ const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
 const PartRequest = require('../models/partsrequest.model');
 const Domainparts = require('../models/domainparts.model');
+const DomainService=require("../models/domainservice.model")
 const {
   findNearbyTeams,
   createBooking,
@@ -25,6 +26,7 @@ const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const ROLES = require("../enum/role.enum");
 const PAYMENT_METHOD = require("../enum/paymentmethod.enum");
 const { verifyPayment, createOrder } = require("../transaction/razorpay.config");
+const BOOKING_TYPE = require("../enum/bookingtype.enum");
 /* ======================================================
    SEARCH NEARBY SERVICERS
 ====================================================== */
@@ -991,52 +993,55 @@ exports.scheduleBooking = async (req, res, next) => {
 };
 
 
-exports.createVisitBooking = async (req, res, next) => {
-  const {
-    address,
-    location,
-    bookingType
-  } = req.body;
-  const { domainServiceId } = req.params;
-  /* ---------------- RULE ---------------- */
-  if (bookingType !== "ONDEMAND") {
-    return next(new AppError("Visit service only supports ONDEMAND bookings", 400));
+exports.createVisitBooking=async(req, res, next)=>{
+  try{
+    const{address,location,bookingType}=req.body;
+    const{domainServiceId}=req.params;
+    if(!address||!location?.coordinates?.length){
+      return next(new AppError("Address and Coordinates are required",400));
+    }
+    if(bookingType!==BOOKING_TYPE.ONDEMAND){
+      return next(new AppError("visit service only supports ONDEMAND bookings",400));
+    }
+    if(!mongoose.Types.ObjectId.isValid(domainServiceId)){
+      return next(new AppError("Domain service not found",404));
+    }
+    const VISIT_PRICE=99;
+
+    const booking=await Booking.create({
+      user:req.userId,
+      domainService:domainServiceId,
+      visitMode:true,
+      proposalStatus:"NONE",
+      serviceCategoryName:"Inspection Visit",
+      bookingType:BOOKING_TYPE.ONDEMAND,
+      pricePerService:VISIT_PRICE,
+      totalPrice:VISIT_PRICE,
+      employeecount:1,
+      address,
+      location:{
+        type:"Point",
+        coordinates:location.coordinates,
+      },
+      status:BOOKING_STATUS.PENDING,
+      assignmentStatus:"SEARCHING",
+    });
+
+    const io=req.app.get("io");
+    if(io){
+      await assignNextServicer({
+        bookingId:booking._id,
+        coordinates:booking.location.coordinates,
+      })
+    }
+    return res.status(201).json({
+      success:true,
+      message:"visit service booked successfully",
+      booking,
+    });
+
   }
-
-  const domain = await DomainService.findById(domainServiceId);
-  if (!domain) {
-    return next(new AppError("Domain service not found", 404));
+  catch(err){
+    next(err);
   }
-
-  const VISIT_PRICE = 99;
-
-  const booking = await Booking.create({
-    user: req.userId,
-    domainService: domainServiceId,
-    bookingMode: "VISIT",
-    serviceCategoryName: "Inspection Visit",
-    bookingType: "ONDEMAND",
-    pricePerService: VISIT_PRICE,
-    totalPrice: VISIT_PRICE,
-    visitCharge: VISIT_PRICE,
-    employeeCount: 1,
-    address,
-    location,
-    status: "PENDING",
-    assignmentStatus: "SEARCHING"
-  });
-
-  const io = req.app.get("io");
-
-  await assignNextServicer({
-    bookingId: booking._id,
-    coordinates: booking.location.coordinates,
-    io
-  });
-
-  res.status(201).json({
-    success: true,
-    message: "Visit service booked successfully",
-    booking
-  });
-};
+}

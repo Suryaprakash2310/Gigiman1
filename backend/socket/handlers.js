@@ -111,13 +111,145 @@ module.exports = (io) => {
     socket.on("team-reject", ({ bookingId }) =>
       teamReject(bookingId, io)
     );
-    socket.on("approve-service", async ({ bookingId }) => {
-      const booking = await Booking.findById(bookingId);
-      if (!booking) return;
+    socket.on("visit-propose-service", async ({ bookingId, employeeId,serviceCategoryId }) => {
+      try {
+        const booking = await Booking.findOne({
+          _id: bookingId,
+          visitMode: true,
+          primaryEmployee: employeeId,
+          proposalStatus: { $in: ["NONE", "REJECTED"] }
+        });
 
-      booking.assignmentStatus = "ASSIGNED";
-      await booking.save();
+        if (!booking) return;
+
+        const service = await ServiceList.findOne({
+          "serviceCategory._id": serviceCategoryId
+        }).lean();
+
+        if (!service) return;
+
+        const category = service.serviceCategory.find(
+          c => c._id.toString() === serviceCategoryId
+        );
+
+        const proposal = {
+          serviceCategoryId,
+          serviceCategoryName: category.serviceCategoryName,
+          price: category.price,
+          durationInMinutes: category.durationInMinutes,
+          employeeCount: category.employeeCount,
+          proposedAt: new Date()
+        };
+
+        booking.proposedService = proposal;
+        booking.proposalStatus = "PROPOSED";
+
+        booking.proposalHistory.push({
+          serviceCategoryName: category.serviceCategoryName,
+          price: category.price,
+          proposedBy: socket.userId,
+          status: "PROPOSED",
+          proposedAt: new Date()
+        });
+
+        await booking.save();
+
+        // Send to USER
+        io.to(booking.user.toString()).emit("service-proposed", {
+          bookingId,
+          proposal
+        });
+
+        // Auto-expire in 5 minutes
+        setTimeout(async () => {
+          const b = await Booking.findById(bookingId);
+          if (b?.proposalStatus === "PROPOSED") {
+            b.proposalStatus = "REJECTED";
+            await b.save();
+
+            io.to(socket.id).emit("service-rejected", {
+              bookingId,
+              reason: "User did not respond"
+            });
+          }
+        }, 300000);
+
+      } catch (err) {
+        console.error("visit-propose-service:", err.message);
+      }
     });
+    socket.on("visit-approve-service", async ({ bookingId,userId, approve }) => {
+      try {
+
+        const booking = await Booking.findOne({
+          _id: bookingId,
+          user: userId,
+          proposalStatus: "PROPOSED"
+        });
+
+        if (!booking) return;
+
+        const employee = await SingleEmployee.findById(
+          booking.primaryEmployee
+        ).select("socketId");
+
+        if (!approve) {
+          booking.proposalStatus = "REJECTED";
+
+          booking.proposalHistory.push({
+            serviceCategoryName: booking.proposedService.serviceCategoryName,
+            price: booking.proposedService.price,
+            proposedBy: booking.primaryEmployee,
+            status: "REJECTED",
+            proposedAt: new Date()
+          });
+
+          await booking.save();
+
+          if (employee?.socketId) {
+            io.to(employee.socketId).emit("service-rejected", {
+              bookingId
+            });
+          }
+          return;
+        }
+
+        // APPROVED → Convert VISIT to SERVICE
+        const p = booking.proposedService;
+
+        booking.serviceCategoryName = p.serviceCategoryName;
+        booking.pricePerService = p.price;
+        booking.totalPrice = p.price;
+        booking.durationInMinutes = p.durationInMinutes;
+        booking.employeeCount = p.employeeCount;
+
+        booking.visitMode = false;
+        booking.proposalStatus = "APPROVED";
+        booking.status = "ASSIGNED";
+
+        booking.proposalHistory.push({
+          serviceCategoryName: p.serviceCategoryName,
+          price: p.price,
+          proposedBy: booking.primaryEmployee,
+          status: "APPROVED",
+          proposedAt: new Date()
+        });
+
+        await booking.save();
+
+        if (employee?.socketId) {
+          io.to(employee.socketId).emit("service-approved", {
+            bookingId,
+            service: p.serviceCategoryName,
+            totalPrice: p.price
+          });
+        }
+
+      } catch (err) {
+        console.error("visit-approve-service:", err.message);
+      }
+    });
+
 
     /* ===============================
        TEAM ASSIGN MEMBERS
