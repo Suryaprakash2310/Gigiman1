@@ -989,3 +989,54 @@ exports.scheduleBooking = async (req, res, next) => {
     next(err);
   }
 };
+
+
+exports.createVisitBooking = async (req, res, next) => {
+  const {
+    address,
+    location,
+    bookingType
+  } = req.body;
+  const { domainServiceId } = req.params;
+  /* ---------------- RULE ---------------- */
+  if (bookingType !== "ONDEMAND") {
+    return next(new AppError("Visit service only supports ONDEMAND bookings", 400));
+  }
+
+  const domain = await DomainService.findById(domainServiceId);
+  if (!domain) {
+    return next(new AppError("Domain service not found", 404));
+  }
+
+  const VISIT_PRICE = 99;
+
+  const booking = await Booking.create({
+    user: req.userId,
+    domainService: domainServiceId,
+    bookingMode: "VISIT",
+    serviceCategoryName: "Inspection Visit",
+    bookingType: "ONDEMAND",
+    pricePerService: VISIT_PRICE,
+    totalPrice: VISIT_PRICE,
+    visitCharge: VISIT_PRICE,
+    employeeCount: 1,
+    address,
+    location,
+    status: "PENDING",
+    assignmentStatus: "SEARCHING"
+  });
+
+  const io = req.app.get("io");
+
+  await assignNextServicer({
+    bookingId: booking._id,
+    coordinates: booking.location.coordinates,
+    io
+  });
+
+  res.status(201).json({
+    success: true,
+    message: "Visit service booked successfully",
+    booking
+  });
+};

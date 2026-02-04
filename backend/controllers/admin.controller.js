@@ -385,6 +385,7 @@ exports.getServiceCategories = async (req, res) => {
 exports.setDomainTool = async (req, res, next) => {
   try {
     const { domainpartname, domainpartimage, parts } = req.body;
+    console.log(req.body);
 
     /* ===============================
        VALIDATION

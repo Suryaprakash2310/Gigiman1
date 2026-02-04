@@ -85,7 +85,16 @@ const bookingSchema = new mongoose.Schema({
     enum: Object.values(BOOKING_TYPE),
     default: BOOKING_TYPE.ONDEMAND
   },
+  bookingMode: {
+    type: String,
+    enum: ["VISIT", "CATEGORY"],
+    default: "VISIT"
+  },
 
+  visitCharge: {
+    type: Number,
+    default: 99
+  },
   assignmentStatus: {
     type: String,
     enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED"],

@@ -16,7 +16,7 @@ const adminrouter=require('./router/admin.router');
 const user=require('./router/user.router');
 const bookingRouter=require('./router/booking.router');
 const activestateRouter=require('./router/activestatus.router');
-const { startScheduler } = require("./scheduler/bookingScheduler");
+const { startScheduler } = require("./services/booking.schedule");
 dotenv.config();
 const app = express();
 

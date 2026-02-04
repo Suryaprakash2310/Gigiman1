@@ -5,7 +5,7 @@ const ToolShop = require("../models/toolshop.model");
 const PartRequest = require("../models/partsrequest.model");
 const Booking = require("../models/Booking.model");
 const mongoose = require("mongoose");
-const crons=require('node-cron')
+const crons = require('node-cron')
 
 const {
   servicerAccept,
@@ -111,6 +111,13 @@ module.exports = (io) => {
     socket.on("team-reject", ({ bookingId }) =>
       teamReject(bookingId, io)
     );
+    socket.on("approve-service", async ({ bookingId }) => {
+      const booking = await Booking.findById(bookingId);
+      if (!booking) return;
+
+      booking.assignmentStatus = "ASSIGNED";
+      await booking.save();
+    });
 
     /* ===============================
        TEAM ASSIGN MEMBERS
@@ -248,8 +255,9 @@ module.exports = (io) => {
 
     // ToolShop accepts request
     socket.on("toolshop-accept", async ({ requestId, shopId }) => {
-      try {console.log("toolshop-accept event received");
-        console.log(requestId,shopId);
+      try {
+        console.log("toolshop-accept event received");
+        console.log(requestId, shopId);
         await toolshopAccept({ requestId, shopId, io });
       } catch (err) {
         console.error("toolshop-accept error:", err);
@@ -286,15 +294,15 @@ module.exports = (io) => {
 
     socket.on("verify-start-otp", async ({ bookingId, otp }) => {
       try {
-        const result = await verifyStartOTP(bookingId, otp); 
+        const result = await verifyStartOTP(bookingId, otp);
         if (!result.success) {
           socket.emit("start-otp-failed", { message: "Invalid OTP" });
           return;
-        } 
+        }
         socket.emit("otp-success", result);
       } catch (err) {
         socket.emit("otp-failed", { message: err.message });
-      }   
+      }
     });
 
     /* ===============================
@@ -325,13 +333,13 @@ module.exports = (io) => {
       await User.updateOne({ socketId: socket.id }, { socketId: null });
       await SingleEmployee.updateOne(
         { socketId: socket.id },
-        { socketId: null, isActive: false,availabilityStatus:"AVAILABLE",offerBookingId:null }
+        { socketId: null, isActive: false, availabilityStatus: "AVAILABLE", offerBookingId: null }
       );
       await MultipleEmployee.updateOne(
         { socketId: socket.id },
-        { socketId: null, isActive: false,availabilityStatus:"AVAILABLE",offerBookingId:null  }
+        { socketId: null, isActive: false, availabilityStatus: "AVAILABLE", offerBookingId: null }
       );
-      await ToolShop.updateOne({ socketId: socket.id }, { socketId: null,availabilityStatus:"AVAILABLE",offerBookingId:null  });
+      await ToolShop.updateOne({ socketId: socket.id }, { socketId: null, availabilityStatus: "AVAILABLE", offerBookingId: null });
     });
   });
 };

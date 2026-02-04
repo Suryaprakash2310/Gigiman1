@@ -337,6 +337,33 @@ exports.servicerReject = async ({ bookingId, employeeId, io }) => {
     });
 };
 
+
+exports.convertVisitToService = async ({
+  bookingId,
+  price,
+  durationInMinutes,
+  employeeCount,
+  io
+}) => {
+  const booking = await Booking.findById(bookingId).populate("user");
+  if (!booking || booking.bookingMode !== "VISIT") return;
+
+  booking.bookingMode = "CATEGORY";
+  booking.serviceCategoryName = "Converted Service";
+  booking.totalPrice = price;
+  booking.durationInMinutes = durationInMinutes;
+  booking.employeeCount = employeeCount;
+
+  await booking.save();
+
+  io.to(booking.user.socketId).emit("service-proposed", {
+    bookingId,
+    price,
+    durationInMinutes,
+    employeeCount
+  });
+};
+
 /* ======================================================
    4. TEAM AUTO ASSIGN
 ====================================================== */
