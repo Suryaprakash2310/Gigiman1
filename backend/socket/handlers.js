@@ -256,8 +256,6 @@ module.exports = (io) => {
     // ToolShop accepts request
     socket.on("toolshop-accept", async ({ requestId, shopId }) => {
       try {
-        console.log("toolshop-accept event received");
-        console.log(requestId, shopId);
         await toolshopAccept({ requestId, shopId, io });
       } catch (err) {
         console.error("toolshop-accept error:", err);

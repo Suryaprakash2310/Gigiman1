@@ -24,7 +24,8 @@ const domainPartSchema = new mongoose.Schema({
       partName: {
         type: String,
         required: true,
-        trim: true
+        trim: true,
+        index:true,
       },
       price: {
         type: Number,

@@ -833,7 +833,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         },
         { new: true }
     );
-    console.log(shop);
 
     //  No shop available
     if (!shop) {
@@ -876,7 +875,6 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         _id: shopId,
         offerRequestId: requestId,
     });
-    console.log(shop);
     if (!shop) {
         return;
     }
