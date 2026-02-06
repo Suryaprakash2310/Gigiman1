@@ -1034,17 +1034,17 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     req.status = PART_REQUEST_STATUS.COLLECTED;
     req.otp = null;
     await req.save();
-    const shop = await ToolShop.findOne({
-        _id: shopId,
-        offerRequestId: requestId,
-    });
+    // const shop = await ToolShop.findOne({
+    //     _id: shopId,
+    //     offerRequestId: requestId,
+    // });
 
-    if (!shop) return;
+    // if (!shop) return;
 
-    await ToolShop.findByIdAndUpdate(shopId, {
-        $inc: { activeRequests: -1 },
-        offerRequestId: null,
-    });
+    // await ToolShop.findByIdAndUpdate(shopId, {
+    //     $inc: { activeRequests: -1 },
+    //     offerRequestId: null,
+    // });
     const employee = await SingleEmployee.findById(req.employeeId).select("socketId");
     if (io && employee?.socketId) {
         try {
