@@ -168,54 +168,31 @@ exports.findNearbyTeams = async ({
 
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
-
-    /* ---------------- GET BOOKING ---------------- */
     const booking = await Booking.findById(bookingId)
         .select("domainService rejectedEmployees user serviceCategoryName totalPrice address employeeCount createdAt")
         .populate("user", "fullname socketId")
         .lean();
 
-    if (!booking) {
+    if (!booking)
         throw new AppError("Booking not found", 404);
-    }
-
-    const rejectedIds = booking.rejectedEmployees || [];
-
-    /* ---------------- FIND CAPABLE EMPLOYEES ---------------- */
-    const capable = await EmployeeService.find({
-        capableservice: booking.domainService
-    }).select("employeeId");
-
-    const capableIds = capable.map(e =>
-        new mongoose.Types.ObjectId(e.employeeId)
-    );
-
-    if (!capableIds.length) {
-        io.to(booking.user.socketId).emit("no-servicer-available");
-        return;
-    }
-
-    /* ---------------- DISPATCH PAYLOAD ---------------- */
+    const rejectdIds = booking?.rejectedEmployees || [];
     const payload = {
         bookingId: booking._id,
         service: booking.serviceCategoryName,
         totalPrice: booking.totalPrice,
         address: booking.address,
         user: {
-            name: booking.user?.fullname
+            name: booking.user?.fullName,
         },
         employeeCount: booking.employeeCount,
-        createdAt: booking.createdAt,
-        bookingMode: "VISIT"
+        createdAt: booking.createdAt
     };
 
-    /* ---------------- PICK SERVICER ---------------- */
+
+    //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
-            _id: {
-                $in: capableIds,
-                $nin: rejectedIds
-            },
+            _id: { $nin: rejectdIds },
             isActive: true,
             availabilityStatus: "AVAILABLE",
             $or: [
@@ -225,52 +202,166 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             location: {
                 $near: {
                     $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: SEARCH_RADIUS_METERS
-                }
-            }
+                    $maxDistance: SEARCH_RADIUS_METERS,
+                },
+            },
         },
         {
             $set: {
                 availabilityStatus: "OFFERED",
-                offerBookingId: bookingId
-            }
+                offerBookingId: bookingId,
+            },
         },
         { new: true }
     );
 
-    /* ---------------- NO PROVIDER ---------------- */
+    if (booking.dispatchAttempts >= 5) {
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED",
+        })
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId)
+            io.to(booking?.user?.socketId).emit("no-servicer-available");
+    }
+
+    //  No provider
     if (!servicer) {
-        io.to(booking.user.socketId).emit("no-servicer-available");
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId) {
+            io.to(booking.user.socketId).emit("no-servicer-available");
+        }
         return;
+
     }
 
-    /* ---------------- SEND TO SERVICER ---------------- */
+
+    //  Emit immediately (FAST)
     if (servicer.socketId) {
-        io.to(servicer.socketId).emit("new-booking-request", payload);
+        io.to(servicer.socketId).emit(
+            "new-booking-request",
+            { payload },
+        );
     }
 
-    /* ---------------- TIMEOUT / REJECT HANDLING ---------------- */
+    //  Single timeout (retry, NOT loop)
     setTimeout(async () => {
         const stillOffered = await SingleEmployee.findOne({
             _id: servicer._id,
             offerBookingId: bookingId,
-            availabilityStatus: "OFFERED"
+            availabilityStatus: "OFFERED",
         });
 
         if (!stillOffered) return;
 
         await Booking.findByIdAndUpdate(bookingId, {
             $addToSet: { rejectedEmployees: servicer._id },
-            $inc: { dispatchAttempts: 1 }
-        });
-
+            $inc: { dispatchAttemps: 1 },
+        })
         await SingleEmployee.findByIdAndUpdate(servicer._id, {
             availabilityStatus: "AVAILABLE",
-            offerBookingId: null
+            offerBookingId: null,
         });
 
         exports.assignNextServicer({ bookingId, coordinates, io });
-    }, 50000);
+    }, 50000); //  2.5 minutes
+};exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
+    const [lng, lat] = coordinates;
+    const booking = await Booking.findById(bookingId)
+        .select("rejectEmployees")
+        .populate("user", "fullName")
+        .lean();
+
+    if (!booking)
+        throw new AppError("Booking not found", 404);
+    const rejectdIds = booking?.rejectedEmployees || [];
+    const payload = {
+        bookingId: booking._id,
+        service: booking.serviceCategoryName,
+        totalPrice: booking.totalPrice,
+        address: booking.address,
+        user: {
+            name: booking.user?.fullName,
+        },
+        employeeCount: booking.employeeCount,
+        createdAt: booking.createdAt
+    };
+
+
+    //  Pick + lock ONE provider atomically
+    const servicer = await SingleEmployee.findOneAndUpdate(
+        {
+            _id: { $nin: rejectdIds },
+            isActive: true,
+            availabilityStatus: "AVAILABLE",
+            $or: [
+                { blockedUntil: null },
+                { blockedUntil: { $lte: new Date() } }
+            ],
+            location: {
+                $near: {
+                    $geometry: { type: "Point", coordinates: [lng, lat] },
+                    $maxDistance: SEARCH_RADIUS_METERS,
+                },
+            },
+        },
+        {
+            $set: {
+                availabilityStatus: "OFFERED",
+                offerBookingId: bookingId,
+            },
+        },
+        { new: true }
+    );
+
+    if (booking.dispatchAttempts >= 5) {
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED",
+        })
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId)
+            io.to(booking?.user?.socketId).emit("no-servicer-available");
+    }
+
+    //  No provider
+    if (!servicer) {
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId) {
+            io.to(booking.user.socketId).emit("no-servicer-available");
+        }
+        return;
+
+    }
+
+
+    //  Emit immediately (FAST)
+    if (servicer.socketId) {
+        io.to(servicer.socketId).emit(
+            "new-booking-request",
+            { payload },
+        );
+    }
+
+    //  Single timeout (retry, NOT loop)
+    setTimeout(async () => {
+        const stillOffered = await SingleEmployee.findOne({
+            _id: servicer._id,
+            offerBookingId: bookingId,
+            availabilityStatus: "OFFERED",
+        });
+
+        if (!stillOffered) return;
+
+        await Booking.findByIdAndUpdate(bookingId, {
+            $addToSet: { rejectedEmployees: servicer._id },
+            $inc: { dispatchAttemps: 1 },
+        })
+        await SingleEmployee.findByIdAndUpdate(servicer._id, {
+            availabilityStatus: "AVAILABLE",
+            offerBookingId: null,
+        });
+
+        exports.assignNextServicer({ bookingId, coordinates, io });
+    }, 50000); //  2.5 minutes
 };
 
 
@@ -980,6 +1071,7 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
         primaryEmployee: employeeId,
         status: BOOKING_STATUS.IN_PROGRESS,
     });
+    console.log("[[[Booking for part request:", booking);
 
     if (!booking) {
         throw new AppError("Invalid booking or employee not assigned", 404);
