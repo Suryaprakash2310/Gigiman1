@@ -169,104 +169,6 @@ exports.findNearbyTeams = async ({
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
     const booking = await Booking.findById(bookingId)
-        .select("domainService rejectedEmployees user serviceCategoryName totalPrice address employeeCount createdAt")
-        .populate("user", "fullname socketId")
-        .lean();
-
-    if (!booking)
-        throw new AppError("Booking not found", 404);
-    const rejectdIds = booking?.rejectedEmployees || [];
-    const payload = {
-        bookingId: booking._id,
-        service: booking.serviceCategoryName,
-        totalPrice: booking.totalPrice,
-        address: booking.address,
-        user: {
-            name: booking.user?.fullName,
-        },
-        employeeCount: booking.employeeCount,
-        createdAt: booking.createdAt
-    };
-
-
-    //  Pick + lock ONE provider atomically
-    const servicer = await SingleEmployee.findOneAndUpdate(
-        {
-            _id: { $nin: rejectdIds },
-            isActive: true,
-            availabilityStatus: "AVAILABLE",
-            $or: [
-                { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } }
-            ],
-            location: {
-                $near: {
-                    $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: SEARCH_RADIUS_METERS,
-                },
-            },
-        },
-        {
-            $set: {
-                availabilityStatus: "OFFERED",
-                offerBookingId: bookingId,
-            },
-        },
-        { new: true }
-    );
-
-    if (booking.dispatchAttempts >= 5) {
-        await Booking.findByIdAndUpdate(bookingId, {
-            assignmentStatus: "FAILED",
-        })
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId)
-            io.to(booking?.user?.socketId).emit("no-servicer-available");
-    }
-
-    //  No provider
-    if (!servicer) {
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId) {
-            io.to(booking.user.socketId).emit("no-servicer-available");
-        }
-        return;
-
-    }
-
-
-    //  Emit immediately (FAST)
-    if (servicer.socketId) {
-        io.to(servicer.socketId).emit(
-            "new-booking-request",
-            { payload },
-        );
-    }
-
-    //  Single timeout (retry, NOT loop)
-    setTimeout(async () => {
-        const stillOffered = await SingleEmployee.findOne({
-            _id: servicer._id,
-            offerBookingId: bookingId,
-            availabilityStatus: "OFFERED",
-        });
-
-        if (!stillOffered) return;
-
-        await Booking.findByIdAndUpdate(bookingId, {
-            $addToSet: { rejectedEmployees: servicer._id },
-            $inc: { dispatchAttemps: 1 },
-        })
-        await SingleEmployee.findByIdAndUpdate(servicer._id, {
-            availabilityStatus: "AVAILABLE",
-            offerBookingId: null,
-        });
-
-        exports.assignNextServicer({ bookingId, coordinates, io });
-    }, 50000); //  2.5 minutes
-};exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
-    const [lng, lat] = coordinates;
-    const booking = await Booking.findById(bookingId)
         .select("rejectEmployees")
         .populate("user", "fullName")
         .lean();
@@ -363,7 +265,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         exports.assignNextServicer({ bookingId, coordinates, io });
     }, 50000); //  2.5 minutes
 };
-
 
 
 exports.servicerAccept = async (bookingId, employeeId, io) => {
@@ -931,7 +832,7 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         },
         { new: true }
     );
-
+    console.log(shop);
     //  No shop available
     if (!shop) {
         const request = await PartRequest.findById(requestId).populate("employeeId");
