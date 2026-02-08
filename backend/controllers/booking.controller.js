@@ -7,7 +7,8 @@ const SingleEmployee = require("../models/singleEmployee.model");
 const User = require("../models/user.model");
 const PartRequest = require('../models/partsrequest.model');
 const Domainparts = require('../models/domainparts.model');
-const DomainService=require("../models/domainservice.model")
+const DomainService = require("../models/domainservice.model")
+const ServiceList=require("../models/serviceList.model");
 const {
   findNearbyTeams,
   createBooking,
@@ -78,14 +79,14 @@ exports.autoAssignServicer = async (req, res, next) => {
       serviceCount = 1,
     } = req.body;
     const io = req.app.get("io");
-console.log("autoAssignServicer called with:", {
-  userId,
-  serviceCategoryName,
-  domainService,
-  address,
-  coordinates,
-  serviceCount
-});
+    console.log("autoAssignServicer called with:", {
+      userId,
+      serviceCategoryName,
+      domainService,
+      address,
+      coordinates,
+      serviceCount
+    });
     if (!serviceCategoryName) {
       return next(new AppError("serviceCategoryName is required", 400));
     }
@@ -1003,45 +1004,73 @@ exports.getReviewByService = async (req, res, next) => {
 exports.scheduleBooking = async (req, res, next) => {
   try {
     const {
-      userId,
       serviceCategoryName,
-      domainService,
       address,
       coordinates,
       serviceCount = 1,
       scheduleDateTime
     } = req.body;
-  console.log("scheduleBooking called with:", {
-  serviceCategoryName,
-  domainService,
-  address,
-  coordinates,
-  serviceCount,
-  scheduleDateTime
-});
-    const { booking } = await createBooking({
-      userId,//: req.userId,
-      serviceCategoryName,
-      domainService,
-      address,
-      coordinates,
-      serviceCount
+
+    const userId = req.userId;
+
+    if (!scheduleDateTime) {
+      return next(new AppError("scheduleDateTime is required", 400));
+    }
+
+    const scheduleTime = new Date(scheduleDateTime);
+    if (isNaN(scheduleTime.getTime()) || scheduleTime <= new Date()) {
+      return next(new AppError("Invalid schedule time", 400));
+    }
+
+    /* -------------------------
+       RESOLVE DOMAIN SERVICE
+    ------------------------- */
+    const serviceList = await ServiceList.findOne({
+      "serviceCategory.serviceCategoryName": serviceCategoryName,
     });
 
-    booking.isScheduled = true;
-    booking.scheduleDateTime = scheduleDateTime;
-    booking.scheduleExecuted = false;
-    booking.assignmentStatus = "SEARCHING";
-    booking.status = "pending";
+    if (!serviceList) {
+      return next(new AppError("Service category not found", 404));
+    }
 
-    await booking.save();
+    const category = serviceList.serviceCategory.find(
+      c => c.serviceCategoryName === serviceCategoryName
+    );
 
-    console.log("Booking scheduled with ID:", booking._id, "at", scheduleDateTime);
+    if (!category) {
+      return next(new AppError("Invalid service category", 400));
+    }
 
-    return res.json({
+    const domainServiceId = serviceList.DomainServiceId; // ✅ ObjectId
+
+    /* -------------------------
+       CREATE BOOKING
+    ------------------------- */
+    const booking = await Booking.create({
+      user: userId,
+      serviceCategoryName,
+      domainService: domainServiceId, // ✅ CORRECT
+      serviceType: category.employeeCount === 1 ? "single" : "team",
+      serviceCount,
+      pricePerService: category.price,
+      durationInMinutes: category.durationInMinutes,
+      employeeCount: category.employeeCount,
+      totalPrice: category.price * serviceCount,
+      address,
+      location: { type: "Point", coordinates },
+
+      isScheduled: true,
+      scheduleDateTime: scheduleTime,
+      scheduleExecuted: false,
+      assignmentStatus: "SCHEDULED",
+      status: "SCHEDULED",
+    });
+
+    return res.status(201).json({
       success: true,
-      message: "Booking scheduled",
-      bookingId: booking._id
+      message: "Booking scheduled successfully",
+      bookingId: booking._id,
+      scheduledFor: scheduleTime
     });
 
   } catch (err) {
@@ -1049,55 +1078,55 @@ exports.scheduleBooking = async (req, res, next) => {
   }
 };
 
-exports.createVisitBooking=async(req, res, next)=>{
-  try{
-    const{address,location,bookingType}=req.body;
-    const{domainServiceId}=req.params;
-    if(!address||!location?.coordinates?.length){
-      return next(new AppError("Address and Coordinates are required",400));
+exports.createVisitBooking = async (req, res, next) => {
+  try {
+    const { address, location, bookingType } = req.body;
+    const { domainServiceId } = req.params;
+    if (!address || !location?.coordinates?.length) {
+      return next(new AppError("Address and Coordinates are required", 400));
     }
-    if(bookingType!==BOOKING_TYPE.ONDEMAND){
-      return next(new AppError("visit service only supports ONDEMAND bookings",400));
+    if (bookingType !== BOOKING_TYPE.ONDEMAND) {
+      return next(new AppError("visit service only supports ONDEMAND bookings", 400));
     }
-    if(!mongoose.Types.ObjectId.isValid(domainServiceId)){
-      return next(new AppError("Domain service not found",404));
+    if (!mongoose.Types.ObjectId.isValid(domainServiceId)) {
+      return next(new AppError("Domain service not found", 404));
     }
-    const VISIT_PRICE=99;
+    const VISIT_PRICE = 99;
 
-    const booking=await Booking.create({
-      user:req.userId,
-      domainService:domainServiceId,
-      visitMode:true,
-      proposalStatus:"NONE",
-      serviceCategoryName:"Inspection Visit",
-      bookingType:BOOKING_TYPE.ONDEMAND,
-      pricePerService:VISIT_PRICE,
-      totalPrice:VISIT_PRICE,
-      employeecount:1,
+    const booking = await Booking.create({
+      user: req.userId,
+      domainService: domainServiceId,
+      visitMode: true,
+      proposalStatus: "NONE",
+      serviceCategoryName: "Inspection Visit",
+      bookingType: BOOKING_TYPE.ONDEMAND,
+      pricePerService: VISIT_PRICE,
+      totalPrice: VISIT_PRICE,
+      employeecount: 1,
       address,
-      location:{
-        type:"Point",
-        coordinates:location.coordinates,
+      location: {
+        type: "Point",
+        coordinates: location.coordinates,
       },
-      status:BOOKING_STATUS.PENDING,
-      assignmentStatus:"SEARCHING",
+      status: BOOKING_STATUS.PENDING,
+      assignmentStatus: "SEARCHING",
     });
 
-    const io=req.app.get("io");
-    if(io){
+    const io = req.app.get("io");
+    if (io) {
       await assignNextServicer({
-        bookingId:booking._id,
-        coordinates:booking.location.coordinates,
+        bookingId: booking._id,
+        coordinates: booking.location.coordinates,
       })
     }
     return res.status(201).json({
-      success:true,
-      message:"visit service booked successfully",
+      success: true,
+      message: "visit service booked successfully",
       booking,
     });
 
   }
-  catch(err){
+  catch (err) {
     next(err);
   }
 }
