@@ -169,10 +169,13 @@ exports.findNearbyTeams = async ({
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
     const booking = await Booking.findById(bookingId)
-        .select("rejectEmployees")
-        .populate("user", "fullName")
+        .select("domainService rejectedEmployees dispatchAttempts serviceCategoryName totalPrice address employeeCount createdAt")
+        .populate("user", "fullName socketId")
         .lean();
-
+    const capableEmployeeIds = await EmployeeService.find({
+        capableservice: booking.domainService
+    }).distinct("employeeId");
+    
     if (!booking)
         throw new AppError("Booking not found", 404);
     const rejectdIds = booking?.rejectedEmployees || [];
