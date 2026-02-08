@@ -175,7 +175,10 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const capableEmployeeIds = await EmployeeService.find({
         capableservice: booking.domainService
     }).distinct("employeeId");
-    
+
+    if(!capableEmployeeIds){
+        throw new AppError("capable servicer is not available",400);
+    }
     if (!booking)
         throw new AppError("Booking not found", 404);
     const rejectdIds = booking?.rejectedEmployees || [];
@@ -192,10 +195,12 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     };
 
 
-    //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
-            _id: { $nin: rejectdIds },
+            _id: {
+                $in: capableEmployeeIds,
+                $nin: rejectdIds,
+            },
             isActive: true,
             availabilityStatus: "AVAILABLE",
             $or: [
@@ -217,6 +222,15 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         },
         { new: true }
     );
+    if (!servicer) {
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId) {
+            io.to(booking.user.socketId).emit("no-servicer-available");
+        }
+        return;
+
+    }
+
 
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
@@ -228,14 +242,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     }
 
     //  No provider
-    if (!servicer) {
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId) {
-            io.to(booking.user.socketId).emit("no-servicer-available");
-        }
-        return;
 
-    }
 
 
     //  Emit immediately (FAST)
