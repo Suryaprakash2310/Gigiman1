@@ -9,7 +9,7 @@ const bookingController = require("../controllers/booking.controller");
 =============================== */
 router.post("/search", bookingController.searchNearbyservicer);
 router.post("/auto-assign", bookingController.autoAssignServicer);
-router.post('/schedule',bookingController.scheduleBooking);
+router.post('/schedule',userProtect,bookingController.scheduleBooking);
 router.post("/domain/visit/:domainServiceId",bookingController.createVisitBooking);
 /* ===============================
    BOOKING
