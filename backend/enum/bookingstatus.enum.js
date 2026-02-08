@@ -5,6 +5,10 @@ const BOOKING_STATUS={
     COMPLETED:"completed",
     CANCALLED:"cancalled",
     REJECTED:"rejected",
+    //ceo changes 
+    NO_PROVIDER: "no_provider",
+    ASSIGNED: "assigned",
+
 }
 
 module.exports=BOOKING_STATUS;

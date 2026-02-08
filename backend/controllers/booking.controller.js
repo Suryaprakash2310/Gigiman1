@@ -78,7 +78,14 @@ exports.autoAssignServicer = async (req, res, next) => {
       serviceCount = 1,
     } = req.body;
     const io = req.app.get("io");
-
+console.log("autoAssignServicer called with:", {
+  userId,
+  serviceCategoryName,
+  domainService,
+  address,
+  coordinates,
+  serviceCount
+});
     if (!serviceCategoryName) {
       return next(new AppError("serviceCategoryName is required", 400));
     }
@@ -234,7 +241,6 @@ exports.requestToolController = async (req, res, next) => {
   try {
     const employeeId = req.employeeId;//  from employee middleware
     const { bookingId, parts = [], totalCost } = req.body;
-
     const io = (req.app && req.app.get && req.app.get("io")) || req.io || null;
 
     // Resolve partsId: accept provided `partsId` or lookup by part name
@@ -951,35 +957,86 @@ exports.getReviewByService = async (req, res, next) => {
 };
 
 
+// exports.scheduleBooking = async (req, res, next) => {
+//   try {
+//     const {
+// userId,
+//       serviceCategoryName,
+//       coordinates,
+//       address,
+//       scheduleDateTime,
+//       employeeCount,
+//       totalPrice,
+//       durationInMinutes
+//     } = req.body;
+
+//     const booking = await Booking.create({
+//       user:userId,
+//       serviceCategoryName,
+//       address,
+//       location: {
+//         type: "Point",
+//         coordinates
+//       },
+//       employeeCount,
+//       totalPrice,
+//       durationInMinutes,
+
+//       isScheduled: true,
+//       scheduleDateTime,
+//       scheduleExecuted: false,
+//       assignmentStatus: "SEARCHING"
+//     });
+
+//     return res.json({
+//       success: true,
+//       message: "Booking scheduled",
+//       bookingId: booking._id
+//     });
+
+//   } catch (err) {
+//     next(err);
+//   }
+// };
+
+
 exports.scheduleBooking = async (req, res, next) => {
   try {
     const {
+      userId,
       serviceCategoryName,
+      domainService,
+      address,
       coordinates,
-      address,
-      scheduleDateTime,
-      employeeCount,
-      totalPrice,
-      durationInMinutes
+      serviceCount = 1,
+      scheduleDateTime
     } = req.body;
-
-    const booking = await Booking.create({
-      user: req.userId,
+  console.log("scheduleBooking called with:", {
+  serviceCategoryName,
+  domainService,
+  address,
+  coordinates,
+  serviceCount,
+  scheduleDateTime
+});
+    const { booking } = await createBooking({
+      userId,//: req.userId,
       serviceCategoryName,
+      domainService,
       address,
-      location: {
-        type: "Point",
-        coordinates
-      },
-      employeeCount,
-      totalPrice,
-      durationInMinutes,
-
-      isScheduled: true,
-      scheduleDateTime,
-      scheduleExecuted: false,
-      assignmentStatus: "SEARCHING"
+      coordinates,
+      serviceCount
     });
+
+    booking.isScheduled = true;
+    booking.scheduleDateTime = scheduleDateTime;
+    booking.scheduleExecuted = false;
+    booking.assignmentStatus = "SEARCHING";
+    booking.status = "pending";
+
+    await booking.save();
+
+    console.log("Booking scheduled with ID:", booking._id, "at", scheduleDateTime);
 
     return res.json({
       success: true,
@@ -991,7 +1048,6 @@ exports.scheduleBooking = async (req, res, next) => {
     next(err);
   }
 };
-
 
 exports.createVisitBooking=async(req, res, next)=>{
   try{
