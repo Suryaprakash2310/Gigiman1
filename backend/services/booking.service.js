@@ -167,11 +167,13 @@ exports.findNearbyTeams = async ({
 ====================================================== */
 
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
+    console.log("assignnextservicer");
     const [lng, lat] = coordinates;
     const booking = await Booking.findById(bookingId)
         .select("domainService rejectedEmployees dispatchAttempts serviceCategoryName totalPrice address employeeCount createdAt")
         .populate("user", "fullName socketId")
         .lean();
+    console.log("good            ",booking);
     const capableEmployeeIds = await EmployeeService.find({
         capableservice: booking.domainService
     }).distinct("employeeId");
@@ -193,7 +195,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         employeeCount: booking.employeeCount,
         createdAt: booking.createdAt
     };
-
+    console.log("payload",payload);
 
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
@@ -222,6 +224,8 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         },
         { new: true }
     );
+
+    console.log("service is available::::::",servicer);
     if (!servicer) {
         const booking = await Booking.findById(bookingId).populate("user");
         if (booking?.user?.socketId) {
