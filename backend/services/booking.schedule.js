@@ -4,7 +4,6 @@
   assignNextTeam
 }  = require("../services/booking.service");
  const mongoose = require('mongoose');
- const autoAssignServicer = require("../controllers/booking.controller")
 
  module.exports.startScheduler = (io) => {
   console.log("🕒 Booking scheduler started");
@@ -22,7 +21,7 @@
         {
           $set: {
             scheduleExecuted: true,
-            assignmentStatus: "SEARCHING", // ✅ valid enum
+            assignmentStatus: "SEARCHING", 
           },
         },
         { new: true }

@@ -121,7 +121,7 @@ const bookingSchema = new mongoose.Schema({
   }],
   assignmentStatus: {
     type: String,
-    enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED"],
+    enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED","SCHEDULED"],
     default: "SEARCHING",
     index: true
   },

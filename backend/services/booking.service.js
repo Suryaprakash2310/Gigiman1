@@ -73,7 +73,6 @@ exports.findNearbyTeams = async ({
     const capableEmployeeObjectIds = capableEmployeeIds.map(
         id => new mongoose.Types.ObjectId(id)
     );
-
     /* ======================================================
        SINGLE EMPLOYEE
     ====================================================== */
@@ -167,20 +166,10 @@ exports.findNearbyTeams = async ({
 ====================================================== */
 
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
-    console.log("assignnextservicer");
     const [lng, lat] = coordinates;
     const booking = await Booking.findById(bookingId)
-        .select("domainService rejectedEmployees dispatchAttempts serviceCategoryName totalPrice address employeeCount createdAt")
-        .populate("user", "fullName socketId")
-        .lean();
-    console.log("good            ",booking);
-    const capableEmployeeIds = await EmployeeService.find({
-        capableservice: booking.domainService
-    }).distinct("employeeId");
+    console.log(booking.user?.fullName);
 
-    if(!capableEmployeeIds){
-        throw new AppError("capable servicer is not available",400);
-    }
     if (!booking)
         throw new AppError("Booking not found", 404);
     const rejectdIds = booking?.rejectedEmployees || [];
@@ -195,14 +184,11 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         employeeCount: booking.employeeCount,
         createdAt: booking.createdAt
     };
-    console.log("payload",payload);
 
+    //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
-            _id: {
-                $in: capableEmployeeIds,
-                $nin: rejectdIds,
-            },
+            _id: { $nin: rejectdIds },
             isActive: true,
             availabilityStatus: "AVAILABLE",
             $or: [
@@ -224,18 +210,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         },
         { new: true }
     );
-
-    console.log("service is available::::::",servicer);
-    if (!servicer) {
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId) {
-            io.to(booking.user.socketId).emit("no-servicer-available");
-        }
-        return;
-
-    }
-
-
+    console.log(servicer);
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
             assignmentStatus: "FAILED",
@@ -246,7 +221,14 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     }
 
     //  No provider
+    if (!servicer) {
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId) {
+            io.to(booking.user.socketId).emit("no-servicer-available");
+        }
+        return;
 
+    }
 
 
     //  Emit immediately (FAST)
@@ -279,6 +261,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         exports.assignNextServicer({ bookingId, coordinates, io });
     }, 50000); //  2.5 minutes
 };
+
 
 
 exports.servicerAccept = async (bookingId, employeeId, io) => {

@@ -111,7 +111,7 @@ exports.Adddomainservice = async (req, res, next) => {
 
 exports.setServiceList = async (req, res, next) => {
   try {
-    const {
+    let {
       DomainServiceId,
       serviceId,
       serviceName,
@@ -128,14 +128,17 @@ exports.setServiceList = async (req, res, next) => {
       return next(new AppError("DomainServiceId is required", 400));
     }
 
-    if (
-      !serviceCategoryName ||
-      !description ||
-      !price ||
-      !durationInMinutes ||
-      !employeeCount
-    ) {
-      return next(new AppError("All category fields are required", 400));
+    // 🔥 If frontend sends domain NAME instead of ID
+    if (!mongoose.Types.ObjectId.isValid(DomainServiceId)) {
+      const domain = await DomainService.findOne({
+        domainName: DomainServiceId
+      });
+
+      if (!domain) {
+        return next(new AppError("Invalid domain", 400));
+      }
+
+      DomainServiceId = domain._id; // ✅ FIX
     }
 
     // ================= IMAGE UPLOAD =================
@@ -158,24 +161,13 @@ exports.setServiceList = async (req, res, next) => {
         return next(new AppError("Service not found", 404));
       }
 
-      // Prevent duplicate category name
-      const duplicate = service.serviceCategory.some(
-        (cat) =>
-          cat.serviceCategoryName.toLowerCase() ===
-          serviceCategoryName.toLowerCase()
-      );
-
-      if (duplicate) {
-        return next(new AppError("Category name already exists in this service", 400));
-      }
-
       service.serviceCategory.push({
         serviceCategoryName,
         description,
         price,
         durationInMinutes,
         employeeCount,
-        servicecategoryImage: imageUrl,
+        servicecategoryImage: imageUrl
       });
 
       await service.save();
@@ -183,19 +175,19 @@ exports.setServiceList = async (req, res, next) => {
       return res.status(200).json({
         success: true,
         message: "Category added to existing service",
-        data: service,
+        data: service
       });
     }
 
     // =================================================
-    // CASE 2 : CREATE NEW SERVICE + CATEGORY
+    // CASE 2 : CREATE NEW SERVICE
     // =================================================
     if (!serviceName) {
-      return next(new AppError("serviceName is required to create new service", 400));
+      return next(new AppError("serviceName is required", 400));
     }
 
     const newService = await ServiceList.create({
-      DomainServiceId,
+      DomainServiceId, // ✅ ObjectId guaranteed
       serviceName,
       serviceCategory: [
         {
@@ -204,21 +196,22 @@ exports.setServiceList = async (req, res, next) => {
           price,
           durationInMinutes,
           employeeCount,
-          servicecategoryImage: imageUrl,
-        },
-      ],
+          servicecategoryImage: imageUrl
+        }
+      ]
     });
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       message: "New service created with category",
-      data: newService,
+      data: newService
     });
 
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
 };
+
 
 
 exports.getAllEmployee = async (req, res, next) => {

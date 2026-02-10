@@ -8,7 +8,7 @@ const User = require("../models/user.model");
 const PartRequest = require('../models/partsrequest.model');
 const Domainparts = require('../models/domainparts.model');
 const DomainService = require("../models/domainservice.model")
-const ServiceList=require("../models/serviceList.model");
+const ServiceList = require("../models/serviceList.model");
 const {
   findNearbyTeams,
   createBooking,
@@ -73,8 +73,8 @@ exports.autoAssignServicer = async (req, res, next) => {
     const {
       userId,
       serviceCategoryName,
-      domainService,
       address,
+      domainService,
       coordinates,
       serviceCount = 1,
     } = req.body;
@@ -82,7 +82,6 @@ exports.autoAssignServicer = async (req, res, next) => {
     console.log("autoAssignServicer called with:", {
       userId,
       serviceCategoryName,
-      domainService,
       address,
       coordinates,
       serviceCount
@@ -125,11 +124,11 @@ exports.autoAssignServicer = async (req, res, next) => {
       coordinates,
       serviceCount,
     });
-
+    console.log(result);
     /* -------------------------
        No servicers available
     ------------------------- */
-    if (!result.data || result.data.length === 0) {
+    if (!result || result.length === 0) {
       await Booking.findByIdAndUpdate(booking._id, {
         status: BOOKING_STATUS.NO_PROVIDER,
       });
@@ -1041,7 +1040,7 @@ exports.scheduleBooking = async (req, res, next) => {
       return next(new AppError("Invalid service category", 400));
     }
 
-    const domainServiceId = serviceList.DomainServiceId; // ✅ ObjectId
+    const domainServiceId = serviceList.DomainServiceId;
 
     /* -------------------------
        CREATE BOOKING
@@ -1049,7 +1048,7 @@ exports.scheduleBooking = async (req, res, next) => {
     const booking = await Booking.create({
       user: userId,
       serviceCategoryName,
-      domainService: domainServiceId, // ✅ CORRECT
+      domainService: domainServiceId,
       serviceType: category.employeeCount === 1 ? "single" : "team",
       serviceCount,
       pricePerService: category.price,
@@ -1063,7 +1062,6 @@ exports.scheduleBooking = async (req, res, next) => {
       scheduleDateTime: scheduleTime,
       scheduleExecuted: false,
       assignmentStatus: "SCHEDULED",
-      status: "SCHEDULED",
     });
 
     return res.status(201).json({
