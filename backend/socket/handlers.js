@@ -111,7 +111,42 @@ module.exports = (io) => {
     socket.on("team-reject", ({ bookingId }) =>
       teamReject(bookingId, io)
     );
-    socket.on("visit-propose-service", async ({ bookingId, employeeId,serviceCategoryId }) => {
+    socket.on("join-tracking", ({ bookingId }) => {
+      if (!bookingId) return;
+
+      socket.join(bookingId.toString());
+      console.log(`Joined tracking room: ${bookingId}`);
+    });
+
+    /* ===============================
+       SERVICER SENDS LIVE LOCATION
+    =============================== */
+    socket.on("send-location", async ({ bookingId, location }) => {
+      try {
+        if (!bookingId || !location) return;
+
+        // Optional validation (recommended)
+        // const booking = await Booking.findById(bookingId);
+        // if (!booking) return;
+
+        // Broadcast to USER only (room)
+        socket.to(bookingId.toString()).emit(
+          "servicer-location-update",
+          {
+            bookingId,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            heading: location.heading,
+            eta: location.eta,
+            updatedAt: new Date()
+          }
+        );
+
+      } catch (err) {
+        console.error("send-location error:", err.message);
+      }
+    });
+    socket.on("visit-propose-service", async ({ bookingId, employeeId, serviceCategoryId }) => {
       try {
         const booking = await Booking.findOne({
           _id: bookingId,
@@ -178,7 +213,7 @@ module.exports = (io) => {
         console.error("visit-propose-service:", err.message);
       }
     });
-    socket.on("visit-approve-service", async ({ bookingId,userId, approve }) => {
+    socket.on("visit-approve-service", async ({ bookingId, userId, approve }) => {
       try {
 
         const booking = await Booking.findOne({

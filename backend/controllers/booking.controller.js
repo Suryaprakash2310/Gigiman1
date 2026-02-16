@@ -329,7 +329,7 @@ exports.approvePartRequest = async (req, res, next) => {
       _id: partRequest.bookingId,
       user: req.user._id,
     }).populate('user');
-    console.log(booking);
+
     if (!booking) {
       return next(new AppError("Unauthorized booking", 403));
     }
@@ -448,37 +448,51 @@ exports.verifyPartOTPcontroller = async (req, res, next) => {
   }
 };
 
+
 exports.getBookingById = async (req, res, next) => {
   try {
     const { bookingId } = req.params;
-    if (!bookingId || bookingId === "undefined") {
+
+    if (!bookingId) {
       return next(new AppError("bookingId is required", 400));
     }
 
     const booking = await Booking.findById(bookingId)
-      .populate("user", "fullName")
+      .populate("servicerCompany", "fullName")
+      .populate("primaryEmployee", "fullname phoneno rating");
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
     }
-    const result = {
-      name: booking.user?.fullName,
-      work: booking.serviceCategoryName,
-      cost: `₹${booking.totalPrice}`,
-      workingHours: `${booking.durationInMinutes}minus`,
-      employeeCount: String(
-        booking.employeeCount || booking.employees?.length || 1
-      ),
-      address: booking.address,
-    }
+
+    const review = await Review.findOne({ booking: bookingId })
+      .select("rating comment createdAt");
+
     return res.status(200).json({
       success: true,
-      booking: result,
+      booking: {
+        _id: booking._id,
+        name: booking.servicerCompany?.fullName || booking.primaryEmployee?.fullname,
+        serviceCategoryName: booking.serviceCategoryName,
+        cost: booking.totalPrice,
+        durationInMinutes: booking.durationInMinutes,
+        employeeCount: String(booking.employeeCount || 1),
+        address: booking.address,
+        status: booking.status,
+        otp: booking.otp,
+        technician: {
+          name: booking.primaryEmployee?.fullname,
+          rating: booking.primaryEmployee?.rating
+        },
+        coordinates: booking.coordinates,
+      },
+      review: review || null
     });
+
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
-};
+}
 /*================================================
    REVIEW
 =================================================*/
@@ -674,6 +688,7 @@ exports.getUserRecentBookingHistory = async (req, res, next) => {
   }
 }
 
+
 exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
   try {
     if (!req.employee) {
@@ -686,60 +701,47 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
     let baseFilter = {};
 
     /* ===============================
-       ROLE FILTERING
+       1. ROLE FILTER
     =============================== */
-
-    // SINGLE EMPLOYEE (Leader OR Helper)
     if (role === ROLES.SINGLE_EMPLOYEE) {
       baseFilter.$or = [
         { primaryEmployee: employee._id },
         { employees: employee._id }
       ];
-    }
-
-    // MULTIPLE EMPLOYEE (Team / Company)
-    else if (role === ROLES.MULTIPLE_EMPLOYEE) {
+    } else if (role === ROLES.MULTIPLE_EMPLOYEE) {
       baseFilter.servicerCompany = employee._id;
-    }
-
-    // TOOL SHOP
-    else if (role === ROLES.TOOL_SHOP) {
+    } else if (role === ROLES.TOOL_SHOP) {
       baseFilter.selectedToolShop = employee._id;
     }
 
-    // ADMIN
-    else if (role === ROLES.ADMIN) {
-      baseFilter = {};
-    }
-
     /* ===============================
-       TIME WINDOWS
+       2. TIME WINDOWS
     =============================== */
-    const now = new Date();
-
-    const startOfToday = new Date(now);
+    const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - 7);
+    const startOf7Days = new Date();
+    startOf7Days.setDate(startOf7Days.getDate() - 6);
 
-    const startOfMonth = new Date(now);
-    startOfMonth.setMonth(now.getMonth() - 1);
+    const startOf30Days = new Date();
+    startOf30Days.setDate(startOf30Days.getDate() - 29);
+
+    const startOf12Months = new Date();
+    startOf12Months.setMonth(startOf12Months.getMonth() - 11);
 
     /* ===============================
-       QUERIES
+       3. PARALLEL QUERIES
     =============================== */
     const [
-      allBookings,
-      todayCount,
-      weekCount,
-      monthCount,
-      completedStats,
-      statusBreakdown,
-      popularServices
+      bookings,
+      todayStats,
+      totalStats,
+      weeklyRaw,
+      monthlyRaw,
+      yearlyRaw
     ] = await Promise.all([
 
-      // FULL HISTORY
+      /* BOOKINGS LIST */
       Booking.find(baseFilter)
         .sort({ createdAt: -1 })
         .populate("user", "fullname phoneMasked")
@@ -748,93 +750,173 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
         .populate("servicerCompany", "storeName TeamId")
         .populate("selectedToolShop", "shopName storeLocation"),
 
-      // TODAY
-      Booking.countDocuments({
-        ...baseFilter,
-        createdAt: { $gte: startOfToday }
-      }),
-
-      // LAST 7 DAYS
-      Booking.countDocuments({
-        ...baseFilter,
-        createdAt: { $gte: startOfWeek }
-      }),
-
-      // LAST 30 DAYS
-      Booking.countDocuments({
-        ...baseFilter,
-        createdAt: { $gte: startOfMonth }
-      }),
-
-      // REVENUE + COMPLETED JOBS
+      /* TODAY JOBS + TODAY EARNINGS (COMPLETED ONLY) */
       Booking.aggregate([
-        { $match: { ...baseFilter, status: BOOKING_STATUS.COMPLETED } },
+        {
+          $match: {
+            ...baseFilter,
+            status: BOOKING_STATUS.COMPLETED,
+            createdAt: { $gte: startOfToday }
+          }
+        },
         {
           $group: {
             _id: null,
-            totalJobs: { $sum: 1 },
+            todayJobs: { $sum: 1 },
+            todayEarnings: { $sum: "$totalPrice" }
+          }
+        }
+      ]),
+
+      /* TOTAL DONE + TOTAL REVENUE (COMPLETED ONLY) */
+      Booking.aggregate([
+        {
+          $match: {
+            ...baseFilter,
+            status: BOOKING_STATUS.COMPLETED
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalDone: { $sum: 1 },
             totalRevenue: { $sum: "$totalPrice" }
           }
         }
       ]),
 
-      // STATUS BREAKDOWN
+      /* WEEKLY CHART (DAY WISE) */
       Booking.aggregate([
-        { $match: baseFilter },
+        {
+          $match: {
+            ...baseFilter,
+            status: BOOKING_STATUS.COMPLETED,
+            createdAt: { $gte: startOf7Days }
+          }
+        },
         {
           $group: {
-            _id: "$status",
-            count: { $sum: 1 }
+            _id: { $dayOfWeek: "$createdAt" }, // 1–7
+            amount: { $sum: "$totalPrice" }
           }
         }
       ]),
 
-      // POPULAR SERVICES
+      /* MONTHLY CHART (LAST 30 DAYS → WEEK WISE) */
       Booking.aggregate([
-        { $match: { ...baseFilter, status: BOOKING_STATUS.COMPLETED } },
         {
-          $group: {
-            _id: "$serviceCategoryName",
-            totalBookings: { $sum: 1 }
+          $match: {
+            ...baseFilter,
+            status: BOOKING_STATUS.COMPLETED,
+            createdAt: { $gte: startOf30Days }
           }
         },
-        { $sort: { totalBookings: -1 } },
-        { $limit: 5 }
+        {
+          $group: {
+            _id: { $week: "$createdAt" },
+            amount: { $sum: "$totalPrice" }
+          }
+        }
+      ]),
+
+      /* YEARLY CHART (LAST 12 MONTHS → MONTH WISE) */
+      Booking.aggregate([
+        {
+          $match: {
+            ...baseFilter,
+            status: BOOKING_STATUS.COMPLETED,
+            createdAt: { $gte: startOf12Months }
+          }
+        },
+        {
+          $group: {
+            _id: { $month: "$createdAt" },
+            amount: { $sum: "$totalPrice" }
+          }
+        }
       ])
     ]);
 
-    const revenueData = completedStats[0] || {
-      totalJobs: 0,
-      totalRevenue: 0
-    };
+    /* ===============================
+       4. NORMALIZE WEEKLY DATA
+    =============================== */
+    const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+    const weekly = WEEK_DAYS.map((day, index) => {
+      const found = weeklyRaw.find(d => d._id === index + 1);
+      return {
+        _id: day,
+        amount: found ? found.amount : 0
+      };
+    });
+
+    /* ===============================
+       5. NORMALIZE MONTHLY DATA (4 WEEKS)
+    =============================== */
+    const monthly = Array.from({ length: 4 }, (_, i) => {
+      const weekNumber = monthlyRaw[i]?._id;
+      return {
+        _id: `Week ${i + 1}`,
+        amount: monthlyRaw[i]?.amount || 0
+      };
+    });
+
+    /* ===============================
+       6. NORMALIZE YEARLY DATA (12 MONTHS)
+    =============================== */
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    const yearly = MONTHS.map((month, index) => {
+      const found = yearlyRaw.find(m => m._id === index + 1);
+      return {
+        _id: month,
+        amount: found ? found.amount : 0
+      };
+    });
+
+    /* ===============================
+       7. HIGHEST EARNING
+    =============================== */
+    const findHighest = (arr) =>
+      arr.reduce(
+        (max, cur) => (cur.amount > max.amount ? cur : max),
+        { amount: 0 }
+      );
+
+    /* ===============================
+       8. RESPONSE
+    =============================== */
     return res.status(200).json({
       success: true,
 
-      /* ===============================
-         STATS
-      =============================== */
       stats: {
-        todayBookings: todayCount,
-        last7DaysBookings: weekCount,
-        last30DaysBookings: monthCount,
-        totalCompletedJobs: revenueData.totalJobs,
-        totalRevenue: revenueData.totalRevenue,
-        statusBreakdown,
-        popularServices
+        todayJobs: todayStats[0]?.todayJobs || 0,
+        todayEarnings: todayStats[0]?.todayEarnings || 0,
+        totalDone: totalStats[0]?.totalDone || 0,
+        totalRevenue: totalStats[0]?.totalRevenue || 0
       },
 
-      /* ===============================
-         HISTORY
-      =============================== */
-      totalBookings: allBookings.length,
-      bookings: allBookings
+      charts: {
+        weekly,
+        monthly,
+        yearly
+      },
+
+      highestEarning: {
+        weekly: findHighest(weekly),
+        monthly: findHighest(monthly),
+        yearly: findHighest(yearly)
+      },
+
+      totalBookings: bookings.length,
+      bookings
     });
 
   } catch (err) {
     next(err);
   }
 };
+
 
 
 exports.getPopularBookings = async (req, res, next) => {
@@ -920,17 +1002,19 @@ exports.getReviewByService = async (req, res, next) => {
     const employeeId = new mongoose.Types.ObjectId(req.employeeId);
 
     const data = await Review.aggregate([
-      {
-        $match: {
-          primaryEmployee: employeeId
-        }
-      },
+      { $match: { primaryEmployee: employeeId } },
       {
         $group: {
-          _id: "$primaryEmployee",
+          _id: null,
           totalReviews: { $sum: 1 },
           avgRating: { $avg: "$rating" },
-          comments: { $push: "$comment" }
+          reviews: {
+            $push: {
+              rating: "$rating",
+              comment: "$comment",
+              createdAt: "$createdAt"
+            }
+          }
         }
       },
       {
@@ -938,17 +1022,13 @@ exports.getReviewByService = async (req, res, next) => {
           _id: 0,
           totalReviews: 1,
           avgRating: { $round: ["$avgRating", 1] },
-          comments: 1
+          reviews: 1
         }
       }
     ]);
 
-    return res.status(200).json(
-      data[0] || {
-        totalReviews: 0,
-        avgRating: 0,
-        comments: []
-      }
+    res.status(200).json(
+      data[0] || { totalReviews: 0, avgRating: 0, reviews: [] }
     );
 
   } catch (err) {

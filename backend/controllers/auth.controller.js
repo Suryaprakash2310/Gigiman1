@@ -120,25 +120,35 @@ exports.verifyOtp = async (req, res, next) => {
 
 exports.ShowServices = async (req, res, next) => {
   try {
-    const services = await DomainService.find(
-      {},
-      { domainName: 1, serviceImage: 1 }
-    )
-      .sort({ domainName: 1 })
-      .lean()
-    // returns plain JS objects, faster than Mongoose docs
-    if (!services || services.length === 0) {
+    const services = await DomainService.aggregate([
+      {
+        $project: {
+          _id: 1,
+          domainName: 1,
+          serviceImage: 1
+        }
+      },
+      {
+        $sort: { domainName: 1 }
+      }
+      // },{
+      //   $limit:2,
+      // }
+    ]);
+    if (services.length === 0) {
       return next(new AppError("No services found", 404));
     }
-    return res.status(200).json({
+
+    res.status(200).json({
       success: true,
       count: services.length,
       services
-    })
+    });
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
-}
+};
+
 
 //Search the service
 exports.searchService = async (req, res, next) => {
@@ -285,8 +295,9 @@ exports.getServiceCategoryById = async (req, res, next) => {
 exports.ShowsubserviceId = async (req, res, next) => {
   try {
     const { domainServiceId } = req.params;
-    if (!domainServiceId) {
-      return next(new AppError("domainServiceId is required", 400));
+    console.log(domainServiceId)
+    if (!domainServiceId || !mongoose.Types.ObjectId.isValid(domainServiceId)) {
+      return next(new AppError("Invalid or missing DomainServiceId", 400));
     }
     const services = await ServiceList.find({
       DomainServiceId: domainServiceId

@@ -167,8 +167,8 @@ exports.findNearbyTeams = async ({
 
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
-    const booking = await Booking.findById(bookingId)
-    console.log(booking.user?.fullName);
+    const booking = await Booking.findById(bookingId).populate('user', "fullName");
+    console.log(booking);
 
     if (!booking)
         throw new AppError("Booking not found", 404);
@@ -184,6 +184,15 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         employeeCount: booking.employeeCount,
         createdAt: booking.createdAt
     };
+    console.log(payload);
+    if (booking.dispatchAttempts >= 5) {
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED",
+        })
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (booking?.user?.socketId)
+            io.to(booking?.user?.socketId).emit("no-servicer-available");
+    }
 
     //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
@@ -211,14 +220,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         { new: true }
     );
     console.log(servicer);
-    if (booking.dispatchAttempts >= 5) {
-        await Booking.findByIdAndUpdate(bookingId, {
-            assignmentStatus: "FAILED",
-        })
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId)
-            io.to(booking?.user?.socketId).emit("no-servicer-available");
-    }
+
 
     //  No provider
     if (!servicer) {
@@ -229,8 +231,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         return;
 
     }
-
-
     //  Emit immediately (FAST)
     if (servicer.socketId) {
         io.to(servicer.socketId).emit(
@@ -251,7 +251,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
         await Booking.findByIdAndUpdate(bookingId, {
             $addToSet: { rejectedEmployees: servicer._id },
-            $inc: { dispatchAttemps: 1 },
+            $inc: { dispatchAttemp: 1 },
         })
         await SingleEmployee.findByIdAndUpdate(servicer._id, {
             availabilityStatus: "AVAILABLE",
@@ -366,12 +366,11 @@ exports.convertVisitToService = async ({
 exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) => {
     const [lng, lat] = coordinates;
 
-    const booking = await Booking.find(bookingId)
-        .select("rejectedMultipleEmployee")
+    const booking = await Booking(findBbookingId).select("rejectedMultipleEmployee")
 
     if (!booking) return;
 
-    const rejectdIds = booking?.rejectedEmployees || [];
+    const rejectdIds = booking?.rejectedMmployee || [];
 
 
     //  Pick + lock ONE TEAM atomically
@@ -445,8 +444,8 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             offerBookingId: null,
         });
         await Booking.findByIdAndUpdate(bookingId, {
-            $addToSet: { rejectedMultipleEmployee: servicer._id },
-            $inc: { dispatchAttemps: 1 },
+            $addToSet: { rejectedMultipleEmployee: team._id },
+            $inc: { dispatchAttempt: 1 },
         })
 
         exports.assignNextTeam({
@@ -808,9 +807,17 @@ exports.verifyStartOTP = async (bookingId, otp) => {
 exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const [lng, lat] = coordinates;
 
+    //  1. Find Request & Booking (for rejected list)
+    const request = await PartRequest.findById(requestId);
+    if (!request) return;
+
+    const booking = await Booking.findById(request.bookingId).select("rejectedToolShop");
+    const rejectedIds = booking?.rejectedToolShop || [];
+
     //  Pick + lock ONE toolshop atomically
     const shop = await ToolShop.findOneAndUpdate(
         {
+            _id: { $nin: rejectedIds },
             isActive: true,
             $or: [
                 { blockedUntil: null },
@@ -860,6 +867,13 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         await ToolShop.findByIdAndUpdate(shop._id, {
             offerRequestId: null,
         });
+
+        // Also add to rejected list so we don't pick it again immediately
+        if (booking) {
+            await Booking.findByIdAndUpdate(booking._id, {
+                $addToSet: { rejectedToolShop: shop._id }
+            });
+        }
 
         exports.assignNextToolshop({ requestId, coordinates, io });
     }, 5000);
@@ -950,9 +964,17 @@ exports.toolshopReject = async ({ requestId, shopId, io }) => {
     const request = await PartRequest.findById(requestId);
     if (!request) return;
 
+    // Update Booking with rejected shop
+    const booking = await Booking.findByIdAndUpdate(request.bookingId, {
+        $addToSet: { rejectedToolShop: shopId },
+        // $inc: { dispatchAttempts: 1 } // optional if you want to track attempts
+    }, { new: true });
+
+    if (!booking) return;
+
     exports.assignNextToolshop({
         requestId,
-        coordinates: request.location.coordinates,
+        coordinates: booking.location.coordinates,
         io,
     });
 };
@@ -1031,17 +1053,27 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     req.status = PART_REQUEST_STATUS.COLLECTED;
     req.otp = null;
     await req.save();
-    // const shop = await ToolShop.findOne({
-    //     _id: shopId,
-    //     offerRequestId: requestId,
-    // });
+    const booking = await Booking.findByIdAndUpdate(
+        req.bookingId,
+        {
+            $inc: { totalPrice: req.totalCost }
+        }, {
+        new: true
+    }
+    )
+    await booking.save();
+    const shop = await ToolShop.findOne({
+        _id: req.shopId,
+        offerRequestId: requestId,
+    });
 
-    // if (!shop) return;
+    if (!shop) return;
 
-    // await ToolShop.findByIdAndUpdate(shopId, {
-    //     $inc: { activeRequests: -1 },
-    //     offerRequestId: null,
-    // });
+    await ToolShop.findByIdAndUpdate(rhopId, {
+        $inc: { activeRequests: -1 },
+        offerRequestId: null,
+    });
+    await shop.save();
     const employee = await SingleEmployee.findById(req.employeeId).select("socketId");
     if (io && employee?.socketId) {
         try {
