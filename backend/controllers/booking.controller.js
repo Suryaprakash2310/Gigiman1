@@ -74,7 +74,6 @@ exports.autoAssignServicer = async (req, res, next) => {
       userId,
       serviceCategoryName,
       address,
-      domainService,
       coordinates,
       serviceCount = 1,
     } = req.body;
@@ -89,12 +88,27 @@ exports.autoAssignServicer = async (req, res, next) => {
     if (!serviceCategoryName) {
       return next(new AppError("serviceCategoryName is required", 400));
     }
-
     if (!address && !coordinates) {
       return next(
         new AppError("Either address or coordinates is required", 400)
       );
     }
+    const serviceList = await ServiceList.findOne({
+      "serviceCategory.serviceCategoryName": serviceCategoryName,
+    });
+
+    if (!serviceList) {
+      throw new AppError("Service Category not found", 404);
+    }
+
+
+    const category = serviceList.serviceCategory.find(
+      c => c.serviceCategoryName === serviceCategoryName
+    );
+
+    if (!category) throw new AppError("Invalid service category", 400);
+
+    const domainServiceId = serviceList.DomainServiceId;
     /* -------------------------
        Validate user + socket
     ------------------------- */
@@ -109,7 +123,7 @@ exports.autoAssignServicer = async (req, res, next) => {
     const { booking } = await createBooking({
       userId,
       serviceCategoryName,
-      domainService,
+      domainService:domainServiceId,
       address,
       coordinates,
       serviceCount,
@@ -864,7 +878,7 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
     /* ===============================
        6. NORMALIZE YEARLY DATA (12 MONTHS)
     =============================== */
-    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     const yearly = MONTHS.map((month, index) => {
       const found = yearlyRaw.find(m => m._id === index + 1);
@@ -1121,6 +1135,7 @@ exports.scheduleBooking = async (req, res, next) => {
     }
 
     const domainServiceId = serviceList.DomainServiceId;
+
 
     /* -------------------------
        CREATE BOOKING

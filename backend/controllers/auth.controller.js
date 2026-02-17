@@ -130,10 +130,9 @@ exports.ShowServices = async (req, res, next) => {
       },
       {
         $sort: { domainName: 1 }
+      },{
+        $limit:14
       }
-      // },{
-      //   $limit:2,
-      // }
     ]);
     if (services.length === 0) {
       return next(new AppError("No services found", 404));

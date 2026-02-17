@@ -8,7 +8,7 @@ const EmployeeService = require("../models/employeeService.model");
 const PartRequest = require("../models/partsrequest.model");
 const User = require("../models/user.model");
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-const { SEARCH_RADIUS_METERS } = require("../utils/constants");
+const { SEARCH_RADIUS_METERS, TOOLSHOP_RADIUS_METERS } = require("../utils/constants");
 const mongoose = require("mongoose");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const AppError = require("../utils/AppError");
@@ -167,8 +167,14 @@ exports.findNearbyTeams = async ({
 
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
-    const booking = await Booking.findById(bookingId).populate('user', "fullName");
-    console.log(booking);
+    const booking = await Booking.findById(bookingId).populate('user', "fullName").populate("domainService", "_id");
+    const capableEmployees = await EmployeeService.find({
+        capableservice: booking.domainService
+    });
+    const capableEmployeeIds = capableEmployees.map(e => e.employeeId);
+    const capableEmployeeObjectIds = capableEmployeeIds.map(
+        id => new mongoose.Types.ObjectId(id)
+    );
 
     if (!booking)
         throw new AppError("Booking not found", 404);
@@ -184,7 +190,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         employeeCount: booking.employeeCount,
         createdAt: booking.createdAt
     };
-    console.log(payload);
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
             assignmentStatus: "FAILED",
@@ -197,7 +202,10 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
-            _id: { $nin: rejectdIds },
+            _id: {
+                $nin: rejectdIds
+                , $in: capableEmployeeObjectIds
+            },
             isActive: true,
             availabilityStatus: "AVAILABLE",
             $or: [
@@ -219,7 +227,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         },
         { new: true }
     );
-    console.log(servicer);
+    console.log("serviceR", servicer);
 
 
     //  No provider
@@ -246,20 +254,23 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             offerBookingId: bookingId,
             availabilityStatus: "OFFERED",
         });
-
-        if (!stillOffered) return;
+        if (!stillOffered) {
+            return;
+        }
 
         await Booking.findByIdAndUpdate(bookingId, {
             $addToSet: { rejectedEmployees: servicer._id },
-            $inc: { dispatchAttemp: 1 },
-        })
+            $inc: { dispatchAttempts: 1 },
+        });
+
         await SingleEmployee.findByIdAndUpdate(servicer._id, {
             availabilityStatus: "AVAILABLE",
             offerBookingId: null,
         });
 
         exports.assignNextServicer({ bookingId, coordinates, io });
-    }, 50000); //  2.5 minutes
+    }, 50000);
+    //  2.5 minutes
 };
 
 
@@ -817,26 +828,29 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     //  Pick + lock ONE toolshop atomically
     const shop = await ToolShop.findOneAndUpdate(
         {
+            location: {
+                $near: {
+                    $geometry: {
+                        type: "Point",
+                        coordinates: [lng, lat],
+                    },
+                    $maxDistance: TOOLSHOP_RADIUS_METERS,
+                },
+            },
             _id: { $nin: rejectedIds },
             isActive: true,
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
             ],
-            location: {
-                $near: {
-                    $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: SEARCH_RADIUS_METERS,
-                },
-            },
-            activeRequests: { $lt: 5 },
+            $expr: { $lt: ["$activeRequests", "$maxCapacity"] },
         },
-        {
-            $set: { offerRequestId: requestId },
-        },
+        { $set: { offerRequestId: requestId } },
         { new: true }
     );
-    console.log(shop);
+
+
+    console.log("goood shop: ", shop);
     //  No shop available
     if (!shop) {
         const request = await PartRequest.findById(requestId).populate("employeeId");
@@ -876,7 +890,7 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         }
 
         exports.assignNextToolshop({ requestId, coordinates, io });
-    }, 5000);
+    }, 30000);
 };
 
 
@@ -885,6 +899,7 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         _id: shopId,
         offerRequestId: requestId,
     });
+    console.log(shop);
     if (!shop) {
         return;
     }
@@ -917,7 +932,6 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
     //  Mark shop BUSY
     await ToolShop.findByIdAndUpdate(shopId, {
         $inc: { activeRequests: 1 },
-        $set: { offerRequestId: null }
     });
 
     console.log(" OTP generated:", otp);
@@ -984,12 +998,11 @@ exports.toolshopReject = async ({ requestId, shopId, io }) => {
    8. PART REQUEST
 ====================================================== */
 exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) => {
-
     //  Validate booking
     const booking = await Booking.findOne({
         _id: bookingId,
-        primaryEmployee: employeeId,
-        status: BOOKING_STATUS.IN_PROGRESS,
+        // primaryEmployee: employeeId,
+        // status: BOOKING_STATUS.IN_PROGRESS,
     });
     console.log("[[[Booking for part request:", booking);
 
@@ -1009,9 +1022,9 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
         },
     });
 
-    if (existing) {
-        throw new AppError("Active part request already exists", 422);
-    }
+    // if (existing) {
+    //     throw new AppError("Active part request already exists", 422);
+    // }
 
     //  Create part request
     const partRequest = await PartRequest.create({
@@ -1044,7 +1057,6 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
         status: PART_REQUEST_STATUS.READY_FOR_PICKUP,
         otp: Number(otp),
     });
-
     if (!req) {
         return new AppError("Invalid request or OTP", 404);
     }
@@ -1061,15 +1073,15 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
         new: true
     }
     )
+    console.log(booking);
     await booking.save();
     const shop = await ToolShop.findOne({
         _id: req.shopId,
         offerRequestId: requestId,
     });
-
     if (!shop) return;
 
-    await ToolShop.findByIdAndUpdate(rhopId, {
+    await ToolShop.findByIdAndUpdate(req.shopId, {
         $inc: { activeRequests: -1 },
         offerRequestId: null,
     });

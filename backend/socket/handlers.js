@@ -14,6 +14,7 @@ const {
   teamReject,
   requestTool,
   toolshopAccept,
+  assignNextToolshop,
   toolshopReject,
   verifyPartOTP,
   verifyStartOTP,
@@ -446,10 +447,11 @@ module.exports = (io) => {
         const result = await verifyPartOTP(requestId, otp);
 
         if (!result.success) {
+          console.log("not sucess");
           socket.emit("otp-failed", { message: "Invalid OTP" });
           return;
         }
-
+        console.log("success");
         socket.emit("part-otp-success", result);
 
       } catch (err) {
