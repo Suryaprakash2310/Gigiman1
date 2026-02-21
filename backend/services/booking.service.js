@@ -199,13 +199,16 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             io.to(booking?.user?.socketId).emit("no-servicer-available");
     }
     // Base radius in KM
-    const radiusSteps = [5, 10, 15, 20];
+    const RADIUS_STEPS = [5, 10, 15, 20]; // km
+    const MAX_DISPATCH_ATTEMPTS = RADIUS_STEPS.length;
 
     // Ensure we don't exceed array
-    const attemptIndex = Math.min(booking.dispatchAttempts, radiusSteps.length - 1);
-
-    // Convert KM → meters
-    const dynamicRadius = radiusSteps[attemptIndex] * 1000;
+    const attemptIndex = Math.min(
+        booking.dispatchAttempts,
+        RADIUS_STEPS.length - 1
+    );
+    const dynamicRadius = RADIUS_STEPS[attemptIndex] * 1000;
+    console.log(dynamicRadius);
 
     //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
@@ -240,12 +243,29 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
     //  No provider
     if (!servicer) {
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId) {
-            io.to(booking.user.socketId).emit("no-servicer-available");
-        }
-        return;
+        // Increase dispatchAttempts
+        await Booking.findByIdAndUpdate(bookingId, {
+            $inc: { dispatchAttempts: 1 }
+        });
 
+        // Fetch updated booking
+        const updatedBooking = await Booking.findById(bookingId);
+
+        // If still attempts left → retry with next radius
+        if (updatedBooking.dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
+            return exports.assignNextServicer({ bookingId, coordinates, io });
+        }
+
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED"
+        });
+
+        const user = await User.findById(updatedBooking.user).select("socketId");
+        if (user?.socketId) {
+            io.to(user.socketId).emit("no-servicer-available");
+        }
+
+        return;
     }
     //  Emit immediately (FAST)
     if (servicer.socketId) {
@@ -827,14 +847,39 @@ exports.verifyStartOTP = async (bookingId, otp) => {
 exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const [lng, lat] = coordinates;
 
-    //  1. Find Request & Booking (for rejected list)
     const request = await PartRequest.findById(requestId);
     if (!request) return;
 
-    const booking = await Booking.findById(request.bookingId).select("rejectedToolShop");
-    const rejectedIds = booking?.rejectedToolShop || [];
+    const booking = await Booking.findById(request.bookingId)
+        .select("rejectedToolShop toolshopDispatchAttempts");
 
-    //  Pick + lock ONE toolshop atomically
+    if (!booking) return;
+
+    const rejectedIds = booking.rejectedToolShop || [];
+    const attempts = booking.toolshopDispatchAttempts || 0;
+    const TOOLSHOP_RADIUS_STEPS = [5, 10, 15, 20];
+    const MAX_TOOLSHOP_ATTEMPTS = TOOLSHOP_RADIUS_STEPS.length;
+
+    //  STOP if already failed
+    if (attempts >= MAX_TOOLSHOP_ATTEMPTS) {
+        const request = await PartRequest.findById(requestId)
+            .populate("employeeId");
+
+        if (request?.employeeId?.socketId) {
+            io.to(request.employeeId.socketId)
+                .emit("no-toolshop-available", { requestId });
+        }
+
+        return;
+    }
+
+    //  Dynamic Radius
+    const radiusIndex = Math.min(attempts, TOOLSHOP_RADIUS_STEPS.length - 1);
+    const dynamicRadius = TOOLSHOP_RADIUS_STEPS[radiusIndex] * 1000;
+
+    console.log("Toolshop attempt:", attempts);
+    console.log("Using radius:", dynamicRadius);
+
     const shop = await ToolShop.findOneAndUpdate(
         {
             location: {
@@ -843,7 +888,7 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
                         type: "Point",
                         coordinates: [lng, lat],
                     },
-                    $maxDistance: TOOLSHOP_RADIUS_METERS,
+                    $maxDistance: dynamicRadius,
                 },
             },
             _id: { $nin: rejectedIds },
@@ -858,17 +903,13 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         { new: true }
     );
 
-
-    console.log("goood shop: ", shop);
-    //  No shop available
+    console.log("Selected shop:", shop);
     if (!shop) {
-        const request = await PartRequest.findById(requestId).populate("employeeId");
-        if (request?.employeeId?.socketId) {
-            io
-                .to(request.employeeId.socketId)
-                .emit("no-toolshop-available", { requestId });
-        }
-        return;
+        await Booking.findByIdAndUpdate(booking._id, {
+            $inc: { toolshopDispatchAttempts: 1 }
+        });
+
+        return exports.assignNextToolshop({ requestId, coordinates, io });
     }
 
     //  Emit immediately
@@ -876,9 +917,9 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
         io.to(shop.socketId).emit("toolshop-booking-request", {
             requestId,
         });
-
     }
-    //  Single timeout (retry)
+
+    //  Timeout logic
     setTimeout(async () => {
         const stillOffered = await ToolShop.findOne({
             _id: shop._id,
@@ -891,14 +932,13 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
             offerRequestId: null,
         });
 
-        // Also add to rejected list so we don't pick it again immediately
-        if (booking) {
-            await Booking.findByIdAndUpdate(booking._id, {
-                $addToSet: { rejectedToolShop: shop._id }
-            });
-        }
+        await Booking.findByIdAndUpdate(booking._id, {
+            $addToSet: { rejectedToolShop: shop._id },
+            $inc: { toolshopDispatchAttempts: 1 }
+        });
 
         exports.assignNextToolshop({ requestId, coordinates, io });
+
     }, 30000);
 };
 

@@ -137,6 +137,10 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  toolshopDispatchAttempts:{
+    type: Number,
+    default: 0 
+  },
   /* ---------------- OTP ---------------- */
   StartWorkOTP: Number,
   toolOTP: Number,
