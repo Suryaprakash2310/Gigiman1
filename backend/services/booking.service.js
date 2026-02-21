@@ -211,8 +211,14 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const servicer = await SingleEmployee.findOneAndUpdate(
         {
             _id: {
-                $nin: rejectdIds
-                , $in: capableEmployeeObjectIds
+                $nin: rejectdIds,
+                $in: capableEmployeeObjectIds
+            },
+            location: {
+                $near: {
+                    $geometry: { type: "Point", coordinates: [lng, lat] },
+                    $maxDistance: dynamicRadius,
+                },
             },
             isActive: true,
             availabilityStatus: "AVAILABLE",
@@ -220,12 +226,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } }
             ],
-            location: {
-                $near: {
-                    $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: dynamicRadius``,
-                },
-            },
         },
         {
             $set: {
@@ -396,6 +396,12 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
     const team = await MultipleEmployee.findOneAndUpdate(
         {
             _id: { $nin: rejectdIds },
+            location: {
+                $near: {
+                    $geometry: { type: "Point", coordinates: [lng, lat] },
+                    $maxDistance: SEARCH_RADIUS_METERS,
+                },
+            },
             isActive: true,
             teamStatus: "AVAILABLE",
             $or: [
@@ -403,12 +409,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
                 { blockedUntil: { $lte: new Date() } },
             ],
             $expr: { $gte: [{ $size: "$members" }, employeeCount] },
-            location: {
-                $near: {
-                    $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: SEARCH_RADIUS_METERS,
-                },
-            },
+
         },
         {
             $set: {
