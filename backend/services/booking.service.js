@@ -198,6 +198,14 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         if (booking?.user?.socketId)
             io.to(booking?.user?.socketId).emit("no-servicer-available");
     }
+    // Base radius in KM
+    const radiusSteps = [5, 10, 15, 20];
+
+    // Ensure we don't exceed array
+    const attemptIndex = Math.min(booking.dispatchAttempts, radiusSteps.length - 1);
+
+    // Convert KM → meters
+    const dynamicRadius = radiusSteps[attemptIndex] * 1000;
 
     //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
@@ -215,7 +223,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             location: {
                 $near: {
                     $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: SEARCH_RADIUS_METERS,
+                    $maxDistance: dynamicRadius``,
                 },
             },
         },
