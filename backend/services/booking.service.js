@@ -1310,3 +1310,100 @@ exports.approveVisitServiceSocket = async (
         console.error("approveVisitServiceSocket:", err.message);
     }
 };
+
+exports.proposeExtraService = async ({ bookingId, serviceCategoryId, employeeId, io }) => {
+    const booking = await Booking.findById(bookingId).populate("user").populate("primaryEmployee");
+    if (!booking) throw new AppError("Booking not found", 404);
+
+    // Only workers on the booking can propose extra services
+    const isAssigned = booking.employees.some(emp => emp.toString() === employeeId) ||
+        (booking.primaryEmployee && booking.primaryEmployee._id.toString() === employeeId);
+
+    if (!isAssigned) {
+        throw new AppError("Unauthorized: Only assigned employees can propose extra services", 403);
+    }
+
+    const serviceList = await ServiceList.findOne({
+        "serviceCategory._id": serviceCategoryId
+    });
+
+    if (!serviceList) throw new AppError("Service category not found", 404);
+
+    const category = serviceList.serviceCategory.find(
+        c => c._id.toString() === serviceCategoryId.toString()
+    );
+
+    const extraService = {
+        serviceCategoryId,
+        serviceName: category.serviceCategoryName,
+        price: category.price,
+        durationInMinutes: category.durationInMinutes,
+        status: "PENDING",
+        requestedAt: new Date()
+    };
+
+    booking.extraServices.push(extraService);
+    await booking.save();
+
+    // Get the newly added service with its ID
+    const addedService = booking.extraServices[booking.extraServices.length - 1];
+
+    if (booking.user?.socketId) {
+        io.to(booking.user.socketId).emit("extra-service-proposed", {
+            bookingId: booking._id,
+            extraService: addedService
+        });
+    }
+
+    return addedService;
+};
+
+exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userId, io }) => {
+    const booking = await Booking.findById(bookingId).populate("primaryEmployee");
+    if (!booking) throw new AppError("Booking not found", 404);
+
+    if (booking.user.toString() !== userId) {
+        throw new AppError("Unauthorized: Only the customer can approve extra services", 403);
+    }
+
+    const extraService = booking.extraServices.id(extraServiceId);
+    if (!extraService) throw new AppError("Extra service request not found", 404);
+
+    if (extraService.status !== "PENDING") {
+        throw new AppError("Extra service request already processed", 400);
+    }
+
+    if (approve) {
+        extraService.status = "APPROVED";
+        extraService.approvedAt = new Date();
+        booking.totalPrice += extraService.price;
+        booking.durationInMinutes += extraService.durationInMinutes;
+
+        // Add to regular proposal history for tracking
+        booking.proposalHistory.push({
+            serviceCategoryName: extraService.serviceName,
+            price: extraService.price,
+            proposedBy: booking.primaryEmployee?._id,
+            status: "APPROVED_EXTRA",
+            proposedAt: extraService.requestedAt
+        });
+    } else {
+        extraService.status = "REJECTED";
+    }
+
+    await booking.save();
+
+    // Notify primary employee
+    const primaryEmployee = await SingleEmployee.findById(booking.primaryEmployee);
+    if (primaryEmployee?.socketId) {
+        io.to(primaryEmployee.socketId).emit("extra-service-response", {
+            bookingId,
+            extraServiceId,
+            status: extraService.status,
+            totalPrice: booking.totalPrice
+        });
+    }
+
+    return { booking, status: extraService.status };
+};
+

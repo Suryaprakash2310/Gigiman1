@@ -20,6 +20,8 @@ const {
   assignNextToolshop,
   assignNextServicer,
   resetAvailability,
+  approveExtraService,
+  proposeExtraService,
 } = require("../services/booking.service");
 const AppError = require("../utils/AppError");
 const Review = require("../models/review.model");
@@ -123,7 +125,7 @@ exports.autoAssignServicer = async (req, res, next) => {
     const { booking } = await createBooking({
       userId,
       serviceCategoryName,
-      domainService:domainServiceId,
+      domainService: domainServiceId,
       address,
       coordinates,
       serviceCount,
@@ -1223,3 +1225,58 @@ exports.createVisitBooking = async (req, res, next) => {
     next(err);
   }
 }
+
+exports.proposeExtraService = async (req, res, next) => {
+  try {
+    const { bookingId, serviceCategoryId } = req.body;
+    const employeeId = req.employeeId;
+    const io = req.app.get("io");
+
+    if (!bookingId || !serviceCategoryId) {
+      return next(new AppError("bookingId and serviceCategoryId are required", 400));
+    }
+
+    const result = await proposeExtraService({
+      bookingId,
+      serviceCategoryId,
+      employeeId,
+      io
+    });
+
+    res.status(200).json({
+      success: true,
+      extraService: result
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.approveExtraService = async (req, res, next) => {
+  try {
+    const { bookingId, extraServiceId, approve } = req.body;
+    const userId = req.user._id;
+    const io = req.app.get("io");
+
+    if (!bookingId || !extraServiceId || approve === undefined) {
+      return next(new AppError("bookingId, extraServiceId and approve (boolean) are required", 400));
+    }
+
+    const result = await approveExtraService({
+      bookingId,
+      extraServiceId,
+      approve,
+      userId,
+      io
+    });
+
+    res.status(200).json({
+      success: true,
+      status: result.status,
+      booking: result.booking
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+

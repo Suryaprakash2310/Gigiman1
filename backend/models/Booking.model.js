@@ -109,6 +109,23 @@ const bookingSchema = new mongoose.Schema({
     proposedAt: Date
   },
 
+  extraServices: [{
+    serviceCategoryId: {
+      type: mongoose.Types.ObjectId,
+      ref: "ServiceList.serviceCategory"
+    },
+    serviceName: String,
+    price: Number,
+    durationInMinutes: Number,
+    status: {
+      type: String,
+      enum: ["PENDING", "APPROVED", "REJECTED"],
+      default: "PENDING"
+    },
+    requestedAt: { type: Date, default: Date.now },
+    approvedAt: Date
+  }],
+
   proposalHistory: [{
     serviceCategoryName: String,
     price: Number,
@@ -137,9 +154,9 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  toolshopDispatchAttempts:{
+  toolshopDispatchAttempts: {
     type: Number,
-    default: 0 
+    default: 0
   },
   /* ---------------- OTP ---------------- */
   StartWorkOTP: Number,

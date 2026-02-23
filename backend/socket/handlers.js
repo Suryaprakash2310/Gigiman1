@@ -18,6 +18,8 @@ const {
   toolshopReject,
   verifyPartOTP,
   verifyStartOTP,
+  approveExtraService,
+  proposeExtraService,
 } = require("../services/booking.service");
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
@@ -285,6 +287,36 @@ module.exports = (io) => {
         console.error("visit-approve-service:", err.message);
       }
     });
+
+    socket.on("extra-service-propose", async ({ bookingId, serviceCategoryId, employeeId }) => {
+      try {
+        await proposeExtraService({
+          bookingId,
+          serviceCategoryId,
+          employeeId,
+          io
+        });
+      } catch (err) {
+        console.error("extra-service-propose error:", err.message);
+        socket.emit("extra-service-error", { message: err.message });
+      }
+    });
+
+    socket.on("extra-service-approve", async ({ bookingId, extraServiceId, approve, userId }) => {
+      try {
+        await approveExtraService({
+          bookingId,
+          extraServiceId,
+          approve,
+          userId,
+          io
+        });
+      } catch (err) {
+        console.error("extra-service-approve error:", err.message);
+        socket.emit("extra-service-error", { message: err.message });
+      }
+    });
+
 
 
     /* ===============================

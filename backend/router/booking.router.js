@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { protect } = require('../middleware/auth.middleware');
-const { userProtect } = require('../middleware/user.middleware'); 
+const { userProtect } = require('../middleware/user.middleware');
 const bookingController = require("../controllers/booking.controller");
 
 /* ===============================
@@ -9,8 +9,8 @@ const bookingController = require("../controllers/booking.controller");
 =============================== */
 router.post("/search", bookingController.searchNearbyservicer);
 router.post("/auto-assign", bookingController.autoAssignServicer);
-router.post('/schedule',userProtect,bookingController.scheduleBooking);
-router.post("/domain/visit/:domainServiceId",bookingController.createVisitBooking);
+router.post('/schedule', userProtect, bookingController.scheduleBooking);
+router.post("/domain/visit/:domainServiceId", bookingController.createVisitBooking);
 /* ===============================
    BOOKING
 =============================== */
@@ -30,28 +30,35 @@ router.post("/tool/request", protect, bookingController.requestToolController);
 
 router.post("/approve/:requestId", userProtect, bookingController.approvePartRequest);
 
+/* ===============================
+   EXTRA SERVICES
+=============================== */
+router.post("/extra/propose", protect, bookingController.proposeExtraService);
+router.post("/extra/approve", userProtect, bookingController.approveExtraService);
 
-router.get("/parts/part-request/:requestId",protect,bookingController.getPartRequestById);
-
-router.post("/tool/nearby",bookingController.nearbyToolShops);
-
-router.post("/tool/auto-assign",bookingController.autoAssignToolShop);
 
 
-router.post("/tool/otp/verify",bookingController.verifyPartOTPcontroller);
+router.get("/parts/part-request/:requestId", protect, bookingController.getPartRequestById);
+
+router.post("/tool/nearby", bookingController.nearbyToolShops);
+
+router.post("/tool/auto-assign", bookingController.autoAssignToolShop);
+
+
+router.post("/tool/otp/verify", bookingController.verifyPartOTPcontroller);
 
 /* ===============================
    PAYMENT
 =============================== */
-router.post("/review/:bookingId",userProtect, bookingController.submitReview);
-router.get("/review",protect,bookingController.getReviewByService);
-router.post("/createorder/:bookingId",bookingController.createOrderController);
+router.post("/review/:bookingId", userProtect, bookingController.submitReview);
+router.get("/review", protect, bookingController.getReviewByService);
+router.post("/createorder/:bookingId", bookingController.createOrderController);
 router.post("/payment/success", bookingController.paymentSuccess);
 
 
 //Booking history
-router.get("/history/user",userProtect,bookingController.getUserRecentBookingHistory);
-router.get("/history/servicer",protect,bookingController.getEmployeeRecentBookingHistory);
+router.get("/history/user", userProtect, bookingController.getUserRecentBookingHistory);
+router.get("/history/servicer", protect, bookingController.getEmployeeRecentBookingHistory);
 
 /* ===============================
    POPULAR BOOKINGS
