@@ -496,6 +496,7 @@ exports.getBookingById = async (req, res, next) => {
         address: booking.address,
         status: booking.status,
         otp: booking.otp,
+        domainServiceId: booking.domainService?._id,
         technician: {
           name: booking.primaryEmployee?.fullname,
           rating: booking.primaryEmployee?.rating
