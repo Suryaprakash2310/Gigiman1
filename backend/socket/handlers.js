@@ -5,7 +5,8 @@ const ToolShop = require("../models/toolshop.model");
 const PartRequest = require("../models/partsrequest.model");
 const Booking = require("../models/Booking.model");
 const mongoose = require("mongoose");
-const crons = require('node-cron')
+const ROLES = require("../enum/role.enum");
+const ServiceList = require("../models/serviceList.model");
 
 const {
   servicerAccept,
@@ -24,86 +25,64 @@ const {
 
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
-//const mongoose = require("mongoose");
 
-const isValidId = id =>
-  id && mongoose.Types.ObjectId.isValid(id);
 
 module.exports = (io) => {
-  io.on("connection", (socket) => {
-    console.log("Socket connected:", socket.id);
+  io.on("connection", async (socket) => {
+    console.log("Socket connected:", socket.id, "Role:", socket.role);
 
     /* ===============================
-       REGISTER SOCKETS
+       AUTO-REGISTER SOCKETID & JOIN ROOMS
     =============================== */
-    socket.on("register-user", async ({ userId }) => {
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        return;
+    try {
+      if (socket.role === ROLES.USER) {
+        socket.join(socket.userId);
+        await User.findByIdAndUpdate(socket.userId, { socketId: socket.id });
+      } else if (socket.role === ROLES.SINGLE_EMPLOYEE) {
+        socket.join(`employee_${socket.employeeId}`);
+        await SingleEmployee.findByIdAndUpdate(socket.employeeId, {
+          socketId: socket.id,
+          isActive: true,
+        });
+      } else if (socket.role === ROLES.MULTIPLE_EMPLOYEE) {
+        await MultipleEmployee.findByIdAndUpdate(socket.teamId, {
+          socketId: socket.id,
+          isActive: true,
+        });
+      } else if (socket.role === ROLES.TOOL_SHOP) {
+        await ToolShop.findByIdAndUpdate(socket.shopId, {
+          socketId: socket.id,
+          isActive: true,
+        });
       }
-
-      socket.join(userId.toString());
-      const updated = await User.findByIdAndUpdate(
-        userId,
-        { socketId: socket.id },
-        { new: true }
-      );
-    });
-
-    socket.on("register-employee", async ({ employeeId }) => {
-      if (!mongoose.Types.ObjectId.isValid(employeeId)) return;
-      const room = `employee_${employeeId}`;
-      socket.join(room);
-      await SingleEmployee.findByIdAndUpdate(employeeId, {
-        socketId: socket.id,
-        isActive: true,
-      });
-    });
-    socket.on("register-team", async ({ teamId }) => {
-      await MultipleEmployee.findByIdAndUpdate({ _id: teamId }, {
-        socketId: socket.id,
-        isActive: true,
-      });
-    });
-
-    socket.on("register-toolshop", async ({ shopId }) => {
-      if (!shopId || !mongoose.Types.ObjectId.isValid(shopId)) {
-        return;
-      }
-
-      await ToolShop.findByIdAndUpdate(shopId, {
-        socketId: socket.id,
-        isActive: true,
-      });
-    });
+    } catch (err) {
+      console.error("Error updating socketId on connection:", err.message);
+    }
     /* ===============================
        ACCEPT / REJECT
     =============================== */
-    socket.on("servicer-accept", async ({ bookingId, employeeId }) => {
+    socket.on("servicer-accept", async ({ bookingId }) => {
       try {
-        if (!io) {
-          console.error("IO instance missing for booking:", bookingId);
-          return;
-        }
-        await servicerAccept(bookingId, employeeId, io);
+        if (socket.role !== ROLES.SINGLE_EMPLOYEE) return;
+        await servicerAccept(bookingId, socket.employeeId, io);
       } catch (err) {
         console.error("servicer-accept error:", err);
       }
     });
 
-    socket.on("servicer-reject", async ({ bookingId, employeeId }) => {
+    socket.on("servicer-reject", async ({ bookingId }) => {
       try {
-        if (!io) {
-          console.error("IO instance missing for booking:", bookingId);
-          return;
-        }
-        await servicerReject({ bookingId, employeeId, io });
+        if (socket.role !== ROLES.SINGLE_EMPLOYEE) return;
+        await servicerReject({ bookingId, employeeId: socket.employeeId, io });
       } catch (err) {
         console.error("servicer-reject error:", err);
       }
     });
     socket.on("team-accept", async (payload) => {
+      if (socket.role !== ROLES.MULTIPLE_EMPLOYEE) return;
       const result = await teamAccept({
         ...payload,
+        teamId: socket.teamId,
         io
       });
 
@@ -127,10 +106,7 @@ module.exports = (io) => {
     socket.on("send-location", async ({ bookingId, location }) => {
       try {
         if (!bookingId || !location) return;
-
-        // Optional validation (recommended)
-        // const booking = await Booking.findById(bookingId);
-        // if (!booking) return;
+        if (socket.role !== ROLES.SINGLE_EMPLOYEE) return;
 
         // Broadcast to USER only (room)
         socket.to(bookingId.toString()).emit(
@@ -149,12 +125,14 @@ module.exports = (io) => {
         console.error("send-location error:", err.message);
       }
     });
-    socket.on("visit-propose-service", async ({ bookingId, employeeId, serviceCategoryId }) => {
+    socket.on("visit-propose-service", async ({ bookingId, serviceCategoryId }) => {
       try {
+        if (socket.role !== ROLES.SINGLE_EMPLOYEE) return;
+
         const booking = await Booking.findOne({
           _id: bookingId,
           visitMode: true,
-          primaryEmployee: employeeId,
+          primaryEmployee: socket.employeeId,
           proposalStatus: { $in: ["NONE", "REJECTED"] }
         });
 
@@ -185,7 +163,7 @@ module.exports = (io) => {
         booking.proposalHistory.push({
           serviceCategoryName: category.serviceCategoryName,
           price: category.price,
-          proposedBy: socket.userId,
+          proposedBy: socket.employeeId,
           status: "PROPOSED",
           proposedAt: new Date()
         });
@@ -216,12 +194,13 @@ module.exports = (io) => {
         console.error("visit-propose-service:", err.message);
       }
     });
-    socket.on("visit-approve-service", async ({ bookingId, userId, approve }) => {
+    socket.on("visit-approve-service", async ({ bookingId, approve }) => {
       try {
+        if (socket.role !== ROLES.USER) return;
 
         const booking = await Booking.findOne({
           _id: bookingId,
-          user: userId,
+          user: socket.userId,
           proposalStatus: "PROPOSED"
         });
 
@@ -288,12 +267,13 @@ module.exports = (io) => {
       }
     });
 
-    socket.on("extra-service-propose", async ({ bookingId, serviceCategoryId, employeeId }) => {
+    socket.on("extra-service-propose", async ({ bookingId, serviceCategoryId }) => {
       try {
+        if (socket.role !== ROLES.SINGLE_EMPLOYEE) return;
         await proposeExtraService({
           bookingId,
           serviceCategoryId,
-          employeeId,
+          employeeId: socket.employeeId,
           io
         });
       } catch (err) {
@@ -302,13 +282,14 @@ module.exports = (io) => {
       }
     });
 
-    socket.on("extra-service-approve", async ({ bookingId, extraServiceId, approve, userId }) => {
+    socket.on("extra-service-approve", async ({ bookingId, extraServiceId, approve }) => {
       try {
+        if (socket.role !== ROLES.USER) return;
         await approveExtraService({
           bookingId,
           extraServiceId,
           approve,
-          userId,
+          userId: socket.userId,
           io
         });
       } catch (err) {
@@ -322,8 +303,10 @@ module.exports = (io) => {
     /* ===============================
        TEAM ASSIGN MEMBERS
     =============================== */
-    socket.on("team-assign-members", async ({ bookingId, teamId, primaryEmployee, helpers = [] }) => {
+    socket.on("team-assign-members", async ({ bookingId, primaryEmployee, helpers = [] }) => {
       try {
+        if (socket.role !== ROLES.MULTIPLE_EMPLOYEE) return;
+        const teamId = socket.teamId;
         /* ============================
            1. Fetch & validate booking
         ============================ */
@@ -403,6 +386,7 @@ module.exports = (io) => {
     // Employee requests a tool / part
     socket.on("tool-request", async ({ bookingId, toolName }) => {
       try {
+        if (socket.role !== ROLES.SINGLE_EMPLOYEE) return;
         const partRequest = await requestTool(bookingId, toolName);
 
         const booking = await Booking.findById(bookingId);
@@ -422,6 +406,7 @@ module.exports = (io) => {
     // User approves tool request
     socket.on("tool-permission-approved", async ({ requestId }) => {
       try {
+        if (socket.role !== ROLES.USER) return;
         const req = await PartRequest.findOneAndUpdate(
           {
             _id: requestId,
@@ -454,9 +439,10 @@ module.exports = (io) => {
 
 
     // ToolShop accepts request
-    socket.on("toolshop-accept", async ({ requestId, shopId }) => {
+    socket.on("toolshop-accept", async ({ requestId }) => {
       try {
-        await toolshopAccept({ requestId, shopId, io });
+        if (socket.role !== ROLES.TOOL_SHOP) return;
+        await toolshopAccept({ requestId, shopId: socket.shopId, io });
       } catch (err) {
         console.error("toolshop-accept error:", err);
       }
@@ -464,9 +450,10 @@ module.exports = (io) => {
 
 
     // ToolShop rejects request
-    socket.on("toolshop-reject", async ({ requestId, shopId }) => {
+    socket.on("toolshop-reject", async ({ requestId }) => {
       try {
-        await toolshopReject({ requestId, shopId, io });
+        if (socket.role !== ROLES.TOOL_SHOP) return;
+        await toolshopReject({ requestId, shopId: socket.shopId, io });
       } catch (err) {
         console.error("toolshop-reject error:", err);
       }
@@ -508,8 +495,10 @@ module.exports = (io) => {
        USER CANCEL
     =============================== */
     socket.on("user-cancel-booking", async ({ bookingId }) => {
-      const booking = await Booking.findByIdAndUpdate(
-        bookingId,
+      if (socket.role !== ROLES.USER) return;
+
+      const booking = await Booking.findOneAndUpdate(
+        { _id: bookingId, user: socket.userId },
         { status: BOOKING_STATUS.CANCALLED },
         { new: true }
       );

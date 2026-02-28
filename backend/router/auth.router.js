@@ -7,7 +7,6 @@ const {
   ShowServices,
   searchService,
   ShowsubserviceId,
-  ShowsubService,
   getServiceCategoryById,
 } = require("../controllers/auth.controller");
 
@@ -22,8 +21,6 @@ router.get("/services/search", searchService);
 // Subservices by domain
 router.get("/showsubservice/:domainServiceId", ShowsubserviceId);
 
-// All services + categories 
-router.get("/showServices", ShowsubService);
 
 // Single category
 router.get("/service-list/:serviceCategoryId", getServiceCategoryById);

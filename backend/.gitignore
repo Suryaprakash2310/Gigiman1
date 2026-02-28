@@ -3,3 +3,5 @@ node_modules/
 
 # Security / setup scripts
 createAdmin.js
+logs/
+*.log

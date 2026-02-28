@@ -1,8 +1,6 @@
 const Razorpay=require('razorpay');
 require('dotenv').config();
-const Booking=require('../models/Booking.model');
-const crypto = require("crypto");  
-const { PAYMENT_STATUS } = require('../utils/constants');
+
 
 // Initialize Razorpay instance
 const razorpay=new Razorpay({

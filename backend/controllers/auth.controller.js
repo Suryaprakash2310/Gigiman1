@@ -174,58 +174,6 @@ exports.searchService = async (req, res, next) => {
 };
 
 
-exports.ShowsubService = async (req, res, next) => {
-  try {
-    const data = await ServiceList.find()
-      .populate("DomainServiceId", "domainName serviceImage")
-      .sort({ serviceName: 1 });
-    if (!data || data.length === 0) {
-      return next(new AppError("Service is empty", 404));
-    }
-    const serviceNames = data.map(item => item.serviceName);
-    const categoriesservices = data.flatMap(item =>
-      item.serviceCategory.map(sub => ({
-        _id: sub._id,
-        parentServiceName: item.serviceName,
-        domainServiceId: item.DomainServiceId?._id,
-        domainServiceName: item.DomainServiceId?.domainServiceName,
-        subserviceImage: sub.servicecategoryImage,
-        serviceCategoryName: sub.serviceCategoryName,
-        description: sub.description,
-        price: sub.price,
-        durationInMinutes: sub.durationInMinutes,
-        employeeCount: sub.employeeCount,
-      }))
-    );
-
-    const groupedServices = data.map(item => ({
-      serviceName: item.serviceName,
-      domainServiceId: item.DomainServiceId?._id,
-      categories: item.serviceCategory.map(sub => ({
-        _id: sub._id,
-        serviceCategoryName: sub.serviceCategoryName,
-        descritpion: sub.description,
-        subserviceImage: sub.servicecategoryImage,
-        price: sub.price,
-        durationInMinutes: sub.durationInMinutes,
-        employeCount: sub.employeeCount,
-      }))
-    }))
-    return res.status(200).json({
-      success: true,
-      message: "showing the subservice",
-      serviceNames,
-      categoriesservices,
-      groupedServices,
-      countServices: data.length,
-      countCategories: categoriesservices.length,
-    })
-
-  } catch (err) {
-    next(err); //let Global error handler deal with it
-  }
-};
-
 //Get specific service category by serviceCategoryId
 exports.getServiceCategoryById = async (req, res, next) => {
   try {
@@ -236,18 +184,6 @@ exports.getServiceCategoryById = async (req, res, next) => {
     }
 
     const categoryObjectId = new mongoose.Types.ObjectId(serviceCategoryId);
-
-    // const service = await ServiceList.findOne(
-    //   { "serviceCategory._id": categoryObjectId }
-    // ).lean();
-
-    // if (!service) {
-    //   return next(new AppError("Service category not found", 404));
-    // }
-
-    // const category = service.serviceCategory.find(
-    //   (cat) => cat._id.toString() === serviceCategoryId
-    // );
 
     const service=await ServiceList.aggregate([
       {$unwind:"$serviceCategory"},

@@ -1,5 +1,6 @@
 const mongoose=require('mongoose');
 const bcrypt=require('bcryptjs');
+const ADMIN_ROLES=require('../enum/admin.enum');
 const adminSchema=mongoose.Schema({
     fullname:{
         type:String,
@@ -16,7 +17,8 @@ const adminSchema=mongoose.Schema({
     },
     role:{
         type:String,
-        default: "admin",   
+        enum:Object.values(ADMIN_ROLES),
+        default: ADMIN_ROLES.ADMIN,   
     },
 },{timestamps:true});
 

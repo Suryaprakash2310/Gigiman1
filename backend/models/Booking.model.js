@@ -236,6 +236,7 @@ const bookingSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 /* ---------------- INDEXES ---------------- */
+bookingSchema.index({ location: "2dsphere" });
 bookingSchema.index({ status: 1, createdAt: -1 });
 bookingSchema.index({ servicerCompany: 1, status: 1 });
 bookingSchema.index({ primaryEmployee: 1, status: 1 });

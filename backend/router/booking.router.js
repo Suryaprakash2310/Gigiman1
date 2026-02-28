@@ -3,12 +3,14 @@ const router = express.Router();
 const { protect } = require('../middleware/auth.middleware');
 const { userProtect } = require('../middleware/user.middleware');
 const bookingController = require("../controllers/booking.controller");
+const validate = require("../middleware/validation.middleware");
+const schemas = require("../validations/booking.validation");
 
 /* ===============================
    SEARCH & AUTO ASSIGN
 =============================== */
 router.post("/search", bookingController.searchNearbyservicer);
-router.post("/auto-assign", bookingController.autoAssignServicer);
+router.post("/auto-assign", validate(schemas.autoAssignServicer), bookingController.autoAssignServicer);
 router.post('/schedule', userProtect, bookingController.scheduleBooking);
 router.post("/domain/visit/:domainServiceId", bookingController.createVisitBooking);
 /* ===============================
@@ -48,9 +50,9 @@ router.post("/tool/auto-assign", bookingController.autoAssignToolShop);
 router.post("/tool/otp/verify", bookingController.verifyPartOTPcontroller);
 
 /* ===============================
-   PAYMENT
+   PAYMENT & REVIEW
 =============================== */
-router.post("/review/:bookingId", userProtect, bookingController.submitReview);
+router.post("/review/:bookingId", userProtect, validate(schemas.submitReview), bookingController.submitReview);
 router.get("/review", protect, bookingController.getReviewByService);
 router.post("/createorder/:bookingId", bookingController.createOrderController);
 router.post("/payment/success", bookingController.paymentSuccess);

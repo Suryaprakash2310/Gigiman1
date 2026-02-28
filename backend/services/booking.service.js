@@ -8,7 +8,7 @@ const EmployeeService = require("../models/employeeService.model");
 const PartRequest = require("../models/partsrequest.model");
 const User = require("../models/user.model");
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
-const { SEARCH_RADIUS_METERS, TOOLSHOP_RADIUS_METERS } = require("../utils/constants");
+const { SEARCH_RADIUS_METERS, RADIUS_STEPS, MAX_DISPATCH_ATTEMPTS } = require("../utils/constants");
 const mongoose = require("mongoose");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const AppError = require("../utils/AppError");
@@ -198,10 +198,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         if (booking?.user?.socketId)
             io.to(booking?.user?.socketId).emit("no-servicer-available");
     }
-    // Base radius in KM
-    const RADIUS_STEPS = [5, 10, 15, 20]; // km
-    const MAX_DISPATCH_ATTEMPTS = RADIUS_STEPS.length;
-
     // Ensure we don't exceed array
     const attemptIndex = Math.min(
         booking.dispatchAttempts,
@@ -405,21 +401,37 @@ exports.convertVisitToService = async ({
 exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) => {
     const [lng, lat] = coordinates;
 
-    const booking = await Booking(findBbookingId).select("rejectedMultipleEmployee")
+    const booking = await Booking.findById(bookingId).select("rejectedMultipleEmployee dispatchAttempts serviceCategoryName address user location");
 
     if (!booking) return;
 
-    const rejectdIds = booking?.rejectedMmployee || [];
+    if (booking.dispatchAttempts >= MAX_DISPATCH_ATTEMPTS) {
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED",
+        });
+        const user = await User.findById(booking.user).select("socketId");
+        if (user?.socketId)
+            io.to(user.socketId).emit("no-team-available");
+        return;
+    }
 
+    const rejectedIds = booking.rejectedMultipleEmployee || [];
+
+    // Ensure we don't exceed array
+    const attemptIndex = Math.min(
+        booking.dispatchAttempts,
+        RADIUS_STEPS.length - 1
+    );
+    const dynamicRadius = RADIUS_STEPS[attemptIndex] * 1000;
 
     //  Pick + lock ONE TEAM atomically
     const team = await MultipleEmployee.findOneAndUpdate(
         {
-            _id: { $nin: rejectdIds },
+            _id: { $nin: rejectedIds },
             location: {
                 $near: {
                     $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: SEARCH_RADIUS_METERS,
+                    $maxDistance: dynamicRadius,
                 },
             },
             isActive: true,
@@ -429,7 +441,6 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
                 { blockedUntil: { $lte: new Date() } },
             ],
             $expr: { $gte: [{ $size: "$members" }, employeeCount] },
-
         },
         {
             $set: {
@@ -485,7 +496,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
         });
         await Booking.findByIdAndUpdate(bookingId, {
             $addToSet: { rejectedMultipleEmployee: team._id },
-            $inc: { dispatchAttempt: 1 },
+            $inc: { dispatchAttempts: 1 },
         })
 
         exports.assignNextTeam({
@@ -1122,7 +1133,7 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
         new: true
     }
     )
-    console.log(booking);
+    console.log("partreques5t", booking);
     await booking.save();
     const shop = await ToolShop.findOne({
         _id: req.shopId,

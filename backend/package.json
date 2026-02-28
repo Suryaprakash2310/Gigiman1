@@ -4,17 +4,23 @@
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.8.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "crypto-js": "^4.2.0",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "joi": "^18.0.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.1",
+    "morgan": "^1.10.1",
     "node-cron": "^4.2.1",
     "nodemon": "^3.1.10",
     "razorpay": "^2.9.6",
     "socket.io": "^4.8.1",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0"
   },
   "name": "backend",
   "version": "1.0.0",
@@ -22,8 +28,8 @@
   "description": "Gigiman",
   "main": "app.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node app.js",
+    "dev": "nodemon app.js"
   },
   "author": "Kiran Kumar",
   "license": "ISC"
