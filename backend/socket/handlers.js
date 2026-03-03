@@ -45,11 +45,13 @@ module.exports = (io) => {
           isActive: true,
         });
       } else if (socket.role === ROLES.MULTIPLE_EMPLOYEE) {
+        socket.join(`team_${socket.teamId}`);
         await MultipleEmployee.findByIdAndUpdate(socket.teamId, {
           socketId: socket.id,
           isActive: true,
         });
-      } else if (socket.role === ROLES.TOOL_SHOP) {
+      } else if (socket.role === ROLES.TOOL_SHOP) { 
+        socket.join(`toolshop_${socket.shopId}`);
         await ToolShop.findByIdAndUpdate(socket.shopId, {
           socketId: socket.id,
           isActive: true,
@@ -463,6 +465,11 @@ module.exports = (io) => {
     // Employee verifies OTP when collecting tool
     socket.on("verify-part-otp", async ({ requestId, otp }) => {
       try {
+        if(!requestId || !otp) {
+         console.log("Missing requestId or otp");
+          socket.emit("otp-failed", { message: "Missing requestId or otp" });
+          return;
+        }
         const result = await verifyPartOTP(requestId, otp);
 
         if (!result.success) {
@@ -471,7 +478,9 @@ module.exports = (io) => {
           return;
         }
         console.log("success");
-        socket.emit("part-otp-success", result);
+        socket.emit("part-otp-success",{
+      requestId,  
+    });
 
       } catch (err) {
         socket.emit("otp-failed", { message: err.message });
@@ -479,14 +488,20 @@ module.exports = (io) => {
     });
 
     socket.on("verify-start-otp", async ({ bookingId, otp }) => {
+       console.log("📥 OTP verify request:", bookingId, otp);
+        const booking = await Booking.findById(bookingId);
+       console.log("🔎 Booking status:", booking.status);
       try {
         const result = await verifyStartOTP(bookingId, otp);
         if (!result.success) {
+          console.log("❌ OTP FAILED (backend)");
           socket.emit("start-otp-failed", { message: "Invalid OTP" });
           return;
         }
+        console.log("✅ OTP SUCCESS (backend)");
         socket.emit("otp-success", result);
       } catch (err) {
+        console.log("💥 OTP ERROR:", err.message);
         socket.emit("otp-failed", { message: err.message });
       }
     });

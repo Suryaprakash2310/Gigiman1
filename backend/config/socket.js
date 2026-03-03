@@ -45,6 +45,16 @@ module.exports = (server) => {
                 return next(new Error("Authentication error: Invalid role"));
             }
 
+            const identity = await model.findById(decoded.id);
+            if (!identity) {
+                return next(new Error("Authentication error: User not found"));
+            }
+
+            // ✅ ATTACH PROPERLY
+            socket.role = decoded.role;
+            socket.identity = identity;
+
+
             // Attach to socket
             if (decoded.role === ROLES.USER) {
                 socket.userId = identity._id.toString();
@@ -56,8 +66,8 @@ module.exports = (server) => {
                 socket.shopId = identity._id.toString();
             }
 
-            socket.role = decoded.role;
-            socket.identity = identity;
+            // socket.role = decoded.role;
+            // socket.identity = identity;
 
             next();
         } catch (err) {

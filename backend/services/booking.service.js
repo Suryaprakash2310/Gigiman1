@@ -265,9 +265,9 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     }
     //  Emit immediately (FAST)
     if (servicer.socketId) {
-        io.to(servicer.socketId).emit(
+        io.to(`employee_${servicer._id}`).emit(
             "new-booking-request",
-            { payload },
+            payload
         );
     }
 
@@ -311,6 +311,7 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
             $set: {
                 primaryEmployee: employeeId,
                 employees: [employeeId],
+                status: BOOKING_STATUS.ASSIGNED,
             },
         },
         { new: true }
@@ -337,7 +338,7 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
     //  Notify PROVIDER booking confirmed
     const employee = await SingleEmployee.findById(employeeId);
     if (employee?.socketId) {
-        io.to(employee.socketId).emit("booking-confirmed", { booking: updatedBooking, otp });
+        io.to(`employee_${employee._id}`).emit("booking-confirmed", { booking: updatedBooking, otp });
     }
 };
 
@@ -455,30 +456,34 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
         await Booking.findByIdAndUpdate(bookingId, {
             assignmentStatus: "FAILED",
         })
-        const booking = await Booking.findById(bookingId).populate("user");
+        booking = await Booking.findById(bookingId).populate("user");
         if (booking?.user?.socketId)
-            io.to(booking?.user?.socketId).emit("no-servicer-available");
+            io.to(`user_${booking.user._id}`).emit("no-servicer-available");
     }
 
     //  No team available
     if (!team) {
         const booking = await Booking.findById(bookingId).populate("user");
         if (booking?.user?.socketId) {
-            io.to(booking.user.socketId).emit("no-team-available");
+            io.to(`user_${booking.user._id}`).emit("no-team-available");
         }
         return;
     }
+    console.log("Team found:", team?._id);
 
     //  Emit immediately to team leader
-    if (team.socketId) {
-        const booking = await Booking.findById(bookingId);
-        io.to(team.socketId).emit("team-booking-request", {
-            bookingId,
-            teamId: team._id,
-            employeeCount,
-            serviceCategory: booking.serviceCategoryName
-        });
-    }
+
+    //const booking = await Booking.findById(bookingId);
+    console.log("Emitting team booking to room:", `team_${team._id}`);
+    io.to(`team_${team._id}`).emit("team-booking-request", {
+        bookingId,
+        teamId: team._id,
+        employeeCount,
+        serviceCategory: booking.serviceCategoryName,
+        address: booking.address,
+    });
+
+
 
     //  Single timeout (retry)
     setTimeout(async () => {
@@ -806,7 +811,7 @@ exports.generateStartOTP = async (bookingId) => {
     }
 
     // OTP only allowed before work starts
-    if (booking.status !== BOOKING_STATUS.PENDING) {
+    if (booking.status !== BOOKING_STATUS.ASSIGNED) {
         throw new Error("OTP can only be generated before work starts");
     }
 
@@ -835,7 +840,7 @@ exports.verifyStartOTP = async (bookingId, otp) => {
     }
 
     // Status must be correct
-    if (booking.status !== BOOKING_STATUS.PENDING) {
+    if (booking.status !== BOOKING_STATUS.ASSIGNED) {
         throw new AppError("Invalid booking state", 409);
     }
 
@@ -1100,6 +1105,7 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
     //  Emit to USER (best-effort)
     if (io && booking.user) {
         io.to(booking.user.toString()).emit("tool-request-created", {
+            bookingId,
             requestId: partRequest._id,
             parts,
             totalCost,
@@ -1120,7 +1126,6 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     if (!req) {
         return new AppError("Invalid request or OTP", 404);
     }
-
     //  Mark as collected
     req.status = PART_REQUEST_STATUS.COLLECTED;
     req.otp = null;
@@ -1138,7 +1143,7 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     const shop = await ToolShop.findOne({
         _id: req.shopId,
         offerRequestId: requestId,
-    });
+    });  
     if (!shop) return;
 
     await ToolShop.findByIdAndUpdate(req.shopId, {
@@ -1157,6 +1162,7 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
             console.error('emit tool-otp-verified failed', e);
         }
     }
+    console.log("complete");
     return {
         success: true,
         req,
