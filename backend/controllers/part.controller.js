@@ -1,5 +1,6 @@
 const Domainparts = require('../models/domainparts.model');
 const PartRequest = require("../models/partsrequest.model");
+const { generatePartRequestBill } = require('../utils/pdf.utils');
 
 const mongoose = require("mongoose");
 const AppError = require('../utils/AppError');
@@ -11,7 +12,7 @@ exports.showCategories = async (req, res, next) => {
       { $project: { _id: 1, domainpartname: 1 } },
       { $sort: { domainpartname: 1 } },
     ]);
-    if(!categories || categories.length === 0){
+    if (!categories || categories.length === 0) {
       return next(new AppError("No categories found", 404));
     }
     res.status(200).json({
@@ -25,23 +26,23 @@ exports.showCategories = async (req, res, next) => {
   }
 };
 
-exports.showpartById=async(req,res,next)=>{
-  try{
-    const {DomainpartId}=req.params;
-    if(!mongoose.Types.ObjectId.isValid(DomainpartId)){
-      return next(new AppError("DomainpartId is invaild",400));
+exports.showpartById = async (req, res, next) => {
+  try {
+    const { DomainpartId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(DomainpartId)) {
+      return next(new AppError("DomainpartId is invaild", 400));
     }
-    const domain=await Domainparts.findById(DomainpartId);
-    if(!domain){
-      return next(new AppError("Domainpart is not found",404));
+    const domain = await Domainparts.findById(DomainpartId);
+    if (!domain) {
+      return next(new AppError("Domainpart is not found", 404));
     }
     return res.status(200).json({
-      success:true,
-      message:"Domainpart showing",
+      success: true,
+      message: "Domainpart showing",
       domain,
     })
 
-  }catch(err){
+  } catch (err) {
     next(err);
   }
 }
@@ -173,3 +174,36 @@ exports.searchParts = async (req, res, next) => {
 //     next(err); //let Global error handler deal with it
 //   }
 // }
+
+
+exports.downloadPartBill = async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+
+    const partRequest = await PartRequest.findById(requestId)
+      .populate('shopId')
+      .populate('employeeId')
+      .populate('bookingId');
+
+    if (!partRequest) {
+      return next(new AppError("Part request not found", 404));
+    }
+
+    if (!partRequest.shopId) {
+      return next(new AppError("Shop details not assigned yet", 400));
+    }
+
+    const pdfBuffer = await generatePartRequestBill({
+      partRequest,
+      shop: partRequest.shopId,
+      employee: partRequest.employeeId
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=bill_${requestId}.pdf`);
+    res.send(pdfBuffer);
+
+  } catch (err) {
+    next(err);
+  }
+};

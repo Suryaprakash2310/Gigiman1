@@ -10,13 +10,15 @@ const schemas = require("../validations/booking.validation");
    SEARCH & AUTO ASSIGN
 =============================== */
 router.post("/search", bookingController.searchNearbyservicer);
-router.post("/auto-assign", validate(schemas.autoAssignServicer), bookingController.autoAssignServicer);
+router.post("/auto-assign", validate(schemas.autoAssignServicer), userProtect,bookingController.autoAssignServicer);
 router.post('/schedule', userProtect, bookingController.scheduleBooking);
 router.post("/domain/visit/:domainServiceId", bookingController.createVisitBooking);
 /* ===============================
    BOOKING
 =============================== */
 router.post("/team/assign", bookingController.teamAssignMembers);
+router.get("/active/user", userProtect, bookingController.getActiveUserBookings);
+router.get("/scheduled/user", userProtect, bookingController.getScheduledUserBookings);
 
 /* ===============================
    START WORK OTP
@@ -37,8 +39,6 @@ router.post("/approve/:requestId", userProtect, bookingController.approvePartReq
 =============================== */
 router.post("/extra/propose", protect, bookingController.proposeExtraService);
 router.post("/extra/approve", userProtect, bookingController.approveExtraService);
-
-
 
 router.get("/parts/part-request/:requestId", protect, bookingController.getPartRequestById);
 

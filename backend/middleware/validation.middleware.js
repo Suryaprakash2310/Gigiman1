@@ -5,7 +5,7 @@ const AppError = require('../utils/AppError');
  * @param {import('joi').Schema} schema 
  * @param {string} property - 'body', 'params', or 'query'
  */
-const validate = (schema, property = 'body') => {
+const  validate = (schema, property = 'body') => {
     return (req, res, next) => {
         const { error } = schema.validate(req[property], {
             abortEarly: false,

@@ -50,7 +50,7 @@ module.exports = (io) => {
           socketId: socket.id,
           isActive: true,
         });
-      } else if (socket.role === ROLES.TOOL_SHOP) { 
+      } else if (socket.role === ROLES.TOOL_SHOP) {
         socket.join(`toolshop_${socket.shopId}`);
         await ToolShop.findByIdAndUpdate(socket.shopId, {
           socketId: socket.id,
@@ -95,33 +95,78 @@ module.exports = (io) => {
     socket.on("team-reject", ({ bookingId }) =>
       teamReject(bookingId, io)
     );
-    socket.on("join-tracking", ({ bookingId }) => {
+    socket.on("join-tracking", (payload) => {
+      const bookingId = payload?.bookingId || payload;
       if (!bookingId) return;
 
-      socket.join(bookingId.toString());
-      console.log(`Joined tracking room: ${bookingId}`);
+      const room = bookingId.toString();
+      socket.join(room);
+      console.log(`[Socket] ${socket.id} (Role: ${socket.role}) joined tracking room: ${room}`);
     });
 
-    /* ===============================
-       SERVICER SENDS LIVE LOCATION
-    =============================== */
-    socket.on("send-location", async ({ bookingId, location }) => {
+    /* =================================
+       LIVE LOCATION TRACKING (BIDIRECTIONAL)
+    ================================= */
+    socket.on("send-location", async (payload) => {
       try {
-        if (!bookingId || !location) return;
-        if (socket.role !== ROLES.SINGLE_EMPLOYEE) return;
+        const { bookingId, location, latitude, longitude, heading, eta } = payload || {};
+        if (!bookingId) return;
 
-        // Broadcast to USER only (room)
-        socket.to(bookingId.toString()).emit(
-          "servicer-location-update",
-          {
-            bookingId,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            heading: location.heading,
-            eta: location.eta,
-            updatedAt: new Date()
+        // Support both nested {location: {lat, lng}} and flat {lat, lng} structures
+        const lat = location?.latitude || latitude;
+        const lng = location?.longitude || longitude;
+        const head = location?.heading || heading || 0;
+        const reachTime = location?.eta || eta;
+
+        if (lat === undefined || lng === undefined) {
+          console.warn("[Socket] send-location: Missing latitude or longitude in payload", payload);
+          return;
+        }
+
+        const room = bookingId.toString();
+
+        // Determine event name based on sender's role
+        // If User sends location -> emit "user-location-update" (for servicer to see)
+        // If Servicer sends location -> emit "servicer-location-update" (for user to see)
+        const isUser = socket.role === ROLES.USER;
+        const eventName = isUser ? "user-location-update" : "servicer-location-update";
+
+        // Broadcast to everyone ELSE in the room
+        socket.to(room).emit(eventName, {
+          bookingId,
+          latitude: lat,
+          longitude: lng,
+          heading: head,
+          eta: reachTime,
+          updatedAt: new Date(),
+          senderRole: socket.role
+        });
+
+        // PERSISTENCE: Update the database so page refreshes show latest status
+        try {
+          if (!isUser) {
+            // Update the booking with latest ETA and Heading
+            await Booking.findByIdAndUpdate(bookingId, {
+              $set: {
+                "location.heading": head,
+                "location.eta": reachTime
+              }
+            });
+
+            // Update servicer's current profile location (for dispatcher/nearby search)
+            if (socket.employeeId) {
+              await SingleEmployee.findByIdAndUpdate(socket.employeeId, {
+                $set: { "location.coordinates": [lng, lat] }
+              });
+            } else if (socket.teamId) {
+              await MultipleEmployee.findByIdAndUpdate(socket.teamId, {
+                $set: { "location.coordinates": [lng, lat] }
+              });
+            }
           }
-        );
+        } catch (dbErr) {
+          console.error("[Socket] Failed to persist location update to DB:", dbErr.message);
+        }
 
       } catch (err) {
         console.error("send-location error:", err.message);
@@ -465,8 +510,8 @@ module.exports = (io) => {
     // Employee verifies OTP when collecting tool
     socket.on("verify-part-otp", async ({ requestId, otp }) => {
       try {
-        if(!requestId || !otp) {
-         console.log("Missing requestId or otp");
+        if (!requestId || !otp) {
+          console.log("Missing requestId or otp");
           socket.emit("otp-failed", { message: "Missing requestId or otp" });
           return;
         }
@@ -478,9 +523,9 @@ module.exports = (io) => {
           return;
         }
         console.log("success");
-        socket.emit("part-otp-success",{
-      requestId,  
-    });
+        socket.emit("part-otp-success", {
+          requestId,
+        });
 
       } catch (err) {
         socket.emit("otp-failed", { message: err.message });
@@ -488,9 +533,9 @@ module.exports = (io) => {
     });
 
     socket.on("verify-start-otp", async ({ bookingId, otp }) => {
-       console.log("📥 OTP verify request:", bookingId, otp);
-        const booking = await Booking.findById(bookingId);
-       console.log("🔎 Booking status:", booking.status);
+      console.log("📥 OTP verify request:", bookingId, otp);
+      const booking = await Booking.findById(bookingId);
+      console.log("🔎 Booking status:", booking.status);
       try {
         const result = await verifyStartOTP(bookingId, otp);
         if (!result.success) {

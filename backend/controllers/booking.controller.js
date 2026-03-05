@@ -73,13 +73,13 @@ exports.searchNearbyservicer = async (req, res, next) => {
 exports.autoAssignServicer = async (req, res, next) => {
   try {
     const {
-      userId,
       serviceCategoryName,
       address,
       coordinates,
       serviceCount = 1,
     } = req.body;
     const io = req.app.get("io");
+    const userId=req.userId;
     console.log("autoAssignServicer called with:", {
       userId,
       serviceCategoryName,
@@ -116,7 +116,7 @@ exports.autoAssignServicer = async (req, res, next) => {
     ------------------------- */
     const user = await User.findById(userId);
     if (!user || !user.socketId) {
-      return next(new AppError("Invalid user or user not connected", 400));
+      return next( new AppError("Invalid user or user not connected", 400));
     }
 
     /* ======================================================
@@ -1281,3 +1281,37 @@ exports.approveExtraService = async (req, res, next) => {
   }
 };
 
+exports.getActiveUserBookings = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const bookings = await Booking.find({
+      user: userId,
+      // Include anything that is currently being processed
+      $or: [
+        { isScheduled: false, status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCELLED] } },
+        { isScheduled: true, assignmentStatus: 'ASSIGNED' } // Scheduled jobs that have started
+      ]
+    })
+    .populate("primaryEmployee", "fullname rating phone avatar") // Show technician details
+    .sort({ createdAt: -1 });
+    res.status(200).json({ success: true, bookings });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+// 🔵 GET UPCOMING BOOKINGS (Scheduled for Future)
+exports.getScheduledUserBookings = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const bookings = await Booking.find({
+      user: userId,
+      isScheduled: true,
+      assignmentStatus: "SCHEDULED", // Specifically those waiting in the queue
+      status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCELLED] }
+    })
+    .sort({ scheduleDateTime: 1 }); // Show closest date first
+    res.status(200).json({ success: true, bookings });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

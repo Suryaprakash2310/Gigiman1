@@ -1,39 +1,60 @@
-const express=require('express');
+const express = require('express');
 const { protect } = require('../middleware/auth.middleware');
-const { adminLogin, checkAuth, getEmployeecounts, Adddomainservice,  getAllEmployee, DeleteDomainService, setServiceList, deleteServiceCategory, updateServiceCategory, EditDomainService, getServiceCategories, setDomainTool, editDomainToolById } = require('../controllers/admin.controller');
-const { allowRoles } = require('../middleware/role.middleware');
-const router=express.Router();
+const {
+    adminLogin,
+    adminSignup,
+    inviteAdmin,
+    getAllPermissions,
+    checkAuth,
+    getEmployeecounts,
+    Adddomainservice,
+    getAllEmployee,
+    DeleteDomainService,
+    setServiceList,
+    deleteServiceCategory,
+    updateServiceCategory,
+    EditDomainService,
+    getServiceCategories,
+    setDomainTool,
+    editDomainToolById,
+    getAllBooking
+} = require('../controllers/admin.controller');
+const { allowRoles, hasPermission } = require('../middleware/role.middleware');
+const PERMISSIONS = require('../enum/permission.enum');
+const router = express.Router();
 
-//Login admin
-router.post("/login",adminLogin);
+// Login admin
+router.post("/login", adminLogin);
 
-//check auth
-router.get("/check-auth",protect,checkAuth);
+// Invite admin - Restricted to those with MANAGE_ADMINS permission
+router.get("/permissions", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), getAllPermissions);
+router.post("/invite", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), inviteAdmin);
 
-//count the total user
-router.get("/employee-counts",protect,allowRoles("admin"),getEmployeecounts)
+// Signup with invite
+router.post("/signup-invite", adminSignup);
 
-router.get("/get-all-employee",protect,allowRoles("admin"),getAllEmployee);
+// Check auth
+router.get("/check-auth", protect, checkAuth);
 
-//Added the domain Service
-router.post("/add-domain-service",protect,allowRoles("admin"),Adddomainservice);
+// Employee management permissions
+router.get("/employee-counts", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getEmployeecounts);
+router.get("/get-all-employee", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getAllEmployee);4
+router.get("/get-all-booking",protect,hasPermission(PERMISSIONS.MANAGE_BOOKING),getAllBooking);
 
-router.post("/add-service-list",protect,allowRoles("admin"),setServiceList);
+// Domain Service management permissions
+router.post("/add-domain-service", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), Adddomainservice);
+router.post("/add-service-list", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), setServiceList);
+router.delete("/delete-domain-service/:id", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), DeleteDomainService);
+router.put("/domainservice-edit/:DomainserviceId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), EditDomainService);
+router.put("/update-service-category/:serviceId/:categoryId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), updateServiceCategory);
+router.delete("/delete-service-category/:serviceId/:categoryId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), deleteServiceCategory);
+router.get("/service-categories/:DomainServiceId", protect, hasPermission(PERMISSIONS.VIEW_SERVICES), getServiceCategories);
 
-router.delete("/delete-domain-service/:id",protect,allowRoles("admin"),DeleteDomainService);
+// Tool/Part management permissions
+router.post("/add-domainpart", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), setDomainTool);
+router.put("/domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), editDomainToolById);
+router.delete("/delete-domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), DeleteDomainService);
 
-router.put("/domainservice-edit/:DomainserviceId",protect,allowRoles("admin"),EditDomainService)
 
-router.put("/update-service-category/:serviceId/:categoryId",protect,allowRoles("admin"),updateServiceCategory);
 
-router.delete("/delete-service-category/:serviceId/:categoryId",protect,allowRoles("admin"),deleteServiceCategory);
-
-router.get("/service-categories/:DomainServiceId",protect,allowRoles("admin"),getServiceCategories);
-
-router.post("/add-domainpart",protect,allowRoles("admin"),setDomainTool);
-
-router.put("/domainpart/:domainpartId",protect,allowRoles("admin"),editDomainToolById);
-
-router.delete("/delete-domainpart/:domainpartId",protect,allowRoles("admin"),DeleteDomainService);
-
-module.exports=router;
+module.exports = router;

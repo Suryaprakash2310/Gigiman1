@@ -202,6 +202,14 @@ const bookingSchema = new mongoose.Schema({
       type: [Number],
       required: true,
     },
+    heading: {
+      type: Number,
+      default: 0
+    },
+    eta: {
+      type: String,
+      default: null
+    }
   },
 
   StartWorkOTP: Number,

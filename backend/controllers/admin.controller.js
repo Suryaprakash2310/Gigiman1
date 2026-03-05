@@ -1,5 +1,6 @@
 const Admin = require('../models/admin.model');
 const jwt = require("jsonwebtoken");
+const crypto = require('crypto');
 const SingleEmployee = require('../models/singleEmployee.model');
 const MultipleEmployee = require('../models/multipleEmployee.model');
 const ToolShop = require('../models/toolshop.model');
@@ -9,10 +10,135 @@ const ServiceList = require('../models/serviceList.model');
 const mongoose = require('mongoose');
 const Domainparts = require("../models/domainparts.model")
 const AppError = require('../utils/AppError');
+const Invite = require('../models/Invite.model');
+const { MAX_ATTEMPTS, LOCK_TIME } = require('../constant/admin.constant');
+const PERMISSIONS = require('../enum/permission.enum');
+const ROLES = require('../enum/role.enum');
+const Booking=require('../models/Booking.model');
+
+exports.inviteAdmin = async (req, res, next) => {
+  try {
+    const { email, permissions } = req.body;
+
+    if (!email) {
+      return next(new AppError("Email is required", 400));
+    }
+
+    const existingAdmin = await Admin.findOne({ email });
+    if (existingAdmin) {
+      return next(new AppError("Admin with this email already exists", 400));
+    }
+
+    // Validate permissions if provided
+    if (permissions && Array.isArray(permissions)) {
+      const validPermissions = Object.values(PERMISSIONS);
+      const invalidPermissions = permissions.filter(p => !validPermissions.includes(p));
+      if (invalidPermissions.length > 0) {
+        return next(new AppError(`Invalid permissions: ${invalidPermissions.join(', ')}`, 400));
+      }
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await Invite.findOneAndUpdate(
+      { email },
+      {
+        email,
+        token,
+        permission: permissions || [],
+        expiresAt,
+        used: false,
+        attempts: 0
+      },
+      { upsert: true, new: true }
+    );
+
+    // In a real app, you would send this token via email.
+    // For now, we return it in the response.
+    res.status(200).json({
+      message: "Invite generated successfully",
+      token,
+      email,
+      permissions: permissions || []
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAllPermissions = async (req, res, next) => {
+  try {
+    res.status(200).json({
+      success: true,
+      permissions: PERMISSIONS
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.adminSignup = async (req, res, next) => {
+  try {
+    const { fullname, email, password, token } = req.body;
+    if (!fullname || !email || !password || !token) {
+      return next(new AppError("All the fields are required", 400));
+    }
+    const invite = await Invite.findOne({ email });
+    if (!invite) {
+      return next(new AppError("Invite not found", 403));
+    }
+    if (invite.lockedUntil && invite.lockedUntil > Date.now()) {
+      return next(new AppError("Too many attempts. Try later", 403));
+    }
+    if (
+      invite.token !== token ||
+      invite.used ||
+      invite.expiresAt < Date.now()
+    ) {
+      invite.attempts += 1;
+
+      // Lock after 5 attempts
+      if (invite.attempts >= MAX_ATTEMPTS) {
+        invite.lockedUntil = Date.now() + LOCK_TIME;
+      }
+
+      await invite.save();
+
+      return next(new AppError("Invalid or expired token", 403));
+    }
+
+    invite.attempts = 0;
+    invite.used = true;
+
+    await invite.save();
+
+    const admin = await Admin.create({
+      fullname,
+      email,
+      password,
+      role: ROLES.ADMIN,
+      permissions: invite.permission,
+      isApproved: true,
+    })
+
+    res.status(201).json({ message: "Admin created Successfully" });
+
+  }
+  catch (err) {
+    next(err);
+  }
+}
 exports.adminLogin = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+
     const admin = await Admin.findOne({ email });
+    if (!admin.isApproved)
+      throw new AppError("Not approved", 403);
+
+    if (admin.lockUntil > Date.now())
+      throw new AppError("Account locked", 429);
     if (!admin) {
       return next(new AppError("Admin not found", 400));
     }
@@ -45,7 +171,7 @@ exports.adminLogin = async (req, res, next) => {
 
 exports.checkAuth = async (req, res, next) => {
   try {
-    if (req.role != 'admin') {
+    if (req.role !== ROLES.ADMIN && req.role !== ROLES.SUPER_ADMIN) {
       return res.status(403).json({ message: "Access denied" });
     }
     res.json({
@@ -589,3 +715,16 @@ exports.deleteDomainpartById = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.getAllBooking=async(req,res,next)=>{
+  try{
+    const booking=await Booking.find();
+    if(!booking ||!booking.lenght===0){
+      return next(new AppError("No booking Now",400));
+    }
+    return res.status(200).json(booking);
+  }catch(err){
+    next(err);
+  }
+}
+

@@ -6,14 +6,18 @@ const MultipleEmployee = require("../models/multipleEmployee.model");
 const Shop = require("../models/toolshop.model");
 const Admin = require("../models/admin.model");
 
-const ROLES=require("../enum/role.enum");
+const ROLES = require("../enum/role.enum");
 
 const MODEL_MAP = {
   [ROLES.SINGLE_EMPLOYEE]: SingleEmployee,
   [ROLES.MULTIPLE_EMPLOYEE]: MultipleEmployee,
   [ROLES.TOOL_SHOP]: Shop,
-  admin: Admin
-};    
+  [ROLES.ADMIN]: Admin,
+  [ROLES.SUPER_ADMIN]: Admin,
+  [ROLES.CITY_MANAGER]: Admin,
+  [ROLES.OPERATIONS_MANAGER]: Admin,
+  [ROLES.SUPPORT_EXECUTIVE]: Admin
+};
 
 
 exports.protect = async (req, res, next) => {

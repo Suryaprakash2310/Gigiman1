@@ -10,6 +10,7 @@ const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
 const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
+const Ticket = require("../models/ticket.model");
 
 exports.sendOtp = async (req, res, next) => {
   try {
@@ -260,3 +261,32 @@ exports.ShowsubserviceId = async (req, res, next) => {
     next(err); //let Global error handler deal with it
   }
 };
+
+exports.createTicket=async(req,res,next)=>{
+  try{
+    const {message,category}=req.body;
+    if(!message || !category){
+      return next(new AppError("All fields are required",400));
+    }
+    const raisedBy=req.raisedById;
+    const raisedByModel=req.raisedByModel;
+
+    if(!raisedBy ||!raisedByModel){
+      return next(new AppError("All fields are required",400));
+    }
+    const ticket = await Ticket.create({
+      raisedBy: req.raisedById,
+      raisedByModel: req.raisedByModel,
+      message: req.body.message,
+      category: req.body.category
+    });
+
+    return res.status(201).json(ticket);
+
+  }
+  catch(err){
+    next(err);
+  }
+}
+
+

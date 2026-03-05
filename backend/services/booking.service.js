@@ -178,6 +178,12 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
     if (!booking)
         throw new AppError("Booking not found", 404);
+
+    if (booking.status !== BOOKING_STATUS.PENDING || booking.primaryEmployee) {
+        console.log(`[Assign] Booking ${bookingId} is already ${booking.status} or assigned. Skipping.`);
+        return;
+    }
+
     const rejectdIds = booking?.rejectedEmployees || [];
     const payload = {
         bookingId: booking._id,
@@ -234,6 +240,15 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         },
         { new: true }
     );
+
+    //  Update booking state
+    if (servicer) {
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "OFFERED",
+            offeredEmployee: servicer._id
+        });
+    }
+
     console.log("serviceR", servicer);
 
 
@@ -283,8 +298,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         }
 
         await Booking.findByIdAndUpdate(bookingId, {
-            $addToSet: { rejectedEmployees: servicer._id },
-            $inc: { dispatchAttempts: 1 },
+            $addToSet: { rejectedEmployees: servicer._id }
         });
 
         await SingleEmployee.findByIdAndUpdate(servicer._id, {
@@ -312,12 +326,19 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
                 primaryEmployee: employeeId,
                 employees: [employeeId],
                 status: BOOKING_STATUS.ASSIGNED,
+                assignmentStatus: BOOKING_STATUS.ASSIGNED,
             },
         },
         { new: true }
     );
 
     if (!booking) return;
+
+    //  Update Employee to BUSY
+    await SingleEmployee.findByIdAndUpdate(employeeId, {
+        availabilityStatus: "BUSY",
+        offerBookingId: null
+    });
 
     //  GENERATE OTP IMMEDIATELY AFTER ACCEPT
     const { booking: updatedBooking, otp } =
@@ -350,8 +371,7 @@ exports.servicerReject = async ({ bookingId, employeeId, io }) => {
         availabilityStatus: "OFFERED",
     });
     const booking = await Booking.findByIdAndUpdate(bookingId, {
-        $addToSet: { rejectedEmployees: employeeId },
-        $inc: { dispatchAttempts: 5 },
+        $addToSet: { rejectedEmployees: employeeId }
     })
     if (!booking) throw new AppError("booking not found", 404);
 
@@ -463,9 +483,26 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 
     //  No team available
     if (!team) {
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId) {
-            io.to(`user_${booking.user._id}`).emit("no-team-available");
+        await Booking.findByIdAndUpdate(bookingId, {
+            $inc: { dispatchAttempts: 1 }
+        });
+        const updatedBooking = await Booking.findById(bookingId);
+        if (updatedBooking.dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
+            return exports.assignNextTeam({
+                bookingId,
+                coordinates,
+                employeeCount,
+                io,
+            });
+        }
+
+        await Booking.findByIdAndUpdate(bookingId, {
+            assignmentStatus: "FAILED"
+        });
+
+        const user = await User.findById(updatedBooking.user).select("socketId");
+        if (user?.socketId) {
+            io.to(`user_${updatedBooking.user._id}`).emit("no-team-available");
         }
         return;
     }
@@ -500,8 +537,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             offerBookingId: null,
         });
         await Booking.findByIdAndUpdate(bookingId, {
-            $addToSet: { rejectedMultipleEmployee: team._id },
-            $inc: { dispatchAttempts: 1 },
+            $addToSet: { rejectedMultipleEmployee: team._id }
         })
 
         exports.assignNextTeam({
@@ -679,8 +715,7 @@ exports.teamReject = async ({ bookingId, teamId, io }) => {
 
     const booking = await Booking.findByIdAndUpdate(bookingId,
         {
-            $addToSet: { rejectedMultipleEmployee: teamId },
-            $inc: { dispatchAttempts: 1 },
+            $addToSet: { rejectedMultipleEmployee: teamId }
         }
     );
     if (!booking) return;
@@ -1143,7 +1178,7 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
     const shop = await ToolShop.findOne({
         _id: req.shopId,
         offerRequestId: requestId,
-    });  
+    });
     if (!shop) return;
 
     await ToolShop.findByIdAndUpdate(req.shopId, {

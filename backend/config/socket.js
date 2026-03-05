@@ -66,8 +66,6 @@ module.exports = (server) => {
                 socket.shopId = identity._id.toString();
             }
 
-            // socket.role = decoded.role;
-            // socket.identity = identity;
 
             next();
         } catch (err) {
