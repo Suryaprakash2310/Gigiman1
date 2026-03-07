@@ -79,7 +79,7 @@ exports.autoAssignServicer = async (req, res, next) => {
       serviceCount = 1,
     } = req.body;
     const io = req.app.get("io");
-    const userId=req.userId;
+    const userId = req.userId;
     console.log("autoAssignServicer called with:", {
       userId,
       serviceCategoryName,
@@ -116,7 +116,7 @@ exports.autoAssignServicer = async (req, res, next) => {
     ------------------------- */
     const user = await User.findById(userId);
     if (!user || !user.socketId) {
-      return next( new AppError("Invalid user or user not connected", 400));
+      return next(new AppError("Invalid user or user not connected", 400));
     }
 
     /* ======================================================
@@ -714,7 +714,6 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
 
     const employee = req.employee;
     const role = employee.role;
-
     let baseFilter = {};
 
     /* ===============================
@@ -725,15 +724,32 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
         { primaryEmployee: employee._id },
         { employees: employee._id }
       ];
-    } else if (role === ROLES.MULTIPLE_EMPLOYEE) {
+    }
+    else if (role === ROLES.MULTIPLE_EMPLOYEE) {
       baseFilter.servicerCompany = employee._id;
-    } else if (role === ROLES.TOOL_SHOP) {
+    }
+    else if (role === ROLES.TOOL_SHOP) {
       baseFilter.selectedToolShop = employee._id;
     }
 
     /* ===============================
-       2. TIME WINDOWS
+       2. MODEL + FIELD SELECTION
     =============================== */
+
+    const isToolShop = role === ROLES.TOOL_SHOP;
+
+    const Model = isToolShop ? PartRequest : Booking;
+
+    const priceField = isToolShop ? "$totalCost" : "$totalPrice";
+
+    const matchFilter = isToolShop
+      ? { shopId: employee._id, status: PART_REQUEST_STATUS.COLLECTED }
+      : { ...baseFilter, status: BOOKING_STATUS.COMPLETED };
+
+    /* ===============================
+       3. TIME WINDOWS
+    =============================== */
+
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -747,10 +763,33 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
     startOf12Months.setMonth(startOf12Months.getMonth() - 11);
 
     /* ===============================
-       3. PARALLEL QUERIES
+       4. BOOKINGS QUERY
     =============================== */
+
+    let bookingsQuery = Model.find(matchFilter).sort({ createdAt: -1 });
+
+    if (!isToolShop) {
+      bookingsQuery = bookingsQuery
+        .populate("user", "fullname phoneMasked")
+        .populate("primaryEmployee", "empId fullname")
+        .populate("employees", "empId fullname")
+        .populate("servicerCompany", "storeName TeamId")
+        .populate("selectedToolShop", "shopName storeLocation");
+    }
+    else {
+      bookingsQuery = bookingsQuery
+        .populate("bookingId")
+        .populate("employeeId", "fullname")
+        .populate("shopId", "shopName storeLocation");
+    }
+
+    const bookings = await bookingsQuery;
+
+    /* ===============================
+       5. PARALLEL DASHBOARD QUERIES
+    =============================== */
+
     const [
-      bookings,
       todayStats,
       totalStats,
       weeklyRaw,
@@ -758,21 +797,12 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
       yearlyRaw
     ] = await Promise.all([
 
-      /* BOOKINGS LIST */
-      Booking.find(baseFilter)
-        .sort({ createdAt: -1 })
-        .populate("user", "fullname phoneMasked")
-        .populate("primaryEmployee", "empId fullname")
-        .populate("employees", "empId fullname")
-        .populate("servicerCompany", "storeName TeamId")
-        .populate("selectedToolShop", "shopName storeLocation"),
+      /* TODAY JOBS + TODAY EARNINGS */
 
-      /* TODAY JOBS + TODAY EARNINGS (COMPLETED ONLY) */
-      Booking.aggregate([
+      Model.aggregate([
         {
           $match: {
-            ...baseFilter,
-            status: BOOKING_STATUS.COMPLETED,
+            ...matchFilter,
             createdAt: { $gte: startOfToday }
           }
         },
@@ -780,83 +810,85 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
           $group: {
             _id: null,
             todayJobs: { $sum: 1 },
-            todayEarnings: { $sum: "$totalPrice" }
+            todayEarnings: { $sum: priceField }
           }
         }
       ]),
 
-      /* TOTAL DONE + TOTAL REVENUE (COMPLETED ONLY) */
-      Booking.aggregate([
+      /* TOTAL JOBS + TOTAL REVENUE */
+
+      Model.aggregate([
         {
           $match: {
-            ...baseFilter,
-            status: BOOKING_STATUS.COMPLETED
+            ...matchFilter
           }
         },
         {
           $group: {
             _id: null,
             totalDone: { $sum: 1 },
-            totalRevenue: { $sum: "$totalPrice" }
+            totalRevenue: { $sum: priceField }
           }
         }
       ]),
 
-      /* WEEKLY CHART (DAY WISE) */
-      Booking.aggregate([
+      /* WEEKLY CHART */
+
+      Model.aggregate([
         {
           $match: {
-            ...baseFilter,
-            status: BOOKING_STATUS.COMPLETED,
+            ...matchFilter,
             createdAt: { $gte: startOf7Days }
           }
         },
         {
           $group: {
-            _id: { $dayOfWeek: "$createdAt" }, // 1–7
-            amount: { $sum: "$totalPrice" }
+            _id: { $dayOfWeek: "$createdAt" },
+            amount: { $sum: priceField }
           }
         }
       ]),
 
-      /* MONTHLY CHART (LAST 30 DAYS → WEEK WISE) */
-      Booking.aggregate([
+      /* MONTHLY CHART */
+
+      Model.aggregate([
         {
           $match: {
-            ...baseFilter,
-            status: BOOKING_STATUS.COMPLETED,
+            ...matchFilter,
             createdAt: { $gte: startOf30Days }
           }
         },
         {
           $group: {
             _id: { $week: "$createdAt" },
-            amount: { $sum: "$totalPrice" }
+            amount: { $sum: priceField }
           }
         }
       ]),
 
-      /* YEARLY CHART (LAST 12 MONTHS → MONTH WISE) */
-      Booking.aggregate([
+      /* YEARLY CHART */
+
+      Model.aggregate([
         {
           $match: {
-            ...baseFilter,
-            status: BOOKING_STATUS.COMPLETED,
+            ...matchFilter,
             createdAt: { $gte: startOf12Months }
           }
         },
         {
           $group: {
             _id: { $month: "$createdAt" },
-            amount: { $sum: "$totalPrice" }
+            amount: { $sum: priceField }
           }
         }
       ])
+
     ]);
 
     /* ===============================
-       4. NORMALIZE WEEKLY DATA
+       6. NORMALIZE WEEKLY DATA
     =============================== */
+
     const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
     const weekly = WEEK_DAYS.map((day, index) => {
@@ -868,19 +900,18 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
     });
 
     /* ===============================
-       5. NORMALIZE MONTHLY DATA (4 WEEKS)
+       7. NORMALIZE MONTHLY DATA
     =============================== */
-    const monthly = Array.from({ length: 4 }, (_, i) => {
-      const weekNumber = monthlyRaw[i]?._id;
-      return {
-        _id: `Week ${i + 1}`,
-        amount: monthlyRaw[i]?.amount || 0
-      };
-    });
+
+    const monthly = Array.from({ length: 4 }, (_, i) => ({
+      _id: `Week ${i + 1}`,
+      amount: monthlyRaw[i]?.amount || 0
+    }));
 
     /* ===============================
-       6. NORMALIZE YEARLY DATA (12 MONTHS)
+       8. NORMALIZE YEARLY DATA
     =============================== */
+
     const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     const yearly = MONTHS.map((month, index) => {
@@ -892,17 +923,19 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
     });
 
     /* ===============================
-       7. HIGHEST EARNING
+       9. HIGHEST EARNING
     =============================== */
+
     const findHighest = (arr) =>
-      arr.reduce(
-        (max, cur) => (cur.amount > max.amount ? cur : max),
+      arr.reduce((max, cur) =>
+        cur.amount > max.amount ? cur : max,
         { amount: 0 }
       );
 
     /* ===============================
-       8. RESPONSE
+       10. RESPONSE
     =============================== */
+
     return res.status(200).json({
       success: true,
 
@@ -933,7 +966,6 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
     next(err);
   }
 };
-
 
 
 exports.getPopularBookings = async (req, res, next) => {
@@ -1292,8 +1324,8 @@ exports.getActiveUserBookings = async (req, res) => {
         { isScheduled: true, assignmentStatus: 'ASSIGNED' } // Scheduled jobs that have started
       ]
     })
-    .populate("primaryEmployee", "fullname rating phone avatar") // Show technician details
-    .sort({ createdAt: -1 });
+      .populate("primaryEmployee", "fullname rating phone avatar") // Show technician details
+      .sort({ createdAt: -1 });
     res.status(200).json({ success: true, bookings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -1309,7 +1341,7 @@ exports.getScheduledUserBookings = async (req, res) => {
       assignmentStatus: "SCHEDULED", // Specifically those waiting in the queue
       status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCELLED] }
     })
-    .sort({ scheduleDateTime: 1 }); // Show closest date first
+      .sort({ scheduleDateTime: 1 }); // Show closest date first
     res.status(200).json({ success: true, bookings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

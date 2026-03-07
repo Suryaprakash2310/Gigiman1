@@ -768,6 +768,7 @@ exports.createBooking = async ({
     const pricePerService = category.price;
     const durationInMinutes = category.durationInMinutes;
     const totalPrice = pricePerService * serviceCount;
+    const totalServicePrice=pricePerService * serviceCount;
     if (
         !Array.isArray(coordinates) ||
         coordinates.length !== 2 ||
@@ -789,6 +790,7 @@ exports.createBooking = async ({
             domainService,
             serviceCount,
             pricePerService,
+            totalServicePrice,
             durationInMinutes,
             totalPrice,
             employeeCount: 1,
@@ -819,6 +821,7 @@ exports.createBooking = async ({
         serviceCount,
         pricePerService,
         totalPrice,
+        totalServicePrice,
         durationInMinutes,
         employeeCount,
         status: BOOKING_STATUS.PENDING,
@@ -1173,7 +1176,6 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
         new: true
     }
     )
-    console.log("partreques5t", booking);
     await booking.save();
     const shop = await ToolShop.findOne({
         _id: req.shopId,
@@ -1429,6 +1431,7 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
         extraService.status = "APPROVED";
         extraService.approvedAt = new Date();
         booking.totalPrice += extraService.price;
+        booking.totalServicePrice+=extraService.price;
         booking.durationInMinutes += extraService.durationInMinutes;
 
         // Add to regular proposal history for tracking

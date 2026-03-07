@@ -63,7 +63,10 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-
+  totalServicePrice:{
+    type:Number,
+    required:true,
+  },
   totalPrice: {
     type: Number,
     required: true
@@ -98,16 +101,16 @@ const bookingSchema = new mongoose.Schema({
     index: true
   },
 
-  proposedService: {
-    serviceCategoryId: {
-      type: mongoose.Types.ObjectId
-    },
-    serviceCategoryName: String,
-    price: Number,
-    durationInMinutes: Number,
-    employeeCount: Number,
-    proposedAt: Date
-  },
+  // proposedService: {
+  //   serviceCategoryId: {
+  //     type: mongoose.Types.ObjectId
+  //   },
+  //   serviceCategoryName: String,
+  //   price: Number,
+  //   durationInMinutes: Number,
+  //   employeeCount: Number,
+  //   proposedAt: Date
+  // },
 
   extraServices: [{
     serviceCategoryId: {
@@ -126,16 +129,16 @@ const bookingSchema = new mongoose.Schema({
     approvedAt: Date
   }],
 
-  proposalHistory: [{
-    serviceCategoryName: String,
-    price: Number,
-    proposedBy: {
-      type: mongoose.Types.ObjectId,
-      ref: "SingleEmployee"
-    },
-    status: String,
-    proposedAt: Date
-  }],
+  // proposalHistory: [{
+  //   serviceCategoryName: String,
+  //   price: Number,
+  //   proposedBy: {
+  //     type: mongoose.Types.ObjectId,
+  //     ref: "SingleEmployee"
+  //   },
+  //   status: String,
+  //   proposedAt: Date
+  // }],
   assignmentStatus: {
     type: String,
     enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED", "SCHEDULED"],
