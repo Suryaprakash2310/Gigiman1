@@ -63,9 +63,9 @@ const bookingSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-  totalServicePrice:{
-    type:Number,
-    required:true,
+  totalServicePrice: {
+    type: Number,
+    required: true,
   },
   totalPrice: {
     type: Number,
@@ -193,6 +193,10 @@ const bookingSchema = new mongoose.Schema({
   address: {
     type: String,
     required: true,
+  },
+  addressTitle: {
+    type: String,
+    default: "Current Location",
   },
 
   location: {

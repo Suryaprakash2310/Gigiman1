@@ -191,7 +191,16 @@ exports.completeProfile = async (req, res, next) => {
         coordinates: [longitude, latitude],
       };
     }
-    user.address = address;
+    if (address) {
+      user.addresses.push({
+        title: "Home", // Default title for the first address
+        address: address,
+        location: {
+          type: "Point",
+          coordinates: [parseFloat(longitude), parseFloat(latitude)],
+        },
+      });
+    }
     user.isVerified = true;
     const finalToken = generateToken(user._id);
 
@@ -227,8 +236,8 @@ exports.getProfile = async (req, res, next) => {
 exports.editprofile = async (req, res, next) => {
   try {
     const { fullName, latitude, longitude, avatar } = req.body;
-    const userId =req.user._id;
-    const user=await User.findById(userId);
+    const userId = req.user._id;
+    const user = await User.findById(userId);
     console.log(user);
     if (!user) return next(new AppError("User not found", 404));
 
@@ -267,3 +276,120 @@ exports.editprofile = async (req, res, next) => {
     next(err); //let Global error handler deal with it
   }
 }
+
+// Add new address
+exports.addAddress = async (req, res, next) => {
+  try {
+    const { title, address, latitude, longitude } = req.body;
+    const userId = req.user._id;
+
+    if (!title || !address) {
+      return next(new AppError("Title and address are required", 400));
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return next(new AppError("User not found", 404));
+
+    const newAddress = {
+      title,
+      address,
+    };
+
+    if (latitude !== undefined && longitude !== undefined) {
+      newAddress.location = {
+        type: "Point",
+        coordinates: [parseFloat(longitude), parseFloat(latitude)],
+      };
+    }
+
+    user.addresses.push(newAddress);
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Address added successfully",
+      addresses: user.addresses,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get all addresses
+exports.getAddresses = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId).select("addresses");
+    if (!user) return next(new AppError("User not found", 404));
+
+    res.status(200).json({
+      success: true,
+      addresses: user.addresses,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete address
+exports.deleteAddress = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { addressId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) return next(new AppError("User not found", 404));
+
+    user.addresses = user.addresses.filter(
+      (addr) => addr._id.toString() !== addressId
+    );
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Address deleted successfully",
+      addresses: user.addresses,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Update address
+exports.updateAddress = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { addressId } = req.params;
+    const { title, address, latitude, longitude } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return next(new AppError("User not found", 404));
+
+    const addrIndex = user.addresses.findIndex(
+      (addr) => addr._id.toString() === addressId
+    );
+
+    if (addrIndex === -1) {
+      return next(new AppError("Address not found", 404));
+    }
+
+    if (title) user.addresses[addrIndex].title = title;
+    if (address) user.addresses[addrIndex].address = address;
+    if (latitude !== undefined && longitude !== undefined) {
+      user.addresses[addrIndex].location = {
+        type: "Point",
+        coordinates: [parseFloat(longitude), parseFloat(latitude)],
+      };
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Address updated successfully",
+      addresses: user.addresses,
+    });
+  } catch (err) {
+    next(err);
+  }
+};

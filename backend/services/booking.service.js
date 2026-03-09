@@ -89,6 +89,7 @@ exports.findNearbyTeams = async ({
                         _id: { $in: capableEmployeeObjectIds },
                         isActive: true,
                         availabilityStatus: "AVAILABLE",
+                        isBlocked: { $ne: true },
                         $or: [
                             { blockedUntil: null },
                             { blockedUntil: { $lte: new Date() } }
@@ -119,6 +120,7 @@ exports.findNearbyTeams = async ({
                 query: {
                     isActive: true,
                     teamStatus: "AVAILABLE",
+                    isBlocked: { $ne: true },
                     $or: [
                         { blockedUntil: null },
                         { blockedUntil: { $lte: new Date() } }
@@ -227,6 +229,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             },
             isActive: true,
             availabilityStatus: "AVAILABLE",
+            isBlocked: { $ne: true },
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } }
@@ -457,6 +460,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             },
             isActive: true,
             teamStatus: "AVAILABLE",
+            isBlocked: { $ne: true },
             $or: [
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
@@ -737,6 +741,7 @@ exports.createBooking = async ({
     serviceCategoryName,
     domainService,
     address,
+    addressTitle,
     coordinates,
     serviceCount = 1,
 }) => {
@@ -768,7 +773,7 @@ exports.createBooking = async ({
     const pricePerService = category.price;
     const durationInMinutes = category.durationInMinutes;
     const totalPrice = pricePerService * serviceCount;
-    const totalServicePrice=pricePerService * serviceCount;
+    const totalServicePrice = pricePerService * serviceCount;
     if (
         !Array.isArray(coordinates) ||
         coordinates.length !== 2 ||
@@ -796,6 +801,7 @@ exports.createBooking = async ({
             employeeCount: 1,
             status: BOOKING_STATUS.PENDING,
             address,
+            addressTitle,
             location: { type: "Point", coordinates },
             StartWorkOTP: null,
         });
@@ -826,6 +832,7 @@ exports.createBooking = async ({
         employeeCount,
         status: BOOKING_STATUS.PENDING,
         address,
+        addressTitle,
         location: { type: "Point", coordinates },
         StartWorkOTP: null,
     });
@@ -1431,7 +1438,7 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
         extraService.status = "APPROVED";
         extraService.approvedAt = new Date();
         booking.totalPrice += extraService.price;
-        booking.totalServicePrice+=extraService.price;
+        booking.totalServicePrice += extraService.price;
         booking.durationInMinutes += extraService.durationInMinutes;
 
         // Add to regular proposal history for tracking

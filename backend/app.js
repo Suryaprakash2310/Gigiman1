@@ -21,6 +21,7 @@ const adminrouter = require('./router/admin.router');
 const user = require('./router/user.router');
 const bookingRouter = require('./router/booking.router');
 const activestateRouter = require('./router/activestatus.router');
+const banner = require("./router/banner.router");
 const { startScheduler } = require("./services/booking.schedule");
 const errorHandler = require("./middleware/error.middleware");
 const setupGracefulShutdown = require("./utils/gracefulShutdown");
@@ -72,6 +73,7 @@ app.use("/api/admin", adminrouter);
 app.use('/api/user', user);
 app.use('/api/booking', bookingRouter);
 app.use('/api/', activestateRouter);
+app.use("/api/banners", banner);
 
 // Global Error Handler
 app.use(errorHandler);

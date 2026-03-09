@@ -37,6 +37,7 @@ exports.searchNearbyservicer = async (req, res, next) => {
   try {
     const {
       address,
+      addressTitle,
       coordinates,
       serviceCategoryName,
       serviceCount = 1,
@@ -51,9 +52,15 @@ exports.searchNearbyservicer = async (req, res, next) => {
       return next(new AppError("Either address or coordinates must be provided", 400));
     }
 
+    let parsedCoordinates = coordinates;
+    if (Array.isArray(coordinates)) {
+      parsedCoordinates = [parseFloat(coordinates[0]), parseFloat(coordinates[1])];
+    }
+
     const result = await findNearbyTeams({
       address,
-      coordinates,
+      addressTitle,
+      coordinates: parsedCoordinates,
       serviceCategoryName,
       serviceCount,
     });
@@ -63,7 +70,7 @@ exports.searchNearbyservicer = async (req, res, next) => {
       result,
     });
   } catch (err) {
-    next(err); //  Let global error middleware respond
+    next(err); // Let global error middleware respond
   }
 };
 
@@ -75,9 +82,15 @@ exports.autoAssignServicer = async (req, res, next) => {
     const {
       serviceCategoryName,
       address,
+      addressTitle,
       coordinates,
       serviceCount = 1,
     } = req.body;
+
+    let parsedCoordinates = coordinates;
+    if (Array.isArray(coordinates)) {
+      parsedCoordinates = [parseFloat(coordinates[0]), parseFloat(coordinates[1])];
+    }
     const io = req.app.get("io");
     const userId = req.userId;
     console.log("autoAssignServicer called with:", {
@@ -127,7 +140,8 @@ exports.autoAssignServicer = async (req, res, next) => {
       serviceCategoryName,
       domainService: domainServiceId,
       address,
-      coordinates,
+      addressTitle,
+      coordinates: parsedCoordinates,
       serviceCount,
     });
 
@@ -137,7 +151,8 @@ exports.autoAssignServicer = async (req, res, next) => {
     const result = await findNearbyTeams({
       serviceCategoryName,
       address,
-      coordinates,
+      addressTitle,
+      coordinates: parsedCoordinates,
       serviceCount,
     });
     console.log(result);

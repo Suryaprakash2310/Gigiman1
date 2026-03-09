@@ -19,9 +19,9 @@ const serviceListSchema = mongoose.Schema({
             type: String,
             required: true,
         },
-        servicecategoryImage:{
-            type:String,
-            default:null,
+        servicecategoryImage: {
+            type: String,
+            default: null,
         },
         description: {
             type: String,
@@ -35,11 +35,14 @@ const serviceListSchema = mongoose.Schema({
             type: Number,
             required: true
         },
-        employeeCount:{
-            type:Number,
-            required:true,
+        employeeCount: {
+            type: Number,
+            required: true,
         },
     }]
 }, { timestamps: true })
+
+serviceListSchema.index({ DomainServiceId: 1, createdAt: 1 });
+serviceListSchema.index({ "serviceCategory._id": 1 });
 
 module.exports = mongoose.model("ServiceList", serviceListSchema);

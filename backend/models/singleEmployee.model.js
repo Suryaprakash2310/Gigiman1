@@ -77,6 +77,10 @@ const singleEmployeeSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  isBlocked: {
+    type: Boolean,
+    default: false,
+  },
   offerBookingId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Booking',

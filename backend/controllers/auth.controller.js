@@ -121,20 +121,15 @@ exports.verifyOtp = async (req, res, next) => {
 
 exports.ShowServices = async (req, res, next) => {
   try {
-    const services = await DomainService.aggregate([
-      {
-        $project: {
-          _id: 1,
-          domainName: 1,
-          serviceImage: 1
-        }
-      },
-      {
-        $sort: { domainName: 1 }
-      },{
-        $limit:14
-      }
-    ]);
+    const services = await DomainService.find({}, {
+      _id: 1,
+      domainName: 1,
+      serviceImage: 1
+    })
+      .sort({ domainName: 1 })
+      .limit(14)
+      .lean();
+
     if (services.length === 0) {
       return next(new AppError("No services found", 404));
     }
@@ -155,14 +150,11 @@ exports.searchService = async (req, res, next) => {
   try {
     const { q = "" } = req.query;
 
-    const services = await DomainService.aggregate([
-      {
-        $match: {
-          domainName: { $regex: "^" + q, $options: "i" }
-        }
-      },
-      { $sort: { domainName: 1 } }
-    ]);
+    const services = await DomainService.find({
+      domainName: { $regex: "^" + q, $options: "i" }
+    })
+      .sort({ domainName: 1 })
+      .lean();
 
     res.status(200).json({
       success: true,
@@ -186,33 +178,38 @@ exports.getServiceCategoryById = async (req, res, next) => {
 
     const categoryObjectId = new mongoose.Types.ObjectId(serviceCategoryId);
 
-    const service=await ServiceList.aggregate([
-      {$unwind:"$serviceCategory"},
+    const service = await ServiceList.aggregate([
       {
-        $match:{
-          "serviceCategory._id":categoryObjectId
+        $match: {
+          "serviceCategory._id": categoryObjectId
+        }
+      },
+      { $unwind: "$serviceCategory" },
+      {
+        $match: {
+          "serviceCategory._id": categoryObjectId
         }
       },
       {
-        $project:{
-          _id:1,
-          serviceName:1,
-          domainServiceId:1,
-          serviceCategory:{
-            _id:"$serviceCategory._id",
-            serviceCategoryName:"$serviceCategory.serviceCategoryName",
-            description:"$serviceCategory.description",
-            servicecategoryImage:"$serviceCategory.servicecategoryImage",
-            price:"$serviceCategory.price",
-            durationInMinutes:"$serviceCategory.durationInMinutes",
-            employeeCount:"$serviceCategory.employeeCount",
+        $project: {
+          _id: 1,
+          serviceName: 1,
+          domainServiceId: 1,
+          serviceCategory: {
+            _id: "$serviceCategory._id",
+            serviceCategoryName: "$serviceCategory.serviceCategoryName",
+            description: "$serviceCategory.description",
+            servicecategoryImage: "$serviceCategory.servicecategoryImage",
+            price: "$serviceCategory.price",
+            durationInMinutes: "$serviceCategory.durationInMinutes",
+            employeeCount: "$serviceCategory.employeeCount",
           }
         }
       },
-      {$limit:1}
+      { $limit: 1 }
     ])
-    if(!service || service.length===0){
-      return next(new AppError("Service category not found",404));
+    if (!service || service.length === 0) {
+      return next(new AppError("Service category not found", 404));
     }
 
     res.status(200).json({
@@ -239,15 +236,15 @@ exports.ShowsubserviceId = async (req, res, next) => {
       DomainServiceId: domainServiceId
     },
       {
-        serviceName:1,
-        "serviceCategory._id":1,
-        "serviceCategory.serviceCategoryName":1,
-        "serviceCategory.description":1,
-        "serviceCategory.servicecategoryImage":1,
-        "serviceCategory.price":1,
-        "serviceCategory.durationInMinutes":1,
-        "serviceCategory.employeeCount":1,
-        createdAt:1,
+        serviceName: 1,
+        "serviceCategory._id": 1,
+        "serviceCategory.serviceCategoryName": 1,
+        "serviceCategory.description": 1,
+        "serviceCategory.servicecategoryImage": 1,
+        "serviceCategory.price": 1,
+        "serviceCategory.durationInMinutes": 1,
+        "serviceCategory.employeeCount": 1,
+        createdAt: 1,
       })
       .sort({ createdAt: 1 }) // oldest first, optional
       .lean();
@@ -262,17 +259,17 @@ exports.ShowsubserviceId = async (req, res, next) => {
   }
 };
 
-exports.createTicket=async(req,res,next)=>{
-  try{
-    const {message,category}=req.body;
-    if(!message || !category){
-      return next(new AppError("All fields are required",400));
+exports.createTicket = async (req, res, next) => {
+  try {
+    const { message, category } = req.body;
+    if (!message || !category) {
+      return next(new AppError("All fields are required", 400));
     }
-    const raisedBy=req.raisedById;
-    const raisedByModel=req.raisedByModel;
+    const raisedBy = req.raisedById;
+    const raisedByModel = req.raisedByModel;
 
-    if(!raisedBy ||!raisedByModel){
-      return next(new AppError("All fields are required",400));
+    if (!raisedBy || !raisedByModel) {
+      return next(new AppError("All fields are required", 400));
     }
     const ticket = await Ticket.create({
       raisedBy: req.raisedById,
@@ -284,7 +281,7 @@ exports.createTicket=async(req,res,next)=>{
     return res.status(201).json(ticket);
 
   }
-  catch(err){
+  catch (err) {
     next(err);
   }
 }

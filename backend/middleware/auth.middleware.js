@@ -57,6 +57,16 @@ exports.protect = async (req, res, next) => {
     req.employeeId = employee._id;
     req.role = employee.role;
 
+    // Check if blocked by admin
+    const isTemporarilyBlocked = employee.blockedUntil && employee.blockedUntil > new Date();
+    if (employee.isBlocked || isTemporarilyBlocked) {
+      let message = "Your account has been blocked by admin";
+      if (isTemporarilyBlocked) {
+        message += ` until ${employee.blockedUntil.toLocaleString()}`;
+      }
+      return next(new AppError(message, 403));
+    }
+
     next();
   } catch (err) {
     next(err); //let Global error handler deal with it

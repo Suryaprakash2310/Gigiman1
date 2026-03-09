@@ -14,7 +14,13 @@ const Invite = require('../models/Invite.model');
 const { MAX_ATTEMPTS, LOCK_TIME } = require('../constant/admin.constant');
 const PERMISSIONS = require('../enum/permission.enum');
 const ROLES = require('../enum/role.enum');
-const Booking=require('../models/Booking.model');
+const Booking = require('../models/Booking.model');
+const EmployeeService = require('../models/employeeService.model');
+const BOOKING_STATUS = require("../enum/bookingstatus.enum");
+const PartRequest = require('../models/partsrequest.model');
+const PART_REQUEST_STATUS = require('../enum/partsstatus.enum');
+const User = require('../models/user.model');
+const Review = require('../models/review.model');
 
 exports.inviteAdmin = async (req, res, next) => {
   try {
@@ -252,9 +258,7 @@ exports.setServiceList = async (req, res, next) => {
     // ================= VALIDATION =================
     if (!DomainServiceId) {
       return next(new AppError("DomainServiceId is required", 400));
-    }
-
-    // 🔥 If frontend sends domain NAME instead of ID
+    } s
     if (!mongoose.Types.ObjectId.isValid(DomainServiceId)) {
       const domain = await DomainService.findOne({
         domainName: DomainServiceId
@@ -264,7 +268,7 @@ exports.setServiceList = async (req, res, next) => {
         return next(new AppError("Invalid domain", 400));
       }
 
-      DomainServiceId = domain._id; // ✅ FIX
+      DomainServiceId = domain._id;
     }
 
     // ================= IMAGE UPLOAD =================
@@ -313,7 +317,7 @@ exports.setServiceList = async (req, res, next) => {
     }
 
     const newService = await ServiceList.create({
-      DomainServiceId, // ✅ ObjectId guaranteed
+      DomainServiceId,
       serviceName,
       serviceCategory: [
         {
@@ -344,12 +348,34 @@ exports.getAllEmployee = async (req, res, next) => {
   try {
     const singleemployee = await SingleEmployee.find().sort({ createdAt: -1 });
     const multipleEmployee = await MultipleEmployee.find().sort({ createdAt: -1 });
-    const toolshop = await ToolShop.find().sort({ createdAt: -1 });
+    const toolshop = await ToolShop.find().populate('categories', 'domainpartname').sort({ createdAt: -1 });
+
+    // Get capabilities mapping
+    const capabilities = await EmployeeService.find()
+      .populate('capableservice', 'domainName')
+      .lean();
+
+    const capMap = {};
+    capabilities.forEach(c => {
+      capMap[c.employeeId] = c.capableservice.map(s => s.domainName);
+    });
 
     const employee = [
-      ...singleemployee.map(e => ({ ...e.toObject(), employeeType: "single_employee" })),
-      ...multipleEmployee.map(e => ({ ...e.toObject(), employeeType: "multiple_employee" })),
-      ...toolshop.map(e => ({ ...e.toObject(), employeeType: "tool_shop" }))
+      ...singleemployee.map(e => ({
+        ...e.toObject(),
+        employeeType: "single_employee",
+        capabilities: capMap[e._id.toString()] || []
+      })),
+      ...multipleEmployee.map(e => ({
+        ...e.toObject(),
+        employeeType: "multiple_employee",
+        capabilities: capMap[e._id.toString()] || []
+      })),
+      ...toolshop.map(e => ({
+        ...e.toObject(),
+        employeeType: "tool_shop",
+        capabilities: e.categories?.map(c => c.domainpartname) || []
+      }))
     ]
     employee.sort((a, b) => b.createdAt - a.createdAt);
     res.json({ success: true, employee });
@@ -716,15 +742,397 @@ exports.deleteDomainpartById = async (req, res, next) => {
   }
 };
 
-exports.getAllBooking=async(req,res,next)=>{
-  try{
-    const booking=await Booking.find();
-    if(!booking ||!booking.lenght===0){
-      return next(new AppError("No booking Now",400));
+exports.getAllBooking = async (req, res, next) => {
+  try {
+    const booking = await Booking.find();
+    if (!booking || !booking.lenght === 0) {
+      return next(new AppError("No booking Now", 400));
     }
     return res.status(200).json(booking);
-  }catch(err){
+  } catch (err) {
     next(err);
   }
 }
+
+exports.blockServicer = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { servicerType, blockedUntil } = req.body;
+
+    let blockDate = null;
+    if (blockedUntil) {
+      blockDate = new Date(blockedUntil);
+      if (isNaN(blockDate.getTime())) {
+        return next(new AppError("Invalid date format for blockedUntil", 400));
+      }
+    }
+
+    let model;
+    if (servicerType === ROLES.SINGLE_EMPLOYEE) model = SingleEmployee;
+    else if (servicerType === ROLES.MULTIPLE_EMPLOYEE) model = MultipleEmployee;
+    else if (servicerType === ROLES.TOOL_SHOP) model = ToolShop;
+    else {
+      // If type not provided, try to find in all three
+      const [single, multiple, tool] = await Promise.all([
+        SingleEmployee.findById(id),
+        MultipleEmployee.findById(id),
+        ToolShop.findById(id)
+      ]);
+
+      const servicer = single || multiple || tool;
+      if (!servicer) return next(new AppError("Servicer not found", 404));
+
+      servicer.isBlocked = true;
+      servicer.isActive = false;
+      if (blockDate) servicer.blockedUntil = blockDate;
+      if (servicer.availabilityStatus) servicer.availabilityStatus = "AVAILABLE";
+      if (servicer.teamStatus) servicer.teamStatus = "AVAILABLE";
+      await servicer.save();
+      return res.json({ success: true, message: "Servicer blocked successfully" });
+    }
+
+    const updatePayload = {
+      isBlocked: true,
+      isActive: false
+    };
+    if (blockDate) updatePayload.blockedUntil = blockDate;
+
+    const servicer = await model.findByIdAndUpdate(id, updatePayload, { new: true });
+    if (!servicer) return next(new AppError("Servicer not found", 404));
+
+    // Also handle non-atomic update for status fields if needed
+    if (servicer.availabilityStatus) {
+      servicer.availabilityStatus = "AVAILABLE";
+      await servicer.save();
+    }
+    if (servicer.teamStatus) {
+      servicer.teamStatus = "AVAILABLE";
+      await servicer.save();
+    }
+
+    res.json({ success: true, message: "Servicer blocked successfully" });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.unblockServicer = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { servicerType } = req.body;
+
+    let model;
+    if (servicerType === ROLES.SINGLE_EMPLOYEE) model = SingleEmployee;
+    else if (servicerType === ROLES.MULTIPLE_EMPLOYEE) model = MultipleEmployee;
+    else if (servicerType === ROLES.TOOL_SHOP) model = ToolShop;
+    else {
+      const [single, multiple, tool] = await Promise.all([
+        SingleEmployee.findById(id),
+        MultipleEmployee.findById(id),
+        ToolShop.findById(id)
+      ]);
+
+      const servicer = single || multiple || tool;
+      if (!servicer) return next(new AppError("Servicer not found", 404));
+
+      servicer.isBlocked = false;
+      servicer.blockedUntil = null; // Clear date-based block too
+      await servicer.save();
+      return res.json({ success: true, message: "Servicer unblocked successfully" });
+    }
+
+    const servicer = await model.findByIdAndUpdate(id, { isBlocked: false, blockedUntil: null }, { new: true });
+
+
+    if (!servicer) return next(new AppError("Servicer not found", 404));
+
+    res.json({ success: true, message: "Servicer unblocked successfully" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAdminDashboardStats = async (req, res, next) => {
+  try {
+    // 1. Basic Counts
+    const [singleCount, multiCount, shopCount, bookingCount, userCount] = await Promise.all([
+      SingleEmployee.countDocuments(),
+      MultipleEmployee.countDocuments(),
+      ToolShop.countDocuments(),
+      Booking.countDocuments(),
+      User.countDocuments()
+    ]);
+
+    // 2. Revenue (Service and Parts separately)
+    const [serviceRevenueStats, partRevenueStats] = await Promise.all([
+      Booking.aggregate([
+        { $match: { status: BOOKING_STATUS.COMPLETED } },
+        { $group: { _id: null, total: { $sum: "$totalServicePrice" } } }
+      ]),
+      PartRequest.aggregate([
+        { $match: { status: PART_REQUEST_STATUS.COLLECTED } },
+        { $group: { _id: null, total: { $sum: "$totalCost" } } }
+      ])
+    ]);
+
+    const totalServiceRevenue = serviceRevenueStats.length > 0 ? serviceRevenueStats[0].total : 0;
+    const totalPartRevenue = partRevenueStats.length > 0 ? partRevenueStats[0].total : 0;
+    const grandTotalRevenue = totalServiceRevenue + totalPartRevenue;
+
+    // 3. Monthly Revenue Trends (Last 6 months)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1);
+    sixMonthsAgo.setHours(0, 0, 0, 0);
+
+    const [monthlyService, monthlyParts] = await Promise.all([
+      Booking.aggregate([
+        {
+          $match: {
+            status: BOOKING_STATUS.COMPLETED,
+            createdAt: { $gte: sixMonthsAgo }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              month: { $month: "$createdAt" },
+              year: { $year: "$createdAt" }
+            },
+            serviceRevenue: { $sum: "$totalServicePrice" },
+            bookingCount: { $count: {} }
+          }
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1 } }
+      ]),
+      PartRequest.aggregate([
+        {
+          $match: {
+            status: PART_REQUEST_STATUS.COLLECTED,
+            createdAt: { $gte: sixMonthsAgo }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              month: { $month: "$createdAt" },
+              year: { $year: "$createdAt" }
+            },
+            partRevenue: { $sum: "$totalCost" },
+            requestCount: { $count: {} }
+          }
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1 } }
+      ])
+    ]);
+
+    // Merge monthly trends
+    const trends = {};
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    // Fill with empty data for last 6 months
+    for (let i = 0; i < 6; i++) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      trends[key] = {
+        label: `${months[d.getMonth()]} ${d.getFullYear()}`,
+        serviceRevenue: 0,
+        partRevenue: 0,
+        totalRevenue: 0
+      };
+    }
+
+    monthlyService.forEach(m => {
+      const key = `${m._id.year}-${m._id.month}`;
+      if (trends[key]) {
+        trends[key].serviceRevenue = m.serviceRevenue;
+        trends[key].totalRevenue += m.serviceRevenue;
+      }
+    });
+
+    monthlyParts.forEach(m => {
+      const key = `${m._id.year}-${m._id.month}`;
+      if (trends[key]) {
+        trends[key].partRevenue = m.partRevenue;
+        trends[key].totalRevenue += m.partRevenue;
+      }
+    });
+
+    // Convert trends back to sorted array
+    const trendArray = Object.values(trends).reverse();
+
+    // 4. Booking Status Distribution
+    const statusDistribution = await Booking.aggregate([
+      { $group: { _id: "$status", count: { $count: {} } } }
+    ]);
+
+    res.json({
+      success: true,
+      counts: {
+        singleEmployee: singleCount,
+        multipleEmployee: multiCount,
+        toolShop: shopCount,
+        totalBookings: bookingCount,
+        totalemp: singleCount + multiCount + shopCount,
+        userCount: userCount
+      },
+      revenueOverview: {
+        totalServiceRevenue,
+        totalPartRevenue,
+        grandTotalRevenue
+      },
+      monthlyTrends: trendArray,
+      statusDistribution
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.exportDashboardData = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find({ status: BOOKING_STATUS.COMPLETED })
+      .populate('user', 'fullname')
+      .populate('primaryEmployee', 'fullname empId')
+      .select('createdAt totalServicePrice totalPrice serviceCategoryName status');
+
+    const parts = await PartRequest.find({ status: PART_REQUEST_STATUS.COLLECTED })
+      .populate('employeeId', 'fullname')
+      .populate('shopId', 'shopName')
+      .select('createdAt totalCost status');
+
+    // Simple CSV creation
+    let csv = "Type,Date,Reference,Description,Revenue\n";
+
+    bookings.forEach(b => {
+      csv += `Service,${b.createdAt.toISOString().split('T')[0]},${b._id},${b.serviceCategoryName},${b.totalServicePrice}\n`;
+    });
+
+    parts.forEach(p => {
+      csv += `Part,${p.createdAt.toISOString().split('T')[0]},${p._id},Part Purchase,${p.totalCost}\n`;
+    });
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=gigiman_financial_report.csv');
+    res.status(200).send(csv);
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getLiveBookings = async (req, res, next) => {
+
+  try {
+    const liveStatuses = [
+      BOOKING_STATUS.PENDING,
+      BOOKING_STATUS.ACCEPTED,
+      BOOKING_STATUS.ASSIGNED,
+      BOOKING_STATUS.IN_PROGRESS
+    ];
+
+    const liveBookings = await Booking.find({ status: { $in: liveStatuses } })
+      .populate('user', 'fullName phoneNo')
+      .populate('primaryEmployee', 'fullname phoneNo')
+      .populate('servicerCompany', 'storeName ownerName')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: liveBookings.length,
+      bookings: liveBookings
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getEmployeeCapabilities = async (req, res, next) => {
+  try {
+    // Get all employee services and join with domain names
+    const capabilities = await EmployeeService.find()
+      .populate('capableservice', 'domainName')
+      .lean();
+
+    // Map SingleEmployee and MultipleEmployee details
+    const [singles, multiples] = await Promise.all([
+      SingleEmployee.find({}, 'empId fullname phoneNo role isActive isBlocked').lean(),
+      MultipleEmployee.find({}, 'TeamId storeName ownerName phoneNo role isActive isBlocked').lean()
+    ]);
+
+    // Create a lookup for capabilities
+    const capMap = {};
+    capabilities.forEach(c => {
+      // capabilities schema has employeeId as String (maybe empId or _id?)
+      // EmployeeService model has employeeId: String.
+      // Based on Booking model, primaryEmployee is ObjectId.
+      // Let's assume it matches the String form of _id.
+      capMap[c.employeeId] = c.capableservice.map(s => s.domainName);
+    });
+
+    const employees = [
+      ...singles.map(s => ({ ...s, capabilities: capMap[s._id.toString()] || [] })),
+      ...multiples.map(m => ({ ...m, capabilities: capMap[m._id.toString()] || [] }))
+    ];
+
+    res.json({
+      success: true,
+      count: employees.length,
+      employees
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAllUsers = async (req, res, next) => {
+  try {
+    const users = await User.find().sort({ createdAt: -1 });
+    res.json({
+      success: true,
+      user: users
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAdminUserHistory = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const bookings = await Booking.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .populate('primaryEmployee', 'fullname email phoneNo')
+      .populate('servicerCompany', 'storeName ownerName')
+      .populate('selectedToolShop', 'shopName toolShopId');
+
+    res.json({
+      success: true,
+      count: bookings.length,
+      bookings
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAdminBookingReview = async (req, res, next) => {
+  try {
+    const { bookingId } = req.params;
+    const review = await Review.findOne({ booking: bookingId })
+      .populate('user', 'fullName')
+      .populate('primaryEmployee', 'fullname');
+
+    res.json({
+      success: true,
+      review: review || null
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
 

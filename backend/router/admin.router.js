@@ -17,7 +17,16 @@ const {
     getServiceCategories,
     setDomainTool,
     editDomainToolById,
-    getAllBooking
+    getAllBooking,
+    unblockServicer,
+    getAdminDashboardStats,
+    getLiveBookings,
+    getEmployeeCapabilities,
+    blockServicer,
+    exportDashboardData,
+    getAllUsers,
+    getAdminUserHistory,
+    getAdminBookingReview
 } = require('../controllers/admin.controller');
 const { allowRoles, hasPermission } = require('../middleware/role.middleware');
 const PERMISSIONS = require('../enum/permission.enum');
@@ -38,8 +47,8 @@ router.get("/check-auth", protect, checkAuth);
 
 // Employee management permissions
 router.get("/employee-counts", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getEmployeecounts);
-router.get("/get-all-employee", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getAllEmployee);4
-router.get("/get-all-booking",protect,hasPermission(PERMISSIONS.MANAGE_BOOKING),getAllBooking);
+router.get("/get-all-employee", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getAllEmployee); 4
+router.get("/get-all-booking", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), getAllBooking);
 
 // Domain Service management permissions
 router.post("/add-domain-service", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), Adddomainservice);
@@ -55,6 +64,17 @@ router.post("/add-domainpart", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS),
 router.put("/domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), editDomainToolById);
 router.delete("/delete-domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), DeleteDomainService);
 
+// Block/Unblock Servicer
+router.put("/block-servicer/:id", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), blockServicer);
+router.put("/unblock-servicer/:id", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), unblockServicer);
 
+// Dashboard & Stats
+router.get("/dashboard-stats", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), getAdminDashboardStats);
+router.get("/live-bookings", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), getLiveBookings);
+router.get("/employee-capabilities", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getEmployeeCapabilities);
+router.get("/export-dashboard", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), exportDashboardData);
+router.get("/get-all-users", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAllUsers);
+router.get("/user-history/:userId", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAdminUserHistory);
+router.get("/booking-review/:bookingId", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAdminBookingReview);
 
 module.exports = router;

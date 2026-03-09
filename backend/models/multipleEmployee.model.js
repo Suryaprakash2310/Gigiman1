@@ -14,12 +14,12 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   members: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: "SingleEmployee",
-  //   validate: {
-  //   validator: function(v) {
-  //     return v.length <= 10; // example limit
-  //   },
-  //   message: "Team cannot exceed 10 members"
-  // }
+    //   validate: {
+    //   validator: function(v) {
+    //     return v.length <= 10; // example limit
+    //   },
+    //   message: "Team cannot exceed 10 members"
+    // }
   }],
   pendingRequests: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -83,6 +83,10 @@ const MultipleEmployeeSchema = new mongoose.Schema({
   blockedUntil: {
     type: Date,
     default: null,
+  },
+  isBlocked: {
+    type: Boolean,
+    default: false,
   },
   teamStatus: {
     type: String,

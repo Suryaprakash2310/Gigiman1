@@ -63,6 +63,10 @@ const toolshopSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
     activeRequests: {
       type: Number,
       default: 0

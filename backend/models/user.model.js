@@ -32,7 +32,35 @@ const UserSchema = new mongoose.Schema(
       },
     },
 
-    address: String,
+    addresses: [
+      {
+        title: {
+          type: String,
+          required: true,
+          trim: true,
+        },
+        address: {
+          type: String,
+          required: true,
+        },
+        location: {
+          type: {
+            type: String,
+            enum: ["Point"],
+            default: "Point",
+          },
+          coordinates: {
+            type: [Number],
+            validate: {
+              validator: function (v) {
+                return !v || v.length === 2;
+              },
+              message: "Coordinates must be [longitude, latitude]",
+            },
+          },
+        },
+      },
+    ],
     avatar: String,
 
     isVerified: {
@@ -46,7 +74,7 @@ const UserSchema = new mongoose.Schema(
     },
 
     socketConnectedAt: Date,
-    role:{
+    role: {
       type: String,
       enum: Object.values(ROLES),
       default: ROLES.USER,

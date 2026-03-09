@@ -1,15 +1,16 @@
 const bcrypt = require("bcryptjs");
 const Admin = require("./models/admin.model");
+const ROLES = require("./enum/role.enum");
 require("dotenv").config();
 require("./config/db")();   // connect to MongoDB
 
 (async () => {
   try {
     await Admin.create({
-        fullname: "Surya",
-        email: "surya@gmail.com",
-        password:"Surya@2026",
-        role: "admin",
+      fullname: "Surya",
+      email: "surya@gmail.com",
+      password: "Surya@2026",
+      role: ROLES.SUPER_ADMIN,
     });
 
     console.log("Admin created successfully");
