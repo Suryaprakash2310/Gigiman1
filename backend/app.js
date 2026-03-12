@@ -29,8 +29,14 @@ const mongoose = require("mongoose");
 dotenv.config();
 const app = express();
 
-
 // ------------------- MIDDLEWARE -------------------
+// CORS configuration should be first
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+}));
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "20mb", extended: true }));
 app.use(helmet());
@@ -44,12 +50,6 @@ const limiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes"
 });
 app.use("/api/", limiter);
-
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
-}));
 
 // ------------------- DATABASE -------------------
 connectDb();

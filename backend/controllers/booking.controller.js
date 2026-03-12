@@ -510,13 +510,13 @@ exports.getBookingById = async (req, res, next) => {
         employeeCount: String(booking.employeeCount || 1),
         address: booking.address,
         status: booking.status,
-        otp: booking.otp,
+        otp: booking.StartWorkOTP,
         domainServiceId: booking.domainService?._id,
         technician: {
           name: booking.primaryEmployee?.fullname,
           rating: booking.primaryEmployee?.rating
         },
-        coordinates: booking.coordinates,
+        coordinates: booking.location?.coordinates,
       },
       review: review || null
     });

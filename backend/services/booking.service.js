@@ -329,7 +329,7 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
                 primaryEmployee: employeeId,
                 employees: [employeeId],
                 status: BOOKING_STATUS.ASSIGNED,
-                assignmentStatus: BOOKING_STATUS.ASSIGNED,
+                assignmentStatus: "ASSIGNED",
             },
         },
         { new: true }
@@ -346,6 +346,9 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
     //  GENERATE OTP IMMEDIATELY AFTER ACCEPT
     const { booking: updatedBooking, otp } =
         await this.generateStartOTP(booking._id);
+
+    // Populate for clean frontend use
+    await updatedBooking.populate("primaryEmployee", "fullname rating phoneno");
 
     //  Notify USER with booking + OTP
     const user = await User.findById(updatedBooking.user).select("socketId");

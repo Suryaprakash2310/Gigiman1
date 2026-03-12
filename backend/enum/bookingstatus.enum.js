@@ -7,7 +7,7 @@ const BOOKING_STATUS={
     REJECTED:"rejected",
     //ceo changes 
     NO_PROVIDER: "no_provider",
-    ASSIGNED: "assigned",
+    ASSIGNED: "ASSIGNED",
 
 }
 

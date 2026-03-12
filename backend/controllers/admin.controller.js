@@ -855,6 +855,19 @@ exports.unblockServicer = async (req, res, next) => {
 
 exports.getAdminDashboardStats = async (req, res, next) => {
   try {
+    const now = new Date();
+
+    // Helper for date ranges
+    const getStartOf = (unit, count) => {
+      const d = new Date(now);
+      if (unit === 'day') d.setDate(d.getDate() - count);
+      if (unit === 'week') d.setDate(d.getDate() - (count * 7));
+      if (unit === 'month') d.setMonth(d.getMonth() - count);
+      if (unit === 'year') d.setFullYear(d.getFullYear() - count);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+
     // 1. Basic Counts
     const [singleCount, multiCount, shopCount, bookingCount, userCount] = await Promise.all([
       SingleEmployee.countDocuments(),
@@ -864,7 +877,7 @@ exports.getAdminDashboardStats = async (req, res, next) => {
       User.countDocuments()
     ]);
 
-    // 2. Revenue (Service and Parts separately)
+    // 2. Revenue Totals
     const [serviceRevenueStats, partRevenueStats] = await Promise.all([
       Booking.aggregate([
         { $match: { status: BOOKING_STATUS.COMPLETED } },
@@ -880,88 +893,84 @@ exports.getAdminDashboardStats = async (req, res, next) => {
     const totalPartRevenue = partRevenueStats.length > 0 ? partRevenueStats[0].total : 0;
     const grandTotalRevenue = totalServiceRevenue + totalPartRevenue;
 
-    // 3. Monthly Revenue Trends (Last 6 months)
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
-    sixMonthsAgo.setDate(1);
-    sixMonthsAgo.setHours(0, 0, 0, 0);
+    // 3. Trends Aggregation Helper
+    const getTrends = async (startDate, groupFormat) => {
+      const [service, parts] = await Promise.all([
+        Booking.aggregate([
+          { $match: { status: BOOKING_STATUS.COMPLETED, createdAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: groupFormat,
+              serviceRevenue: { $sum: "$totalServicePrice" }
+            }
+          },
+          { $sort: { "_id": 1 } }
+        ]),
+        PartRequest.aggregate([
+          { $match: { status: PART_REQUEST_STATUS.COLLECTED, createdAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: groupFormat,
+              partRevenue: { $sum: "$totalCost" }
+            }
+          },
+          { $sort: { "_id": 1 } }
+        ])
+      ]);
+      return { service, parts };
+    };
 
-    const [monthlyService, monthlyParts] = await Promise.all([
-      Booking.aggregate([
-        {
-          $match: {
-            status: BOOKING_STATUS.COMPLETED,
-            createdAt: { $gte: sixMonthsAgo }
-          }
-        },
-        {
-          $group: {
-            _id: {
-              month: { $month: "$createdAt" },
-              year: { $year: "$createdAt" }
-            },
-            serviceRevenue: { $sum: "$totalServicePrice" },
-            bookingCount: { $count: {} }
-          }
-        },
-        { $sort: { "_id.year": 1, "_id.month": 1 } }
-      ]),
-      PartRequest.aggregate([
-        {
-          $match: {
-            status: PART_REQUEST_STATUS.COLLECTED,
-            createdAt: { $gte: sixMonthsAgo }
-          }
-        },
-        {
-          $group: {
-            _id: {
-              month: { $month: "$createdAt" },
-              year: { $year: "$createdAt" }
-            },
-            partRevenue: { $sum: "$totalCost" },
-            requestCount: { $count: {} }
-          }
-        },
-        { $sort: { "_id.year": 1, "_id.month": 1 } }
-      ])
+    // Define Timeframes
+    const dayStart = getStartOf('day', 7);
+    const weekStart = getStartOf('week', 8);
+    const monthStart = getStartOf('month', 6);
+    const yearStart = getStartOf('year', 5);
+
+    // Run Aggregations
+    const [dailyData, weeklyData, monthlyData, yearlyData] = await Promise.all([
+      getTrends(dayStart, { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }),
+      getTrends(weekStart, { $concat: [{ $toString: { $year: "$createdAt" } }, "-W", { $toString: { $week: "$createdAt" } }] }),
+      getTrends(monthStart, { $dateToString: { format: "%Y-%m", date: "$createdAt" } }),
+      getTrends(yearStart, { $dateToString: { format: "%Y", date: "$createdAt" } })
     ]);
 
-    // Merge monthly trends
-    const trends = {};
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    // Format Trends Helper
+    const formatTrends = (data, timeframe, count) => {
+      const merged = {};
 
-    // Fill with empty data for last 6 months
-    for (let i = 0; i < 6; i++) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-      trends[key] = {
-        label: `${months[d.getMonth()]} ${d.getFullYear()}`,
-        serviceRevenue: 0,
-        partRevenue: 0,
-        totalRevenue: 0
-      };
-    }
+      // Initialize empty slots
+      for (let i = 0; i < count; i++) {
+        const d = new Date(now);
+        let key, label;
 
-    monthlyService.forEach(m => {
-      const key = `${m._id.year}-${m._id.month}`;
-      if (trends[key]) {
-        trends[key].serviceRevenue = m.serviceRevenue;
-        trends[key].totalRevenue += m.serviceRevenue;
+        if (timeframe === 'day') {
+          d.setDate(d.getDate() - i);
+          key = d.toISOString().split('T')[0];
+          label = d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+        } else if (timeframe === 'week') {
+          d.setDate(d.getDate() - (i * 7));
+          // Simplified week key (not ISO but consistent with aggregate)
+          const weekNum = Math.ceil((((d - new Date(d.getFullYear(), 0, 1)) / 86400000) + 1) / 7);
+          key = `${d.getFullYear()}-W${weekNum}`;
+          label = `Week ${weekNum}`;
+        } else if (timeframe === 'month') {
+          d.setMonth(d.getMonth() - i);
+          key = d.toISOString().slice(0, 7);
+          label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        } else if (timeframe === 'year') {
+          d.setFullYear(d.getFullYear() - i);
+          key = d.getFullYear().toString();
+          label = key;
+        }
+
+        merged[key] = { label, serviceRevenue: 0, partRevenue: 0, totalRevenue: 0 };
       }
-    });
 
-    monthlyParts.forEach(m => {
-      const key = `${m._id.year}-${m._id.month}`;
-      if (trends[key]) {
-        trends[key].partRevenue = m.partRevenue;
-        trends[key].totalRevenue += m.partRevenue;
-      }
-    });
+      data.service.forEach(item => { if (merged[item._id]) { merged[item._id].serviceRevenue = item.serviceRevenue; merged[item._id].totalRevenue += item.serviceRevenue; } });
+      data.parts.forEach(item => { if (merged[item._id]) { merged[item._id].partRevenue = item.partRevenue; merged[item._id].totalRevenue += item.partRevenue; } });
 
-    // Convert trends back to sorted array
-    const trendArray = Object.values(trends).reverse();
+      return Object.values(merged).reverse();
+    };
 
     // 4. Booking Status Distribution
     const statusDistribution = await Booking.aggregate([
@@ -983,7 +992,14 @@ exports.getAdminDashboardStats = async (req, res, next) => {
         totalPartRevenue,
         grandTotalRevenue
       },
-      monthlyTrends: trendArray,
+      trends: {
+        daily: formatTrends(dailyData, 'day', 7),
+        weekly: formatTrends(weeklyData, 'week', 8),
+        monthly: formatTrends(monthlyData, 'month', 6),
+        yearly: formatTrends(yearlyData, 'year', 5)
+      },
+      // Backward compatibility for existing frontend
+      monthlyTrends: formatTrends(monthlyData, 'month', 6),
       statusDistribution
     });
   } catch (err) {

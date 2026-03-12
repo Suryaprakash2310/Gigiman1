@@ -393,6 +393,7 @@ module.exports = (io) => {
         booking.primaryEmployee = primaryEmployee;
         booking.employees = [primaryEmployee, ...helpers];
         booking.status = BOOKING_STATUS.ASSIGNED;
+        booking.assignmentStatus = "ASSIGNED";
         await booking.save();
 
         /* ============================
