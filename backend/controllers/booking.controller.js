@@ -1197,6 +1197,7 @@ exports.scheduleBooking = async (req, res, next) => {
       serviceType: category.employeeCount === 1 ? "single" : "team",
       serviceCount,
       pricePerService: category.price,
+      totalServicePrice: category.price * serviceCount,
       durationInMinutes: category.durationInMinutes,
       employeeCount: category.employeeCount,
       totalPrice: category.price * serviceCount,
@@ -1244,8 +1245,9 @@ exports.createVisitBooking = async (req, res, next) => {
       serviceCategoryName: "Inspection Visit",
       bookingType: BOOKING_TYPE.ONDEMAND,
       pricePerService: VISIT_PRICE,
+      totalServicePrice: VISIT_PRICE,
       totalPrice: VISIT_PRICE,
-      employeecount: 1,
+      employeeCount: 1,
       address,
       location: {
         type: "Point",
