@@ -1465,7 +1465,20 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
             bookingId,
             extraServiceId,
             status: extraService.status,
-            totalPrice: booking.totalPrice
+            totalPrice: booking.totalPrice,
+            durationInMinutes: booking.durationInMinutes
+        });
+    }
+
+    // Notify user
+    const userUpdate = await User.findById(booking.user);
+    if (userUpdate?.socketId) {
+        io.to(userUpdate.socketId).emit("extra-service-response", {
+            bookingId,
+            extraServiceId,
+            status: extraService.status,
+            totalPrice: booking.totalPrice,
+            durationInMinutes: booking.durationInMinutes
         });
     }
 
