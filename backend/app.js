@@ -22,6 +22,7 @@ const user = require('./router/user.router');
 const bookingRouter = require('./router/booking.router');
 const activestateRouter = require('./router/activestatus.router');
 const banner = require("./router/banner.router");
+const couponRouter = require("./router/coupon.router");
 const { startScheduler } = require("./services/booking.schedule");
 const errorHandler = require("./middleware/error.middleware");
 const setupGracefulShutdown = require("./utils/gracefulShutdown");
@@ -74,6 +75,7 @@ app.use('/api/user', user);
 app.use('/api/booking', bookingRouter);
 app.use('/api/', activestateRouter);
 app.use("/api/banners", banner);
+app.use("/api/coupon", couponRouter);
 
 // Global Error Handler
 app.use(errorHandler);

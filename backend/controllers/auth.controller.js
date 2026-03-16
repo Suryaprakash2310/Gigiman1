@@ -11,6 +11,7 @@ const mongoose = require('mongoose');
 const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
 const Ticket = require("../models/ticket.model");
+const { sendOTP } = require("../utils/msg91");
 
 exports.sendOtp = async (req, res, next) => {
   try {
@@ -49,11 +50,15 @@ exports.sendOtp = async (req, res, next) => {
       { upsert: true, new: true }
     );
 
+    // ...
     console.log(`OTP for ${cleanPhone}: ${otp}`);
+
+    // Call MSG91 to send OTP sms
+    await sendOTP(cleanPhone, otp);
 
     return res.status(200).json({
       message: "OTP sent successfully",
-      otp  //temporary for testing purposes
+      // otp  //temporary for testing purposes
     });
   } catch (err) {
     next(err);

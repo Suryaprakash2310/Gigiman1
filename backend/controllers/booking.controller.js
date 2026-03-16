@@ -85,6 +85,7 @@ exports.autoAssignServicer = async (req, res, next) => {
       addressTitle,
       coordinates,
       serviceCount = 1,
+      couponCode,
     } = req.body;
 
     let parsedCoordinates = coordinates;
@@ -143,6 +144,7 @@ exports.autoAssignServicer = async (req, res, next) => {
       addressTitle,
       coordinates: parsedCoordinates,
       serviceCount,
+      couponCode,
     });
 
     /* ======================================================
@@ -489,8 +491,8 @@ exports.getBookingById = async (req, res, next) => {
     }
 
     const booking = await Booking.findById(bookingId)
-      .populate("servicerCompany", "fullName")
-      .populate("primaryEmployee", "fullname phoneno rating");
+      .populate("servicerCompany", "storeName")
+      .populate("primaryEmployee", "fullname phoneNo");
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
@@ -499,11 +501,36 @@ exports.getBookingById = async (req, res, next) => {
     const review = await Review.findOne({ booking: bookingId })
       .select("rating comment createdAt");
 
+    // Calculate Average Rating for the technician / company
+    let techRating = 0;
+    let techReviewCount = 0;
+    
+    if (booking.servicerCompany) {
+      const companyReviews = await Review.aggregate([
+        { $match: { company: booking.servicerCompany._id } },
+        { $group: { _id: null, avgRating: { $avg: "$rating" }, count: { $sum: 1 } } }
+      ]);
+      if (companyReviews.length > 0) {
+        techRating = Number(companyReviews[0].avgRating.toFixed(1));
+        techReviewCount = companyReviews[0].count;
+      }
+    } else if (booking.primaryEmployee) {
+      const employeeReviews = await Review.aggregate([
+        { $match: { primaryEmployee: booking.primaryEmployee._id } },
+        { $group: { _id: null, avgRating: { $avg: "$rating" }, count: { $sum: 1 } } }
+      ]);
+      if (employeeReviews.length > 0) {
+        techRating = Number(employeeReviews[0].avgRating.toFixed(1));
+        techReviewCount = employeeReviews[0].count;
+      }
+    }
+
+
     return res.status(200).json({
       success: true,
       booking: {
         _id: booking._id,
-        name: booking.servicerCompany?.fullName || booking.primaryEmployee?.fullname,
+        name: booking.servicerCompany?.storeName || booking.primaryEmployee?.fullname,
         serviceCategoryName: booking.serviceCategoryName,
         cost: booking.totalPrice,
         durationInMinutes: booking.durationInMinutes,
@@ -514,9 +541,11 @@ exports.getBookingById = async (req, res, next) => {
         domainServiceId: booking.domainService?._id,
         technician: {
           name: booking.primaryEmployee?.fullname,
-          rating: booking.primaryEmployee?.rating
+          rating: techRating,
+          reviews: techReviewCount
         },
         coordinates: booking.location?.coordinates,
+        extraServices: booking.extraServices,
       },
       review: review || null
     });

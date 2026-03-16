@@ -7,6 +7,7 @@ const ToolShop = require("../models/toolshop.model");
 const EmployeeService = require("../models/employeeService.model");
 const PartRequest = require("../models/partsrequest.model");
 const User = require("../models/user.model");
+const Coupon = require("../models/coupon.model");
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const { SEARCH_RADIUS_METERS, RADIUS_STEPS, MAX_DISPATCH_ATTEMPTS } = require("../utils/constants");
 const mongoose = require("mongoose");
@@ -747,6 +748,7 @@ exports.createBooking = async ({
     addressTitle,
     coordinates,
     serviceCount = 1,
+    couponCode,
 }) => {
 
     /* -------------------------
@@ -775,8 +777,55 @@ exports.createBooking = async ({
     const employeeCount = category.employeeCount;
     const pricePerService = category.price;
     const durationInMinutes = category.durationInMinutes;
-    const totalPrice = pricePerService * serviceCount;
     const totalServicePrice = pricePerService * serviceCount;
+    let totalPrice = totalServicePrice;
+
+    /* -------------------------
+       Validate and Calculate Coupon Discount
+    ------------------------- */
+    let appliedCouponId = null;
+    let discountAmount = 0;
+
+    if (couponCode) {
+        const coupon = await Coupon.findOne({ code: couponCode.toUpperCase() });
+        if (!coupon || !coupon.isActive) {
+            throw new AppError('Invalid or inactive coupon code', 400);
+        }
+
+        const now = new Date();
+        if (now < coupon.validFrom || now > coupon.validUntil) {
+            throw new AppError('Coupon is expired or not yet valid', 400);
+        }
+
+        if (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) {
+            throw new AppError('Coupon usage limit reached', 400);
+        }
+
+        if (totalServicePrice < coupon.minOrderValue) {
+            throw new AppError(`Minimum order value of ${coupon.minOrderValue} required for this coupon`, 400);
+        }
+
+        if (coupon.discountType === 'PERCENTAGE') {
+            discountAmount = (totalServicePrice * coupon.discountValue) / 100;
+            if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
+                discountAmount = coupon.maxDiscount;
+            }
+        } else {
+            discountAmount = coupon.discountValue;
+        }
+
+        if (discountAmount > totalServicePrice) {
+            discountAmount = totalServicePrice;
+        }
+
+        totalPrice -= discountAmount;
+        appliedCouponId = coupon._id;
+
+        // Increment used count
+        coupon.usedCount += 1;
+        await coupon.save();
+    }
+
     if (
         !Array.isArray(coordinates) ||
         coordinates.length !== 2 ||
@@ -807,6 +856,8 @@ exports.createBooking = async ({
             addressTitle,
             location: { type: "Point", coordinates },
             StartWorkOTP: null,
+            appliedCoupon: appliedCouponId,
+            discountAmount: discountAmount
         });
 
         return {
@@ -838,6 +889,8 @@ exports.createBooking = async ({
         addressTitle,
         location: { type: "Point", coordinates },
         StartWorkOTP: null,
+        appliedCoupon: appliedCouponId,
+        discountAmount: discountAmount
     });
 
     return {
@@ -1466,7 +1519,8 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
             extraServiceId,
             status: extraService.status,
             totalPrice: booking.totalPrice,
-            durationInMinutes: booking.durationInMinutes
+            durationInMinutes: booking.durationInMinutes,
+            extraServices: booking.extraServices
         });
     }
 
@@ -1478,7 +1532,8 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
             extraServiceId,
             status: extraService.status,
             totalPrice: booking.totalPrice,
-            durationInMinutes: booking.durationInMinutes
+            durationInMinutes: booking.durationInMinutes,
+            extraServices: booking.extraServices
         });
     }
 

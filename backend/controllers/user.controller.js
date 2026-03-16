@@ -6,6 +6,7 @@ const axios = require("axios");
 const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
 const AppError = require("../utils/AppError");
+const { sendOTP } = require("../utils/msg91");
 require('dotenv').config();
 //token generation
 const generateToken = (user) => {
@@ -63,12 +64,16 @@ exports.sendOtp = async (req, res, next) => {
       { upsert: true, new: true }
     );
 
-    console.log("OTP sent:", otp); // replace with SMS API
+    console.log("OTP sent internally:", otp);
+
+    // Call MSG91 to send OTP sms
+    await sendOTP(cleanPhone, otp);
 
     return res.json({
       success: true,
-      message: "OTP sent",
-      otp,
+      message: "OTP sent successfully",
+      // Removed returning otp directly for security in production, can uncomment if for testing:
+      // otp,
     });
   } catch (err) {
     next(err); //let Global error handler deal with it
