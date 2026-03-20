@@ -6,7 +6,7 @@ const axios = require("axios");
 const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
 const AppError = require("../utils/AppError");
-const { sendOTP } = require("../utils/msg91");
+const msg91 = require("../utils/msg91");
 require('dotenv').config();
 //token generation
 const generateToken = (user) => {
@@ -39,41 +39,23 @@ exports.sendOtp = async (req, res, next) => {
       });
     }
 
-    const existingOtp = await Otp.findOne({ cleanPhone });
+    // Generate a 6-digit OTP
+    const otpValue = Math.floor(1000 + Math.random() * 9000);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
 
-    // Block if OTP still valid
-    if (existingOtp && existingOtp.expiresAt > new Date()) {
-      return next(new AppError("An active OTP has already been sent. Please wait before requesting a new one.", 429));
-    }
-
-    // Max resend limit
-    if (existingOtp && existingOtp.resendCount >= 3) {
-      return next(new AppError("Maximum OTP resend limit reached. Try again later.", 429));
-    }
-
-    const otp = Math.floor(1000 + Math.random() * 9000);
-
+    // Save/Update OTP in database
     await Otp.findOneAndUpdate(
       { cleanPhone },
-      {
-        otp,
-        attempts: 0,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 mins
-        $inc: { resendCount: 1 },
-      },
+      { otp: otpValue, expiresAt, attempts: 0 },
       { upsert: true, new: true }
     );
-
-    console.log("OTP sent internally:", otp);
-
-    // Call MSG91 to send OTP sms
-    await sendOTP(cleanPhone, otp);
+    console.log(otpValue);
+    // Send via MSG91
+    await msg91.sendOtp(cleanPhone, otpValue);
 
     return res.json({
       success: true,
-      message: "OTP sent successfully",
-      // Removed returning otp directly for security in production, can uncomment if for testing:
-      // otp,
+      message: "OTP sent successfully via MSG91",
     });
   } catch (err) {
     next(err); //let Global error handler deal with it
@@ -87,41 +69,35 @@ exports.verifyOtp = async (req, res, next) => {
     const { phoneNo, otp } = req.body;
 
     if (!phoneNo || !otp) {
-      return next(new AppError("Phone number and OTP required", 400));
+      return next(new AppError("Phone number and OTP are required", 400));
     }
 
     const cleanPhone = normalizePhone(phoneNo);
 
-    const otpDoc = await Otp.findOne({ cleanPhone });
-    if (!otpDoc) {
-      return next(new AppError("OTP expired or not found", 400));
+    // Find OTP in database
+    const otpRecord = await Otp.findOne({ cleanPhone });
+
+    if (!otpRecord) {
+      return next(new AppError("OTP not found or expired", 400));
     }
 
-    // OTP expired
-    if (new Date() > otpDoc.expiresAt) {
-      await Otp.deleteOne({ cleanPhone });
-      return next(new AppError("OTP expired. Please request a new one.", 400));
+    // Verify OTP
+    if (otpRecord.otp !== parseInt(otp)) {
+      otpRecord.attempts += 1;
+      await otpRecord.save();
+      return next(new AppError("Invalid OTP", 400));
     }
 
-    // OTP mismatch
-    if (otpDoc.otp.toString() !== otp.toString()) {
-      otpDoc.attempts += 1;
-
-      if (otpDoc.attempts >= 5) {
-        await Otp.deleteOne({ cleanPhone });
-        return next(new AppError("Maximum OTP attempts exceeded. Please request a new OTP.", 400));
-      }
-
-      await otpDoc.save();
-      return next(new AppError("Invalid OTP. Please try again.", 400));
-    }
-
-    // OTP verified → delete OTP
+    // Delete OTP record after successful verification
     await Otp.deleteOne({ cleanPhone });
 
-    const user = await User.findOne({ phoneNo });
+    let user = await User.findOne({ phoneNo: cleanPhone });
+
     if (!user) {
-      return next(new AppError("User not found", 404));
+      user = await User.create({
+        phoneNo: cleanPhone,
+        phoneMasked: maskPhone(cleanPhone),
+      });
     }
 
     user.isVerified = true;
@@ -139,12 +115,12 @@ exports.verifyOtp = async (req, res, next) => {
     // Existing user
     return res.json({
       success: true,
-      token: generateToken(user._id),
+      token: generateToken(user),
       user,
       message: "Login successful",
     });
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
 };
 

@@ -7,6 +7,8 @@ const Booking = require("../models/Booking.model");
 const mongoose = require("mongoose");
 const ROLES = require("../enum/role.enum");
 const ServiceList = require("../models/serviceList.model");
+const Ticket = require("../models/ticket.model");
+const TicketMessage = require("../models/ticketMessage.model");
 
 const {
   servicerAccept,
@@ -549,6 +551,51 @@ module.exports = (io) => {
       } catch (err) {
         console.log("💥 OTP ERROR:", err.message);
         socket.emit("otp-failed", { message: err.message });
+      }
+    });
+
+    /* ===============================
+       SUPPORT CHAT (TICKET BASED)
+    =============================== */
+    socket.on("join-ticket-chat", ({ ticketId }) => {
+      if (!ticketId) return;
+      const room = `ticket_${ticketId}`;
+      socket.join(room);
+      console.log(`[Socket] ${socket.id} (Role: ${socket.role}) joined support chat: ${room}`);
+    });
+
+    socket.on("send-ticket-chat-message", async ({ ticketId, message, type = "text" }) => {
+      try {
+        if (!ticketId || !message) return;
+
+        const ticket = await Ticket.findById(ticketId);
+        if (!ticket) return;
+
+        const senderId = socket.userId || socket.employeeId || socket.adminId || socket.id;
+        const senderModel = socket.role === ROLES.USER ? "User" : 
+                            (socket.role === ROLES.SINGLE_EMPLOYEE ? "SingleEmployee" :
+                            (socket.role === ROLES.MULTIPLE_EMPLOYEE ? "MultipleEmployee" :
+                            (socket.role === ROLES.TOOL_SHOP ? "ToolShop" : "Admin")));
+
+        // Persist message
+        const newMsg = await TicketMessage.create({
+            ticket: ticketId,
+            sender: senderId,
+            senderModel: senderModel,
+            message,
+            type
+        });
+
+        const room = `ticket_${ticketId}`;
+        // Broadcast to everyone ELSE in the room
+        socket.to(room).emit("receive-ticket-chat-message", {
+          ticketId,
+          message: newMsg,
+          senderRole: socket.role
+        });
+
+      } catch (err) {
+        console.error("send-ticket-chat-message error:", err.message);
       }
     });
 

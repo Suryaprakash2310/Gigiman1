@@ -1,31 +1,64 @@
 const axios = require("axios");
+require("dotenv").config();
 
-const sendOTP = async (phoneNo, otp) => {
+// MSG91 API configuration
+const MSG91_AUTH_KEY = process.env.MSG91_AUTH_KEY;
+const MSG91_TEMPLATE_ID = process.env.MSG91_TEMPLATE_ID;
+
+/**
+ * Send OTP via MSG91
+ * @param {string} phoneNo - Normalized phone number (e.g., +919999999999)
+ * @param {number|string} otp - The OTP to send
+ * @returns {Promise}
+ */
+exports.sendOtp = async (phoneNo, otp) => {
   try {
-    const authKey = process.env.MSG91_AUTH_KEY;
-    const templateId = process.env.MSG91_TEMPLATE_ID;
+    // Remove '+' for MSG91
+    const mobile = phoneNo.replace("+", "");
 
-    if (!authKey || !templateId) {
-      console.warn("MSG91_AUTH_KEY or MSG91_TEMPLATE_ID is not configured. Skipping SMS sending.");
-      return null;
-    }
+    const options = {
+      method: "POST",
+      url: "https://control.msg91.com/api/v5/otp",
+      params: {
+        template_id: MSG91_TEMPLATE_ID,
+        mobile: mobile,
+        authkey: MSG91_AUTH_KEY,
+        otp: otp,
+      },
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
 
-    const mobile = `91${phoneNo}`;
-
-    // MSG91 Send OTP API endpoint
-    const url = `https://control.msg91.com/api/v5/otp?template_id=${templateId}&mobile=${mobile}&authkey=${authKey}&otp=${otp}`;
-
-    const response = await axios.post(url);
-    
-    console.log(`MSG91 Response for ${mobile}:`, response.data);
+    const response = await axios.request(options);
     return response.data;
   } catch (error) {
-    console.error("Error sending OTP via MSG91:", error?.response?.data || error.message);
-    // Depending on logic, you may want to throw an error or handle it silently
-    // throw new Error("Failed to send SMS OTP");
+    console.error("MSG91 Error:", error.response?.data || error.message);
+    throw new Error("Failed to send SMS via MSG91");
   }
 };
 
-module.exports = {
-  sendOTP,
+/**
+ * Verify OTP via MSG91 (Optional - if using MSG91 verification API)
+ * Usually, we verify in our own DB using properties from user.controller.js
+ */
+exports.verifyOtp = async (phoneNo, otp) => {
+  try {
+    const mobile = phoneNo.replace("+", "");
+    const options = {
+      method: "GET",
+      url: "https://control.msg91.com/api/v5/otp/verify",
+      params: {
+        authkey: MSG91_AUTH_KEY,
+        mobile: mobile,
+        otp: otp,
+      },
+    };
+
+    const response = await axios.request(options);
+    return response.data;
+  } catch (error) {
+    console.error("MSG91 Verify Error:", error.response?.data || error.message);
+    return { type: "error", message: "Verification failed" };
+  }
 };

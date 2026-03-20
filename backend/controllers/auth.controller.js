@@ -10,8 +10,7 @@ const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
 const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
-const Ticket = require("../models/ticket.model");
-const { sendOTP } = require("../utils/msg91");
+const msg91 = require("../utils/msg91");
 
 exports.sendOtp = async (req, res, next) => {
   try {
@@ -19,8 +18,6 @@ exports.sendOtp = async (req, res, next) => {
     const { phoneNo } = req.body;
     if (!phoneNo)
       return next(new AppError("Phone number is required", 400));
-
-    const cleanPhone = normalizePhone(phoneNo);
 
     // Check employee existence
     const emp =
@@ -31,34 +28,25 @@ exports.sendOtp = async (req, res, next) => {
     if (!emp)
       return next(new AppError("Employee not found", 404));
 
-    const existingOtp = await Otp.findOne({ cleanPhone });
+    const cleanPhone = normalizePhone(phoneNo);
 
-    if (existingOtp && existingOtp.resendCount >= 5) {
-      return next(new AppError("Maximum OTP limit reached. Try again later.", 429));
-    }
+    // Generate a 6-digit OTP
+    const otpValue = Math.floor(100000 + Math.random() * 900000);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    const otp = crypto.randomInt(1000, 9999);
-
+    // Save/Update OTP
     await Otp.findOneAndUpdate(
       { cleanPhone },
-      {
-        otp,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-        attempts: 0,
-        $inc: { resendCount: 1 },
-      },
+      { otp: otpValue, expiresAt, attempts: 0 },
       { upsert: true, new: true }
     );
 
-    // ...
-    console.log(`OTP for ${cleanPhone}: ${otp}`);
-
-    // Call MSG91 to send OTP sms
-    await sendOTP(cleanPhone, otp);
+    // Send via MSG91
+    await msg91.sendOtp(cleanPhone, otpValue);
 
     return res.status(200).json({
-      message: "OTP sent successfully",
-      // otp  //temporary for testing purposes
+      success: true,
+      message: "OTP sent successfully via MSG91",
     });
   } catch (err) {
     next(err);
@@ -71,45 +59,38 @@ exports.verifyOtp = async (req, res, next) => {
     const { phoneNo, otp } = req.body;
 
     if (!phoneNo || !otp)
-      return next(new AppError("Phone and OTP required", 400));
+      return next(new AppError("Phone number and OTP are required", 400));
 
     const cleanPhone = normalizePhone(phoneNo);
 
-    const emp =
-      (await SingleEmployee.findOne({ phoneNo })) ||
-      (await MultipleEmployee.findOne({ phoneNo })) ||
-      (await ToolShop.findOne({ phoneNo }));
-
-    if (!emp)
-      return next(new AppError("Employee not found", 404));
-
+    // Find OTP record
     const otpRecord = await Otp.findOne({ cleanPhone });
 
-    if (!otpRecord)
+    if (!otpRecord) {
       return next(new AppError("OTP not found or expired", 400));
-
-    if (new Date() > otpRecord.expiresAt) {
-      await Otp.deleteOne({ cleanPhone });
-      return next(new AppError("OTP expired", 400));
     }
 
-    if (otpRecord.otp.toString() !== otp.toString()) {
+    // Verify OTP
+    if (otpRecord.otp !== parseInt(otp)) {
       otpRecord.attempts += 1;
-
-      if (otpRecord.attempts >= 5) {
-        await Otp.deleteOne({ cleanPhone });
-        return next(new AppError("Maximum OTP attempts exceeded. Please request a new OTP.", 429));
-      }
-
       await otpRecord.save();
       return next(new AppError("Invalid OTP", 400));
     }
 
-    // OTP success
+    // Delete OTP record
     await Otp.deleteOne({ cleanPhone });
+
+    const emp =
+      (await SingleEmployee.findOne({ phoneNo: cleanPhone })) ||
+      (await MultipleEmployee.findOne({ phoneNo: cleanPhone })) ||
+      (await ToolShop.findOne({ phoneNo: cleanPhone }));
+
+    if (!emp)
+      return next(new AppError("Employee not found", 404));
 
     const token = generateToken(emp);
     return res.status(200).json({
+      success: true,
       id: emp._id,
       role: emp.role,
       phoneNo: emp.phoneMasked,
@@ -117,7 +98,7 @@ exports.verifyOtp = async (req, res, next) => {
       message: "Login successful",
     });
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
 };
 
@@ -264,31 +245,6 @@ exports.ShowsubserviceId = async (req, res, next) => {
   }
 };
 
-exports.createTicket = async (req, res, next) => {
-  try {
-    const { message, category } = req.body;
-    if (!message || !category) {
-      return next(new AppError("All fields are required", 400));
-    }
-    const raisedBy = req.raisedById;
-    const raisedByModel = req.raisedByModel;
 
-    if (!raisedBy || !raisedByModel) {
-      return next(new AppError("All fields are required", 400));
-    }
-    const ticket = await Ticket.create({
-      raisedBy: req.raisedById,
-      raisedByModel: req.raisedByModel,
-      message: req.body.message,
-      category: req.body.category
-    });
-
-    return res.status(201).json(ticket);
-
-  }
-  catch (err) {
-    next(err);
-  }
-}
 
 

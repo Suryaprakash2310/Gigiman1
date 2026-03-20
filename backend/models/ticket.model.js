@@ -9,13 +9,26 @@ const ticketSchema=new mongoose.Schema({
         type:String,
         enum:["User","SingleEmployee","MultipleEmployee","ToolShop"],
     },
+    supportType:{
+        type:String,
+        enum:["Ticket","Call","Chat"],
+        default:"Ticket",
+    },
     category:{
         type:String,
-        enum:["Complaint","Query","Payment Issue","Technical Issue"],
+        enum:["Complaint","Query","Payment Issue","Technical Issue", "Call Request", "Chat Request"],
     },
     message:{
         type:String,
         required:true,
+    },
+    bookingId:{
+        type:String,
+        default:"",
+    },
+    image:{
+        type:String,
+        default:"",
     },
     adminReply:{
         type:String,
@@ -23,7 +36,7 @@ const ticketSchema=new mongoose.Schema({
     },
     status:{
         type:String,
-        enum:["Open","In progess","Resolved","Closed"],
+        enum:["Open","In progress","Resolved","Closed"],
         default:"Open",
     },
     priority:{

@@ -12,13 +12,10 @@ const {
     getSingleBanner
 } = require("../controllers/banner.controller");
 
-// Apply protection to all banner routes
-router.use(protect);
-
 // Manage banners (Permissions: Admin bypass, others need 'banner' permission)
-router.post("/create", hasPermission("banner"), createBanner);
-router.put("/:id", hasPermission("banner"), updateBanner);
-router.delete("/:id", hasPermission("banner"), deleteBanner);
+router.post("/create", protect, hasPermission("banner"), createBanner);
+router.put("/:id", protect, hasPermission("banner"), updateBanner);
+router.delete("/:id", protect, hasPermission("banner"), deleteBanner);
 
 // View banners
 router.get("/", getAllBanners);
