@@ -491,8 +491,8 @@ exports.getBookingById = async (req, res, next) => {
     }
 
     const booking = await Booking.findById(bookingId)
-      .populate("servicerCompany", "storeName")
-      .populate("primaryEmployee", "fullname phoneNo");
+      .populate("servicerCompany", "storeName avatar")
+      .populate("primaryEmployee", "fullname phoneNo avatar");
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
@@ -733,8 +733,8 @@ exports.getUserRecentBookingHistory = async (req, res, next) => {
       status: BOOKING_STATUS.COMPLETED
     })
       .sort({ createdAt: -1 })
-      .populate("primaryEmployee", "empId fullname")
-      .populate("employees", "storeName teamId")
+      .populate("primaryEmployee", "empId fullname avatar")
+      .populate("employees", "storeName TeamId avatar")
       .populate("selectedToolShop", "toolShopId storeLocation");
     if (!bookings || bookings.length === 0) {
       next(new AppError("No bookings found", 404));

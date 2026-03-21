@@ -1,10 +1,11 @@
 const express=require('express');
 const { multipleEmployeeRegister, requestToAddMember, removeMembersFromTeam, showSingleEmployee, getTeamStatus, SearchSingleEmployee, getpendingDetails, removePendingRequest, updateTeamMembers, getTeamMembers } = require('../controllers/multiple.employee.controllers');
 const { protect } = require('../middleware/auth.middleware');
+const upload = require('../middleware/upload.middleware');
 const router=express.Router();
 
 
-router.post("/register",multipleEmployeeRegister);
+router.post("/register", upload.single('avatar'), multipleEmployeeRegister);
 
 //show Single employees
 router.post("/showSingle-employee",protect,showSingleEmployee);

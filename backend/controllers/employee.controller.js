@@ -8,6 +8,8 @@ const { maskPhone } = require("../utils/crypto");
 const { encryptAadhaar, hashAadhaar, maskAadhaar } = require('../utils/aadharUtils');
 const axios = require('axios');
 const AppError = require("../utils/AppError");
+const cloudinary = require('../config/cloudinary');
+
 const generateToken = (user) => {
   return jwt.sign(
     {
@@ -20,10 +22,9 @@ const generateToken = (user) => {
   );
 };
 
-
 exports.registerEmployee = async (req, res, next) => {
   try {
-    const { fullname, phoneNo, aadhaarNo, latitude, longitude, role, services } = req.body;
+    const { fullname, phoneNo, aadhaarNo, latitude, longitude, role, services, avatar } = req.body;
 
     // 1. Validate required fields
     if (!fullname || !phoneNo) {
@@ -76,12 +77,25 @@ exports.registerEmployee = async (req, res, next) => {
       return next(new AppError("One or more services not found", 400));
     }
 
+    // --- HANDLE AVATAR UPLOAD ---
+    let avatarUrl = null;
+    if (req.file) {
+      avatarUrl = req.file.path;
+    } else if (avatar) {
+      const upload = await cloudinary.uploader.upload(avatar, {
+        folder: "employees/avatars",
+        transformation: [{ width: 300, height: 300, crop: "fill" }],
+      });
+      avatarUrl = upload.secure_url;
+    }
+
     // Create employee  
     const employee = await SingleEmployee.create({
       fullname,
       phoneNo,
       phoneMasked: maskedPhone,
       address,
+      avatar: avatarUrl,
       location: {
         type: "Point",
         coordinates: [longitude, latitude]

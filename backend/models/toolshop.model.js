@@ -12,6 +12,10 @@ const toolshopSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    avatar: {
+      type: String,
+      default: null,
+    },
     ownerName: {
       type: String,
       required: true,

@@ -11,6 +11,10 @@ const singleEmployeeSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  avatar: {
+    type: String,
+    default: null
+  },
   phoneNo: {
     type: String,
     required: true,

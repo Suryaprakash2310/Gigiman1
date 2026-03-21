@@ -8,6 +8,9 @@ const { maskPhone } = require('../utils/crypto');
 const axios = require('axios');
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN; 
 
+const cloudinary = require('../config/cloudinary');
+const AppError = require('../utils/AppError');
+
 // Generate JWT token
 const generateToken = (emp) => {
   return jwt.sign(
@@ -23,7 +26,7 @@ const generateToken = (emp) => {
 //registeration for multiple employee
 exports.multipleEmployeeRegister = async (req, res, next) => {
   try {
-    const { storeName, ownerName, latitude, longitude, phoneNo, role, services } = req.body;
+    const { storeName, ownerName, latitude, longitude, phoneNo, role, services, avatar } = req.body;
 
     // 1. Required fields
     if (!storeName || !ownerName || !latitude || !longitude || !phoneNo) {
@@ -67,11 +70,24 @@ exports.multipleEmployeeRegister = async (req, res, next) => {
       return next(new AppError("One or more invalid services selected", 400));
     }
 
+    // --- HANDLE AVATAR UPLOAD ---
+    let avatarUrl = null;
+    if (req.file) {
+      avatarUrl = req.file.path;
+    } else if (avatar) {
+      const upload = await cloudinary.uploader.upload(avatar, {
+        folder: "companies/logos",
+        transformation: [{ width: 300, height: 300, crop: "fill" }],
+      });
+      avatarUrl = upload.secure_url;
+    }
+
     // 5. Create MultipleEmployee
     const employee = await MultipleEmployee.create({
       storeName,
       ownerName,
       storeLocation: address,
+      avatar: avatarUrl,
       phoneNo,
       phoneMasked: maskedPhone,
       role: ROLES.MULTIPLE_EMPLOYEE,
@@ -114,7 +130,7 @@ exports.showSingleEmployee = async (req, res, next) => {
       return next(new AppError("Only multi employee can view single employee list", 403));
     }
     //get all single employees
-    const employees = await SingleEmployee.find().select("empId fullname teamAccepted");
+    const employees = await SingleEmployee.find().select("empId fullname teamAccepted avatar");
     //List the single employees
     res.status(200).json({
       message: "Registered single employees list",
@@ -242,8 +258,8 @@ exports.getTeamStatus = async (req, res, next) => {
     }
 
     const team = await MultipleEmployee.findOne({ TeamId: loggedInEmp.TeamId })
-      .populate("members", "empId fullname teamAccepted")
-      .populate("pendingRequests", "empId fullname");
+      .populate("members", "empId fullname teamAccepted avatar")
+      .populate("pendingRequests", "empId fullname avatar");
 
     if (!team) {
       return next(new AppError("Team not found", 404));
@@ -295,8 +311,8 @@ exports.getpendingDetails = async (req, res, next) => {
   try {
     const loggedInEmp = req.employee;
     const team = await MultipleEmployee.findOne({ _id: loggedInEmp._id })
-      .populate("pendingRequests", "fullName empId teamAccepted")
-      .populate("members", "fullName empId teamAccepted")
+      .populate("pendingRequests", "fullName empId teamAccepted avatar")
+      .populate("members", "fullName empId teamAccepted avatar")
     if (!team) {
       return next(new AppError("team not found", 400));
     }
@@ -362,7 +378,7 @@ exports.updateTeamMembers = async (req, res, next) => {
     }
 
     const team = await MultipleEmployee.findById(emp._id)
-      .populate("members", "fullname empId phoneNo");
+      .populate("members", "fullname empId phoneNo avatar");
 
     if (!team) {
       return next(new AppError("Team not found", 404));

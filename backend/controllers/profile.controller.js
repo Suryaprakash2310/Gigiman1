@@ -5,6 +5,7 @@ const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
 const Review=require('../models/review.model');
 const AppError = require('../utils/AppError');
+const cloudinary = require('../config/cloudinary');
 
 exports.getProfile = async (req, res, next) => {
   try {
@@ -52,30 +53,48 @@ exports.getProfile = async (req, res, next) => {
 };
 
 
-exports.editprofile=async(req, res, next)=>{
-    try{
-      const employee=req.employee;
-      const role=req.role;
-      let allowFields=[];
-      if(role===ROLES.SINGLE_EMPLOYEE){
-        allowFields=["fullname","address"];
-      }
-      if(role===ROLES.MULTIPLE_EMPLOYEE){
-        allowFields=["storeName","ownerName","storeLocation"];
-      }
-      if(role===ROLES.TOOL_SHOP){
-        allowFields=["shopName","ownerName","storeLocation"];
-      }
-      //validate incoming fields
-      const updates=Object.keys(req.body);
-      
-      const valid=updates.every((f)=>allowFields.includes(f));
-      if(!valid){
-        return next(new AppError("Invalid updates!",400));
-      }
-      //Apply updates dynamically
-      //include the nested address safety
-       updates.forEach((field) => {
+exports.editprofile = async (req, res, next) => {
+  try {
+    const employee = req.employee;
+    const role = req.role;
+    const { avatar } = req.body;
+
+    let allowFields = [];
+    if (role === ROLES.SINGLE_EMPLOYEE) {
+      allowFields = ["fullname", "address", "avatar"];
+    }
+    if (role === ROLES.MULTIPLE_EMPLOYEE) {
+      allowFields = ["storeName", "ownerName", "storeLocation", "avatar"];
+    }
+    if (role === ROLES.TOOL_SHOP) {
+      allowFields = ["shopName", "ownerName", "storeLocation", "avatar"];
+    }
+    //validate incoming fields
+    const updates = Object.keys(req.body);
+
+    const valid = updates.every((f) => allowFields.includes(f));
+    if (!valid) {
+      return next(new AppError("Invalid updates!", 400));
+    }
+
+    // Handle Avatar Upload: Case 1: Multer File Upload (Preferred)
+    if (req.file) {
+      employee.avatar = req.file.path; // Cloudinary URL directly from multer
+    } 
+    // Case 2: Manual Base64 Upload (Fallback)
+    else if (avatar) {
+      const folder = role === ROLES.SINGLE_EMPLOYEE ? "employees/avatars" : "companies/logos";
+      const uploadResult = await cloudinary.uploader.upload(avatar, {
+        folder: folder,
+        transformation: [{ width: 300, height: 300, crop: "fill" }]
+      });
+      employee.avatar = uploadResult.secure_url;
+    }
+
+    //Apply updates dynamically
+    updates.forEach((field) => {
+      if (field === "avatar") return; // Already handled above
+
       if (field === "address" && typeof req.body.address === "object") {
         // Merge address fields
         employee.address = {
@@ -86,15 +105,16 @@ exports.editprofile=async(req, res, next)=>{
         employee[field] = req.body[field];
       }
     });
-      await employee.save();
-      res.status(200).json({
-        success:true,
-        message:"Profile updated successfully",
-        updateProfile:employee
-      })
-    }catch(err){
-      next(err);
-    }
+
+    await employee.save();
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      updateProfile: employee
+    })
+  } catch (err) {
+    next(err);
+  }
 }
 
 exports.getMyJobReview=async(req, res, next)=>{

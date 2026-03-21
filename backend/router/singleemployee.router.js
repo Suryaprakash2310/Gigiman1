@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { registerEmployee, acceptTeamRequest, getTeamRequest, rejectTeamRequest, getMyTeam, leaveTeam } = require('../controllers/employee.controller');
 const { protect } = require('../middleware/auth.middleware');
+const upload = require('../middleware/upload.middleware');
 
-router.post('/register', registerEmployee);
+router.post('/register', upload.single('avatar'), registerEmployee);
 
 router.post("/acceptteamrequest",protect,acceptTeamRequest);
 

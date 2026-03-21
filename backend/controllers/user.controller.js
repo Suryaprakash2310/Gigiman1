@@ -153,9 +153,13 @@ exports.completeProfile = async (req, res, next) => {
       address = geoRes.data.features[0]?.place_name || null;
     }
 
-    // Upload avatar to Cloudinary
+    // Handle Avatar Upload: Case 1: Multer File Upload (Preferred)
     let avatarUrl = null;
-    if (avatar) {
+    if (req.file) {
+      avatarUrl = req.file.path; // Cloudinary URL directly from multer
+    }
+    // Case 2: Manual Base64 Upload (Fallback)
+    else if (avatar) {
       const upload = await cloudinary.uploader.upload(avatar, {
         folder: "users/avatars",
         transformation: [{ width: 300, height: 300, crop: "fill" }],
@@ -234,7 +238,12 @@ exports.editprofile = async (req, res, next) => {
       }
     }
 
-    if (avatar) {
+    // Handle Avatar Upload: Case 1: Multer File Upload (Preferred)
+    if (req.file) {
+      user.avatar = req.file.path; // Cloudinary URL directly from multer
+    }
+    // Case 2: Manual Base64 Upload (Fallback)
+    else if (avatar) {
       // ensure avatar is a valid data URI or remote URL; cloudinary accepts both
       const uploadResult = await cloudinary.uploader.upload(avatar, {
         folder: "user/avatars",
@@ -242,7 +251,7 @@ exports.editprofile = async (req, res, next) => {
       });
       user.avatar = uploadResult.secure_url;
     }
-    console.log(user);
+
     await user.save();
 
     // re-fetch to ensure populated/default fields are current

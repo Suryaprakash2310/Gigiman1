@@ -11,6 +11,10 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  avatar: {
+    type: String,
+    default: null
+  },
   members: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: "SingleEmployee",
