@@ -1482,9 +1482,21 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
     if (booking.user.toString() !== userId) {
         throw new AppError("Unauthorized: Only the customer can approve extra services", 403);
     }
+    console.log(extraServiceId);    // Fallback: search by _id string or serviceCategoryId if .id() fails
+    let extraService = booking.extraServices.id(extraServiceId);
+    if (!extraService) {
+        console.log("Subdocument .id() failed. Falling back to find()...");
+        extraService = booking.extraServices.find(s =>
+            s._id.toString() === extraServiceId.toString() ||
+            (s.serviceCategoryId && s.serviceCategoryId.toString() === extraServiceId.toString())
+        );
+    }
 
-    const extraService = booking.extraServices.id(extraServiceId);
-    if (!extraService) throw new AppError("Extra service request not found", 404);
+    if (!extraService) {
+        console.error("DEBUG: extraService not found. Available IDs:", booking.extraServices.map(s => s._id.toString()));
+        console.error("DEBUG: Available Category IDs:", booking.extraServices.map(s => s.serviceCategoryId?.toString()));
+        throw new AppError("Extra service request not found", 404);
+    }
 
     if (extraService.status !== "PENDING") {
         throw new AppError("Extra service request already processed", 400);
@@ -1493,15 +1505,15 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
     if (approve) {
         extraService.status = "APPROVED";
         extraService.approvedAt = new Date();
-        booking.totalPrice += extraService.price;
-        booking.totalServicePrice += extraService.price;
-        booking.durationInMinutes += extraService.durationInMinutes;
+        booking.totalPrice += Number(extraService.price || 0);
+        booking.totalServicePrice += Number(extraService.price || 0);
+        booking.durationInMinutes += Number(extraService.durationInMinutes || 0);
 
         // Add to regular proposal history for tracking
         booking.proposalHistory.push({
             serviceCategoryName: extraService.serviceName,
             price: extraService.price,
-            proposedBy: booking.primaryEmployee?._id,
+            proposedBy: booking.primaryEmployee?._id || booking.primaryEmployee,
             status: "APPROVED_EXTRA",
             proposedAt: extraService.requestedAt
         });

@@ -31,7 +31,7 @@ exports.sendOtp = async (req, res, next) => {
     const cleanPhone = normalizePhone(phoneNo);
 
     // Generate a 6-digit OTP
-    const otpValue = Math.floor(100000 + Math.random() * 900000);
+    const otpValue = Math.floor(1000 + Math.random() * 9000);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Save/Update OTP
@@ -40,6 +40,7 @@ exports.sendOtp = async (req, res, next) => {
       { otp: otpValue, expiresAt, attempts: 0 },
       { upsert: true, new: true }
     );
+    console.log(otpValue)
 
     // Send via MSG91
     await msg91.sendOtp(cleanPhone, otpValue);

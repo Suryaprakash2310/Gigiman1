@@ -50,18 +50,20 @@ router.get("/employee-counts", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES
 router.get("/get-all-employee", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getAllEmployee); 4
 router.get("/get-all-booking", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), getAllBooking);
 
+const upload = require('../middleware/upload.middleware');
+
 // Domain Service management permissions
-router.post("/add-domain-service", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), Adddomainservice);
-router.post("/add-service-list", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), setServiceList);
+router.post("/add-domain-service", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), upload.single('serviceImage'), Adddomainservice);
+router.post("/add-service-list", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), upload.single('servicecategoryImage'), setServiceList);
 router.delete("/delete-domain-service/:id", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), DeleteDomainService);
-router.put("/domainservice-edit/:DomainserviceId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), EditDomainService);
-router.put("/update-service-category/:serviceId/:categoryId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), updateServiceCategory);
+router.put("/domainservice-edit/:DomainserviceId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), upload.single('serviceImage'), EditDomainService);
+router.put("/update-service-category/:serviceId/:categoryId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), upload.single('servicecategoryImage'), updateServiceCategory);
 router.delete("/delete-service-category/:serviceId/:categoryId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), deleteServiceCategory);
 router.get("/service-categories/:DomainServiceId", protect, hasPermission(PERMISSIONS.VIEW_SERVICES), getServiceCategories);
 
 // Tool/Part management permissions
-router.post("/add-domainpart", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), setDomainTool);
-router.put("/domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), editDomainToolById);
+router.post("/add-domainpart", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), upload.single('domainpartimage'), setDomainTool);
+router.put("/domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), upload.single('domainpartimage'), editDomainToolById);
 router.delete("/delete-domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), DeleteDomainService);
 
 // Block/Unblock Servicer

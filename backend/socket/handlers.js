@@ -333,7 +333,9 @@ module.exports = (io) => {
 
     socket.on("extra-service-approve", async ({ bookingId, extraServiceId, approve }) => {
       try {
+        console.log("Services");
         if (socket.role !== ROLES.USER) return;
+        console.log("Extra Service");
         await approveExtraService({
           bookingId,
           extraServiceId,
@@ -572,18 +574,18 @@ module.exports = (io) => {
         if (!ticket) return;
 
         const senderId = socket.userId || socket.employeeId || socket.adminId || socket.id;
-        const senderModel = socket.role === ROLES.USER ? "User" : 
-                            (socket.role === ROLES.SINGLE_EMPLOYEE ? "SingleEmployee" :
-                            (socket.role === ROLES.MULTIPLE_EMPLOYEE ? "MultipleEmployee" :
-                            (socket.role === ROLES.TOOL_SHOP ? "ToolShop" : "Admin")));
+        const senderModel = socket.role === ROLES.USER ? "User" :
+          (socket.role === ROLES.SINGLE_EMPLOYEE ? "SingleEmployee" :
+            (socket.role === ROLES.MULTIPLE_EMPLOYEE ? "MultipleEmployee" :
+              (socket.role === ROLES.TOOL_SHOP ? "ToolShop" : "Admin")));
 
         // Persist message
         const newMsg = await TicketMessage.create({
-            ticket: ticketId,
-            sender: senderId,
-            senderModel: senderModel,
-            message,
-            type
+          ticket: ticketId,
+          sender: senderId,
+          senderModel: senderModel,
+          message,
+          type
         });
 
         const room = `ticket_${ticketId}`;

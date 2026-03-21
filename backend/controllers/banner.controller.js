@@ -4,18 +4,16 @@ const Banner = require('../models/banner.model');
 
 exports.createBanner = async (req, res, next) => {
     try {
-        const { title, description, image } = req.body;
-        if (!title || !description) {
-            return next(new AppError("All the fields are required", 400));
+        const { title, description } = req.body;
+        if (!title || !description || !req.file) {
+            return next(new AppError("All fields including image are required", 400));
         }
-        const result = await cloudinary.uploader.upload(image, {
-            folder: "Banners",
-        })
+
         const banner = await Banner.create({
             title,
             description,
-            img: result.secure_url,
-            publicId: result.public_id,
+            img: req.file.path, // Cloudinary URL from multer-storage-cloudinary
+            publicId: req.file.filename, // Cloudinary Public ID from multer-storage-cloudinary
         })
         res.status(201).json({
             success: true,
@@ -33,13 +31,14 @@ exports.updateBanner = async (req, res, next) => {
         if (!banner) {
             return next(new AppError("Banner is not found", 404));
         }
-        if (req.body.image) {
-            await cloudinary.uploader.destroy(banner.publicId);
-            const result = await cloudinary.uploader.upload(req.body.image, {
-                folder: "Banners",
-            })
-            banner.img = result.secure_url;
-            banner.publicId = result.public_id;
+
+        if (req.file) {
+            // Delete old image
+            if (banner.publicId) {
+                await cloudinary.uploader.destroy(banner.publicId);
+            }
+            banner.img = req.file.path;
+            banner.publicId = req.file.filename;
         }
         banner.title = req.body.title || banner.title;
         banner.description = req.body.description || banner.description;

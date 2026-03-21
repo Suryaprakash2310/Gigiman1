@@ -211,23 +211,21 @@ exports.getEmployeecounts = async (req, res, next) => {
 
 exports.Adddomainservice = async (req, res, next) => {
   try {
-    const { domainName, serviceImage } = req.body;
-    if (!domainName || !serviceImage) {
-      return next(new AppError("All the fields are required", 400));
+    const { domainName } = req.body;
+    if (!domainName || !req.file) {
+      return next(new AppError("All fields including image are required", 400));
     }
     const existingDomain = await DomainService.findOne({ domainName });
 
     if (existingDomain) {
       return next(new AppError("Domain service already exists", 400));
     }
-    const uploadImage = await cloudinary.uploader.upload(serviceImage, {
-      folder: "Domain_service",
-      resource_type: "image",
-    });
+
     // Create new domain
     const domain = await DomainService.create({
       domainName,
-      serviceImage: uploadImage.secure_url,
+      serviceImage: req.file.path,
+      serviceImagePublicId: req.file.filename,
     });
 
     return res.status(201).json({
@@ -273,12 +271,8 @@ exports.setServiceList = async (req, res, next) => {
 
     // ================= IMAGE UPLOAD =================
     let imageUrl = null;
-    if (servicecategoryImage) {
-      const upload = await cloudinary.uploader.upload(
-        servicecategoryImage,
-        { folder: "service_categories" }
-      );
-      imageUrl = upload.secure_url;
+    if (req.file) {
+      imageUrl = req.file.path;
     }
 
     // =================================================
@@ -297,7 +291,8 @@ exports.setServiceList = async (req, res, next) => {
         price,
         durationInMinutes,
         employeeCount,
-        servicecategoryImage: imageUrl
+        servicecategoryImage: imageUrl,
+        servicecategoryImagePublicId: req.file ? req.file.filename : null,
       });
 
       await service.save();
@@ -326,7 +321,8 @@ exports.setServiceList = async (req, res, next) => {
           price,
           durationInMinutes,
           employeeCount,
-          servicecategoryImage: imageUrl
+          servicecategoryImage: imageUrl,
+          servicecategoryImagePublicId: req.file ? req.file.filename : null,
         }
       ]
     });
@@ -408,36 +404,36 @@ exports.DeleteDomainService = async (req, res, next) => {
 exports.EditDomainService = async (req, res, next) => {
   try {
     const { DomainserviceId } = req.params;
-    // Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(DomainserviceId)) {
       return next(new AppError("Invalid DomainserviceId", 400));
     }
 
-    // Pick only allowed fields
+    const domainservice = await DomainService.findById(DomainserviceId);
+    if (!domainservice) {
+      return next(new AppError("Domain service not found", 404));
+    }
+
     const update = {};
     if (req.body.domainName !== undefined) {
       update.domainName = req.body.domainName;
     }
-    if (req.body.serviceImage !== undefined) {
-      update.serviceImage = req.body.serviceImage;
+
+    if (req.file) {
+      // Delete old image
+      if (domainservice.serviceImagePublicId) {
+        await cloudinary.uploader.destroy(domainservice.serviceImagePublicId);
+      }
+      update.serviceImage = req.file.path;
+      update.serviceImagePublicId = req.file.filename;
     }
 
-    // Update and return new document
-    const domainservice = await DomainService.findByIdAndUpdate(
-      DomainserviceId,
-      { $set: update },
-      { new: true, runValidators: true }
-    );
-
-    if (!domainservice) {
-      return next(new AppError("Domain service not found", 404));
-    }
+    Object.assign(domainservice, update);
+    await domainservice.save();
 
     return res.status(200).json({
       success: true,
       domainservice
     });
-
   } catch (err) {
     next(err);
   }
@@ -452,15 +448,17 @@ exports.updateServiceCategory = async (req, res, next) => {
     price,
     durationInMinutes,
     employeeCount,
-    servicecategoryImage,
   }) => ({
     serviceCategoryName,
     description,
     price,
     durationInMinutes,
     employeeCount,
-    servicecategoryImage,
   }))(req.body);
+
+  if (req.file) {
+    updates.servicecategoryImage = req.file.path;
+  }
 
   if (!mongoose.Types.ObjectId.isValid(serviceId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
     return next(new AppError("Invalid id", 400));
@@ -472,6 +470,15 @@ exports.updateServiceCategory = async (req, res, next) => {
 
     const category = service.serviceCategory.id(categoryId);
     if (!category) return next(new AppError("Category not found", 404));
+
+    if (req.file) {
+      // Delete old category image
+      if (category.servicecategoryImagePublicId) {
+        await cloudinary.uploader.destroy(category.servicecategoryImagePublicId);
+      }
+      category.servicecategoryImage = req.file.path;
+      category.servicecategoryImagePublicId = req.file.filename;
+    }
 
     // apply provided fields
     Object.keys(updates).forEach((k) => {
@@ -500,6 +507,11 @@ exports.deleteServiceCategory = async (req, res, next) => {
     // Find category
     const category = service.serviceCategory.id(categoryId);
     if (!category) return next(new AppError("Category not found", 404));
+
+    // Delete image from Cloudinary
+    if (category.servicecategoryImagePublicId) {
+      await cloudinary.uploader.destroy(category.servicecategoryImagePublicId);
+    }
     // Remove category properly
     service.serviceCategory.pull({ _id: categoryId });
     await service.save();
@@ -574,21 +586,19 @@ exports.setDomainTool = async (req, res, next) => {
     /* ===============================
        IMAGE UPLOAD
     =============================== */
-    const upload = await cloudinary.uploader.upload(
-      domainpartimage,
-      {
-        folder: "domain_parts",
-        resource_type: "image"
-      }
-    );
+    if (!req.file) {
+      return next(new AppError("Domain part image is required", 400));
+    }
+    const imageUrl = req.file.path;
+    const publicId = req.file.filename;
 
     /* ===============================
        CREATE DOCUMENT
     =============================== */
     const domainPart = await Domainparts.create({
       domainpartname: domainpartname.trim(),
-      domainpartimage: upload.secure_url,
-      domainpartimagePublicId: upload.public_id,
+      domainpartimage: imageUrl,
+      domainpartimagePublicId: publicId,
       parts
     });
 
@@ -642,7 +652,7 @@ exports.editDomainToolById = async (req, res, next) => {
     /* ===============================
        IMAGE UPDATE (CLOUD SAFE)
     =============================== */
-    if (domainpartimage) {
+    if (req.file) {
       // Delete old image
       if (domainPart.domainpartimagePublicId) {
         await cloudinary.uploader.destroy(
@@ -650,14 +660,8 @@ exports.editDomainToolById = async (req, res, next) => {
         );
       }
 
-      // Upload new image
-      const upload = await cloudinary.uploader.upload(
-        domainpartimage,
-        { folder: "domain_parts" }
-      );
-
-      domainPart.domainpartimage = upload.secure_url;
-      domainPart.domainpartimagePublicId = upload.public_id;
+      domainPart.domainpartimage = req.file.path;
+      domainPart.domainpartimagePublicId = req.file.filename;
     }
 
     /* ===============================

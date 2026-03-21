@@ -7,8 +7,12 @@ const domainserviceschema = mongoose.Schema({
         trim: true,
     },
     serviceImage: {
-        type: String,
-        default: null,
+      type: String,
+      default: null,
+    },
+    serviceImagePublicId: {
+      type: String,
+      default: null,
     }
 }, { timestamps: true, autoIndex: true });
 

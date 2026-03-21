@@ -12,9 +12,11 @@ const {
     getSingleBanner
 } = require("../controllers/banner.controller");
 
+const upload = require("../middleware/upload.middleware");
+
 // Manage banners (Permissions: Admin bypass, others need 'banner' permission)
-router.post("/create", protect, hasPermission("banner"), createBanner);
-router.put("/:id", protect, hasPermission("banner"), updateBanner);
+router.post("/create", protect, hasPermission("banner"), upload.single('image'), createBanner);
+router.put("/:id", protect, hasPermission("banner"), upload.single('image'), updateBanner);
 router.delete("/:id", protect, hasPermission("banner"), deleteBanner);
 
 // View banners

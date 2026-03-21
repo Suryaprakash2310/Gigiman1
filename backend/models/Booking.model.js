@@ -101,16 +101,16 @@ const bookingSchema = new mongoose.Schema({
     index: true
   },
 
-  // proposedService: {
-  //   serviceCategoryId: {
-  //     type: mongoose.Types.ObjectId
-  //   },
-  //   serviceCategoryName: String,
-  //   price: Number,
-  //   durationInMinutes: Number,
-  //   employeeCount: Number,
-  //   proposedAt: Date
-  // },
+  proposedService: {
+    serviceCategoryId: {
+      type: mongoose.Types.ObjectId
+    },
+    serviceCategoryName: String,
+    price: Number,
+    durationInMinutes: Number,
+    employeeCount: Number,
+    proposedAt: Date
+  },
 
   extraServices: [{
     serviceCategoryId: {
@@ -129,16 +129,16 @@ const bookingSchema = new mongoose.Schema({
     approvedAt: Date
   }],
 
-  // proposalHistory: [{
-  //   serviceCategoryName: String,
-  //   price: Number,
-  //   proposedBy: {
-  //     type: mongoose.Types.ObjectId,
-  //     ref: "SingleEmployee"
-  //   },
-  //   status: String,
-  //   proposedAt: Date
-  // }],
+  proposalHistory: [{
+    serviceCategoryName: String,
+    price: Number,
+    proposedBy: {
+      type: mongoose.Types.ObjectId,
+      ref: "SingleEmployee"
+    },
+    status: String,
+    proposedAt: Date
+  }],
   assignmentStatus: {
     type: String,
     enum: ["SEARCHING", "OFFERED", "ASSIGNED", "FAILED", "SCHEDULED"],
@@ -162,8 +162,6 @@ const bookingSchema = new mongoose.Schema({
     default: 0
   },
   /* ---------------- OTP ---------------- */
-  StartWorkOTP: Number,
-  toolOTP: Number,
 
   /* ---------------- PAYMENT ---------------- */
   paymentMethod: {
@@ -240,9 +238,6 @@ const bookingSchema = new mongoose.Schema({
   razorpayPaymentId: String,
   razorpaySignature: String,
 
-  razorpayOrderId: String,
-  razorpayOrderPaymentId: String,
-  razorpaySignature: String,
   employeeCount: {
     type: Number,
     required: true,

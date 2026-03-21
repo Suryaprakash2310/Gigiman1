@@ -23,6 +23,10 @@ const serviceListSchema = mongoose.Schema({
             type: String,
             default: null,
         },
+        servicecategoryImagePublicId: {
+            type: String,
+            default: null,
+        },
         description: {
             type: String,
             required: true,

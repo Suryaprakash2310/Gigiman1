@@ -21,6 +21,9 @@ const PERMISSIONS = {
     // User Management
     MANAGE_USERS: "manage_users",
     VIEW_USERS: "view_users",
+
+    // Coupon Management
+    MANAGE_COUPONS: "manage_coupons",
 };
 
 module.exports = PERMISSIONS;
