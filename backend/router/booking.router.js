@@ -2,7 +2,9 @@ const express = require("express");
 const router = express.Router();
 const { protect } = require('../middleware/auth.middleware');
 const { userProtect } = require('../middleware/user.middleware');
+const { anyAuth } = require('../middleware/anyAuth.middleware');
 const bookingController = require("../controllers/booking.controller");
+const callController = require("../controllers/call.controller");
 const validate = require("../middleware/validation.middleware");
 const schemas = require("../validations/booking.validation");
 
@@ -61,6 +63,11 @@ router.post("/payment/success", bookingController.paymentSuccess);
 //Booking history
 router.get("/history/user", userProtect, bookingController.getUserRecentBookingHistory);
 router.get("/history/servicer", protect, bookingController.getEmployeeRecentBookingHistory);
+
+/* ===============================
+   MASKED CALL
+=============================== */
+router.post("/mask-call/:bookingId", anyAuth, callController.initiateCall);
 
 /* ===============================
    POPULAR BOOKINGS
