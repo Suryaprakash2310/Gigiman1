@@ -394,7 +394,7 @@ exports.getPartRequestById = async (req, res, next) => {
 
     const partRequest = await PartRequest.findById(requestId)
       .populate("employeeId", "fullname phoneNo")
-      .populate("bookingId", "address");
+      .populate("bookingId", "address addressTitle");
 
     if (!partRequest) {
       return next(new AppError("Part request not found", 404));
@@ -504,7 +504,7 @@ exports.getBookingById = async (req, res, next) => {
     // Calculate Average Rating for the technician / company
     let techRating = 0;
     let techReviewCount = 0;
-    
+
     if (booking.servicerCompany) {
       const companyReviews = await Review.aggregate([
         { $match: { company: booking.servicerCompany._id } },
@@ -536,6 +536,7 @@ exports.getBookingById = async (req, res, next) => {
         durationInMinutes: booking.durationInMinutes,
         employeeCount: String(booking.employeeCount || 1),
         address: booking.address,
+        addressTitle: booking.addressTitle,
         status: booking.status,
         otp: booking.StartWorkOTP,
         domainServiceId: booking.domainService?._id,
@@ -1056,10 +1057,14 @@ exports.getPopularBookings = async (req, res, next) => {
             },
             {
               $project: {
-                _id: 0,
-                serviceName: 1,
+                _id: "$serviceCategory._id",
                 serviceCategoryName: "$serviceCategory.serviceCategoryName",
-                serviceCategoryImage: "$serviceCategory.servicecategoryImage"
+                servicecategoryImage: {
+                  $ifNull: [
+                    "$serviceCategory.servicecategoryImage",
+                    "$serviceCategory.servicecategroyImage"
+                  ]
+                }
               }
             }
           ],
@@ -1071,8 +1076,19 @@ exports.getPopularBookings = async (req, res, next) => {
           path: "$serviceInfo",
           preserveNullAndEmptyArrays: true
         }
+      },
+      {
+        // FLATTEN: Move fields to the top level so frontend finds them
+        $project: {
+          _id: { $ifNull: ["$serviceInfo._id", "$_id"] },
+          totalBookings: 1,
+          totalRevenue: 1,
+          serviceCategoryName: { $ifNull: ["$serviceInfo.serviceCategoryName", "$_id"] },
+          servicecategoryImage: "$serviceInfo.servicecategoryImage"
+        }
       }
-    ])
+    ]);
+
     return res.status(200).json({
       success: true,
       rangeDays: Number(days),
@@ -1080,11 +1096,11 @@ exports.getPopularBookings = async (req, res, next) => {
       popularServices: popularBookings
     });
 
-
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
 }
+
 
 exports.getReviewByService = async (req, res, next) => {
   try {
