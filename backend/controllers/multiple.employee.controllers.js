@@ -9,6 +9,7 @@ const axios = require('axios');
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN; 
 
 const cloudinary = require('../config/cloudinary');
+const { uploadToCloudinary } = require('../utils/uploadHandler');
 const AppError = require('../utils/AppError');
 
 // Generate JWT token
@@ -73,7 +74,8 @@ exports.multipleEmployeeRegister = async (req, res, next) => {
     // --- HANDLE AVATAR UPLOAD ---
     let avatarUrl = null;
     if (req.file) {
-      avatarUrl = req.file.path;
+      const result = await uploadToCloudinary(req.file, "companies/logos");
+      avatarUrl = result.url;
     } else if (avatar) {
       const upload = await cloudinary.uploader.upload(avatar, {
         folder: "companies/logos",

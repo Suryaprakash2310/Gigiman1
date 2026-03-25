@@ -1,4 +1,4 @@
-const cloudinary = require("../config/cloudinary");
+const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
 const AppError = require("../utils/AppError");
 const Banner = require('../models/banner.model');
 
@@ -9,11 +9,13 @@ exports.createBanner = async (req, res, next) => {
             return next(new AppError("All fields including image are required", 400));
         }
 
+        const result = await uploadToCloudinary(req.file, 'Gigiman');
+
         const banner = await Banner.create({
             title,
             description,
-            img: req.file.path, // Cloudinary URL from multer-storage-cloudinary
-            publicId: req.file.filename, // Cloudinary Public ID from multer-storage-cloudinary
+            img: result.url, 
+            publicId: result.publicId, 
         })
         res.status(201).json({
             success: true,
@@ -34,11 +36,11 @@ exports.updateBanner = async (req, res, next) => {
 
         if (req.file) {
             // Delete old image
-            if (banner.publicId) {
-                await cloudinary.uploader.destroy(banner.publicId);
-            }
-            banner.img = req.file.path;
-            banner.publicId = req.file.filename;
+            await deleteFromCloudinary(banner.publicId);
+            
+            const result = await uploadToCloudinary(req.file, 'Gigiman');
+            banner.img = result.url;
+            banner.publicId = result.publicId;
         }
         banner.title = req.body.title || banner.title;
         banner.description = req.body.description || banner.description;
@@ -62,7 +64,7 @@ exports.deleteBanner = async (req, res, next) => {
             return res.status(404).json({ message: "Banner not found" });
         }
 
-        await cloudinary.uploader.destroy(banner.publicId);
+        await deleteFromCloudinary(banner.publicId);
 
         await banner.deleteOne();
 

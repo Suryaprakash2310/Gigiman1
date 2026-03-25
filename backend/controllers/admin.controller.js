@@ -21,6 +21,7 @@ const PartRequest = require('../models/partsrequest.model');
 const PART_REQUEST_STATUS = require('../enum/partsstatus.enum');
 const User = require('../models/user.model');
 const Review = require('../models/review.model');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
 
 exports.inviteAdmin = async (req, res, next) => {
   try {
@@ -221,11 +222,14 @@ exports.Adddomainservice = async (req, res, next) => {
       return next(new AppError("Domain service already exists", 400));
     }
 
+    // Upload to Cloudinary manually via helper
+    const result = await uploadToCloudinary(req.file, 'Gigiman');
+
     // Create new domain
     const domain = await DomainService.create({
       domainName,
-      serviceImage: req.file.path,
-      serviceImagePublicId: req.file.filename,
+      serviceImage: result.url,
+      serviceImagePublicId: result.publicId,
     });
 
     return res.status(201).json({
@@ -256,7 +260,7 @@ exports.setServiceList = async (req, res, next) => {
     // ================= VALIDATION =================
     if (!DomainServiceId) {
       return next(new AppError("DomainServiceId is required", 400));
-    } s
+    }
     if (!mongoose.Types.ObjectId.isValid(DomainServiceId)) {
       const domain = await DomainService.findOne({
         domainName: DomainServiceId
@@ -285,14 +289,17 @@ exports.setServiceList = async (req, res, next) => {
         return next(new AppError("Service not found", 404));
       }
 
+      // Upload to Cloudinary via helper
+      const result = await uploadToCloudinary(req.file, 'Gigiman');
+
       service.serviceCategory.push({
         serviceCategoryName,
         description,
         price,
         durationInMinutes,
         employeeCount,
-        servicecategoryImage: imageUrl,
-        servicecategoryImagePublicId: req.file ? req.file.filename : null,
+        servicecategoryImage: result.url,
+        servicecategoryImagePublicId: result.publicId,
       });
 
       await service.save();
@@ -311,6 +318,9 @@ exports.setServiceList = async (req, res, next) => {
       return next(new AppError("serviceName is required", 400));
     }
 
+    // Upload to Cloudinary via helper
+    const result = await uploadToCloudinary(req.file, 'Gigiman');
+
     const newService = await ServiceList.create({
       DomainServiceId,
       serviceName,
@@ -321,8 +331,8 @@ exports.setServiceList = async (req, res, next) => {
           price,
           durationInMinutes,
           employeeCount,
-          servicecategoryImage: imageUrl,
-          servicecategoryImagePublicId: req.file ? req.file.filename : null,
+          servicecategoryImage: result.url,
+          servicecategoryImagePublicId: result.publicId,
         }
       ]
     });
@@ -389,9 +399,8 @@ exports.DeleteDomainService = async (req, res, next) => {
     if (!service) {
       return next(new AppError("Domain service not found", 404));
     }
-    if (service.serviceImagePublicId) {
-      await cloudinary.uploader.destroy(service.serviceImagePublicId);
-    }
+
+    await deleteFromCloudinary(service.serviceImagePublicId);
 
     await service.deleteOne();
 
@@ -404,36 +413,45 @@ exports.DeleteDomainService = async (req, res, next) => {
 exports.EditDomainService = async (req, res, next) => {
   try {
     const { DomainserviceId } = req.params;
+
     if (!mongoose.Types.ObjectId.isValid(DomainserviceId)) {
       return next(new AppError("Invalid DomainserviceId", 400));
     }
 
     const domainservice = await DomainService.findById(DomainserviceId);
+
     if (!domainservice) {
       return next(new AppError("Domain service not found", 404));
     }
 
     const update = {};
-    if (req.body.domainName !== undefined) {
-      update.domainName = req.body.domainName;
+
+    if (req.body.domainName) {
+      update.domainName = req.body.domainName.trim();
     }
 
     if (req.file) {
-      // Delete old image
       if (domainservice.serviceImagePublicId) {
-        await cloudinary.uploader.destroy(domainservice.serviceImagePublicId);
+        await deleteFromCloudinary(domainservice.serviceImagePublicId);
       }
-      update.serviceImage = req.file.path;
-      update.serviceImagePublicId = req.file.filename;
+
+      const result = await uploadToCloudinary(req.file, 'DomainService');
+
+      update.serviceImage = result.url;
+      update.serviceImagePublicId = result.publicId;
     }
 
-    Object.assign(domainservice, update);
-    await domainservice.save();
+    const updatedService = await DomainService.findByIdAndUpdate(
+      DomainserviceId,
+      update,
+      { new: true, runValidators: true }
+    );
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
-      domainservice
+      domainservice: updatedService
     });
+
   } catch (err) {
     next(err);
   }
@@ -456,9 +474,7 @@ exports.updateServiceCategory = async (req, res, next) => {
     employeeCount,
   }))(req.body);
 
-  if (req.file) {
-    updates.servicecategoryImage = req.file.path;
-  }
+  // Handled later during manual Cloudinary upload if req.file exists
 
   if (!mongoose.Types.ObjectId.isValid(serviceId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
     return next(new AppError("Invalid id", 400));
@@ -473,11 +489,13 @@ exports.updateServiceCategory = async (req, res, next) => {
 
     if (req.file) {
       // Delete old category image
-      if (category.servicecategoryImagePublicId) {
-        await cloudinary.uploader.destroy(category.servicecategoryImagePublicId);
-      }
-      category.servicecategoryImage = req.file.path;
-      category.servicecategoryImagePublicId = req.file.filename;
+      await deleteFromCloudinary(category.servicecategoryImagePublicId);
+
+      // Upload new to Cloudinary via helper
+      const result = await uploadToCloudinary(req.file, 'Gigiman');
+
+      category.servicecategoryImage = result.url;
+      category.servicecategoryImagePublicId = result.publicId;
     }
 
     // apply provided fields
@@ -509,9 +527,7 @@ exports.deleteServiceCategory = async (req, res, next) => {
     if (!category) return next(new AppError("Category not found", 404));
 
     // Delete image from Cloudinary
-    if (category.servicecategoryImagePublicId) {
-      await cloudinary.uploader.destroy(category.servicecategoryImagePublicId);
-    }
+    await deleteFromCloudinary(category.servicecategoryImagePublicId);
     // Remove category properly
     service.serviceCategory.pull({ _id: categoryId });
     await service.save();
@@ -589,8 +605,14 @@ exports.setDomainTool = async (req, res, next) => {
     if (!req.file) {
       return next(new AppError("Domain part image is required", 400));
     }
-    const imageUrl = req.file.path;
-    const publicId = req.file.filename;
+
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'Gigiman'
+    });
+
+    const imageUrl = result.secure_url;
+    const publicId = result.public_id;
 
     /* ===============================
        CREATE DOCUMENT
@@ -654,14 +676,13 @@ exports.editDomainToolById = async (req, res, next) => {
     =============================== */
     if (req.file) {
       // Delete old image
-      if (domainPart.domainpartimagePublicId) {
-        await cloudinary.uploader.destroy(
-          domainPart.domainpartimagePublicId
-        );
-      }
+      await deleteFromCloudinary(domainPart.domainpartimagePublicId);
 
-      domainPart.domainpartimage = req.file.path;
-      domainPart.domainpartimagePublicId = req.file.filename;
+      // Upload new to Cloudinary via helper
+      const result = await uploadToCloudinary(req.file, 'Gigiman');
+
+      domainPart.domainpartimage = result.url;
+      domainPart.domainpartimagePublicId = result.publicId;
     }
 
     /* ===============================
@@ -726,11 +747,7 @@ exports.deleteDomainpartById = async (req, res, next) => {
     }
 
     // Delete Cloudinary image
-    if (domainPart.domainpartimagePublicId) {
-      await cloudinary.uploader.destroy(
-        domainPart.domainpartimagePublicId
-      );
-    }
+    await deleteFromCloudinary(domainPart.domainpartimagePublicId);
 
     // Delete DB record
     await domainPart.deleteOne();

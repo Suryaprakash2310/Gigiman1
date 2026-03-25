@@ -8,6 +8,7 @@ const { maskPhone } = require("../utils/crypto");
 const { encryptAadhaar, hashAadhaar, maskAadhaar } = require('../utils/aadharUtils');
 const axios = require('axios');
 const AppError = require("../utils/AppError");
+const { uploadToCloudinary } = require('../utils/uploadHandler');
 const cloudinary = require('../config/cloudinary');
 
 const generateToken = (user) => {
@@ -80,7 +81,8 @@ exports.registerEmployee = async (req, res, next) => {
     // --- HANDLE AVATAR UPLOAD ---
     let avatarUrl = null;
     if (req.file) {
-      avatarUrl = req.file.path;
+      const result = await uploadToCloudinary(req.file, "employees/avatars");
+      avatarUrl = result.url;
     } else if (avatar) {
       const upload = await cloudinary.uploader.upload(avatar, {
         folder: "employees/avatars",

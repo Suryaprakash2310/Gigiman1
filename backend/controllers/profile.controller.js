@@ -5,6 +5,7 @@ const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
 const Review=require('../models/review.model');
 const AppError = require('../utils/AppError');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
 const cloudinary = require('../config/cloudinary');
 
 exports.getProfile = async (req, res, next) => {
@@ -79,7 +80,9 @@ exports.editprofile = async (req, res, next) => {
 
     // Handle Avatar Upload: Case 1: Multer File Upload (Preferred)
     if (req.file) {
-      employee.avatar = req.file.path; // Cloudinary URL directly from multer
+      const folder = role === ROLES.SINGLE_EMPLOYEE ? "employees/avatars" : "companies/logos";
+      const result = await uploadToCloudinary(req.file, folder);
+      employee.avatar = result.url;
     } 
     // Case 2: Manual Base64 Upload (Fallback)
     else if (avatar) {

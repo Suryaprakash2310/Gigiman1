@@ -17,6 +17,7 @@ const {
     getServiceCategories,
     setDomainTool,
     editDomainToolById,
+    deleteDomainpartById,
     getAllBooking,
     unblockServicer,
     getAdminDashboardStats,
@@ -64,7 +65,7 @@ router.get("/service-categories/:DomainServiceId", protect, hasPermission(PERMIS
 // Tool/Part management permissions
 router.post("/add-domainpart", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), upload.single('domainpartimage'), setDomainTool);
 router.put("/domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), upload.single('domainpartimage'), editDomainToolById);
-router.delete("/delete-domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), DeleteDomainService);
+router.delete("/delete-domainpart/:domainpartId", protect, hasPermission(PERMISSIONS.MANAGE_TOOLS), deleteDomainpartById);
 
 // Block/Unblock Servicer
 router.put("/block-servicer/:id", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), blockServicer);
