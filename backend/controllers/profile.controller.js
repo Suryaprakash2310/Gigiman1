@@ -1,9 +1,9 @@
-const jwt=require('jsonwebtoken');
-const SingleEmployee=require('../models/singleEmployee.model');
-const MultipleEmployee=require('../models/multipleEmployee.model');
+const jwt = require('jsonwebtoken');
+const SingleEmployee = require('../models/singleEmployee.model');
+const MultipleEmployee = require('../models/multipleEmployee.model');
 const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
-const Review=require('../models/review.model');
+const Review = require('../models/review.model');
 const AppError = require('../utils/AppError');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
 const cloudinary = require('../config/cloudinary');
@@ -18,7 +18,7 @@ exports.getProfile = async (req, res, next) => {
       (await ToolShop.findById(employeeId));
 
     if (!employee) {
-      return next(new AppError("Employee not found",404))
+      return next(new AppError("Employee not found", 404))
     }
 
     //  If MULTIPLE EMPLOYEE → include team details
@@ -62,18 +62,19 @@ exports.editprofile = async (req, res, next) => {
 
     let allowFields = [];
     if (role === ROLES.SINGLE_EMPLOYEE) {
-      allowFields = ["fullname", "address", "avatar"];
+      allowFields = ["fullname", "address", "avatar", 'latitude', 'longitude', 'services'];
     }
     if (role === ROLES.MULTIPLE_EMPLOYEE) {
-      allowFields = ["storeName", "ownerName", "storeLocation", "avatar"];
+      allowFields = ["storeName", "ownerName", "storeLocation", "avatar", 'latitude', 'longitude', 'services'];
     }
     if (role === ROLES.TOOL_SHOP) {
-      allowFields = ["shopName", "ownerName", "storeLocation", "avatar"];
+      allowFields = ["shopName", "ownerName", "storeLocation", "avatar", 'latitude', 'longitude', 'services'];
     }
     //validate incoming fields
     const updates = Object.keys(req.body);
 
     const valid = updates.every((f) => allowFields.includes(f));
+
     if (!valid) {
       return next(new AppError("Invalid updates!", 400));
     }
@@ -83,7 +84,7 @@ exports.editprofile = async (req, res, next) => {
       const folder = role === ROLES.SINGLE_EMPLOYEE ? "employees/avatars" : "companies/logos";
       const result = await uploadToCloudinary(req.file, folder);
       employee.avatar = result.url;
-    } 
+    }
     // Case 2: Manual Base64 Upload (Fallback)
     else if (avatar) {
       const folder = role === ROLES.SINGLE_EMPLOYEE ? "employees/avatars" : "companies/logos";
@@ -120,32 +121,32 @@ exports.editprofile = async (req, res, next) => {
   }
 }
 
-exports.getMyJobReview=async(req, res, next)=>{
-  try{
-    const employee=req.employee;
-    let filter={};
+exports.getMyJobReview = async (req, res, next) => {
+  try {
+    const employee = req.employee;
+    let filter = {};
 
-    if(employee.role===ROLES.SINGLE_EMPLOYEE){
-      filter.$or=[{primaryEmployee:employee._id},
-        {helpers:employee._id}
+    if (employee.role === ROLES.SINGLE_EMPLOYEE) {
+      filter.$or = [{ primaryEmployee: employee._id },
+      { helpers: employee._id }
       ]
     }
-    else if(employee.role===ROLES.MULTIPLE_EMPLOYEE){
-      filter.company=employee._id;
+    else if (employee.role === ROLES.MULTIPLE_EMPLOYEE) {
+      filter.company = employee._id;
     }
     else {
-      return next(new AppError("Access denied",403));
+      return next(new AppError("Access denied", 403));
     }
 
-    const reviews=await Review.find(filter)
-    .populate("user","fullName phoneMasked")
-    .populate("primaryEmployee","empId fullname")
-    .populate("company","ownerName TeamId")
-    .populate("helpers","empId fullname")
-    .populate("booking","serviceCategoryName totalPrice completedAt")
+    const reviews = await Review.find(filter)
+      .populate("user", "fullName phoneMasked")
+      .populate("primaryEmployee", "empId fullname")
+      .populate("company", "ownerName TeamId")
+      .populate("helpers", "empId fullname")
+      .populate("booking", "serviceCategoryName totalPrice completedAt")
 
-    if(reviews.length===0){
-      return next(new AppError("No reviews found",404));
+    if (reviews.length === 0) {
+      return next(new AppError("No reviews found", 404));
     }
 
     return res.status(200).json({
@@ -153,7 +154,7 @@ exports.getMyJobReview=async(req, res, next)=>{
       reviews
     });
 
-  }catch(err){
+  } catch (err) {
     next(err);
   }
 }
