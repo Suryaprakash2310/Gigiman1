@@ -47,7 +47,7 @@ exports.sendOtp = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      otp:otpValue,
+      otp: otpValue,
       message: "OTP sent successfully via MSG91",
     });
   } catch (err) {
@@ -117,7 +117,6 @@ exports.ShowServices = async (req, res, next) => {
       .sort({ domainName: 1 })
       .limit(10)
       .lean();
-    console.log(services);
 
     if (services.length === 0) {
       return next(new AppError("No services found", 404));

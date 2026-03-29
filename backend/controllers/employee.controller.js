@@ -19,7 +19,6 @@ const generateToken = (user) => {
       role: user.role
     },
     process.env.JWT_KEY,
-    { expiresIn: '7d' }
   );
 };
 
@@ -232,7 +231,7 @@ exports.getTeamRequest = async (req, res, next) => {
 exports.getMyTeam = async (req, res, next) => {
   try {
     const empId = req.employee.empId;
-    if(!empId){
+    if (!empId) {
       return next(new AppError("Employee ID missing", 400));
     }
 
@@ -263,7 +262,7 @@ exports.leaveTeam = async (req, res, next) => {
   try {
     const empId = req.employee.empId;
 
-    if(!empId){
+    if (!empId) {
       return next(new AppError("Employee ID missing", 400));
     }
     const employee = await SingleEmployee.findOne({ empId });

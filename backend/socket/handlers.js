@@ -2,6 +2,7 @@ const User = require("../models/user.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
+const Admin = require("../models/admin.model");
 const PartRequest = require("../models/partsrequest.model");
 const Booking = require("../models/Booking.model");
 const mongoose = require("mongoose");
@@ -58,6 +59,8 @@ module.exports = (io) => {
           socketId: socket.id,
           isActive: true,
         });
+      } else if ([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.OPERATIONS_MANAGER, ROLES.CITY_MANAGER, ROLES.SUPPORT_EXECUTIVE].includes(socket.role)) {
+        socket.join("admin_room");
       }
     } catch (err) {
       console.error("Error updating socketId on connection:", err.message);

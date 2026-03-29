@@ -8,9 +8,9 @@ const generateToken = (employee) => {
       role: employee.role
     },
     process.env.JWT_KEY,
-    { expiresIn: "7d" }
+
   );
 
 };
 
-module.exports=generateToken;
+module.exports = generateToken;

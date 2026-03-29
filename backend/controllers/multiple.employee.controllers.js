@@ -6,7 +6,7 @@ const DomainService = require('../models/domainservice.model')
 const EmployeeService = require("../models/employeeService.model");
 const { maskPhone } = require('../utils/crypto');
 const axios = require('axios');
-const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN; 
+const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 
 const cloudinary = require('../config/cloudinary');
 const { uploadToCloudinary } = require('../utils/uploadHandler');
@@ -21,7 +21,6 @@ const generateToken = (emp) => {
       role: emp.role
     },
     process.env.JWT_KEY,
-    { expiresIn: '7d' }
   );
 };
 //registeration for multiple employee
@@ -150,7 +149,7 @@ exports.requestToAddMember = async (req, res, next) => {
     const loggedInEmp = req.employee;
     const { empId } = req.body;
 
-    if(loggedInEmp.role !== ROLES.MULTIPLE_EMPLOYEE) {
+    if (loggedInEmp.role !== ROLES.MULTIPLE_EMPLOYEE) {
       return next(new AppError("Only MultipleEmployee can send requests", 403));
     }
 
@@ -371,7 +370,7 @@ exports.updateTeamMembers = async (req, res, next) => {
 
 // GET MY TEAM MEMBERS
 
-  exports.getTeamMembers = async (req, res, next) => {
+exports.getTeamMembers = async (req, res, next) => {
   try {
     const emp = req.employee;
 

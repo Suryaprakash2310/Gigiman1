@@ -3,7 +3,7 @@ const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
 const Domainparts = require('../models/domainparts.model');
 const { maskPhone } = require('../utils/crypto');
-const axios=require('axios');
+const axios = require('axios');
 const AppError = require('../utils/AppError');
 
 // JWT creator
@@ -15,7 +15,6 @@ const generateToken = (tool) => {
       role: tool.role
     },
     process.env.JWT_KEY,
-    { expiresIn: '7d' }
   );
 };
 
@@ -38,7 +37,7 @@ exports.registerShop = async (req, res, next) => {
       return next(new AppError("One or more categories are invalid", 400));
     }
     const maskedPhone = maskPhone(phoneNo);
-    
+
     const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 
     const existingShop = await ToolShop.findOne({
@@ -68,11 +67,11 @@ exports.registerShop = async (req, res, next) => {
       phoneMasked: maskedPhone,
       role: ROLES.TOOL_SHOP,
       categories,
-      isActive: true, 
+      isActive: true,
       shopStatus: "AVAILABLE", // optional (default already)
       location: {
         type: "Point",
-        coordinates: [longitude, latitude], 
+        coordinates: [longitude, latitude],
       },
     });
 

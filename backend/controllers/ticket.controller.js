@@ -1,5 +1,9 @@
 const Ticket = require("../models/ticket.model");
 const TicketMessage = require("../models/ticketMessage.model");
+const User = require("../models/user.model");
+const SingleEmployee = require("../models/singleEmployee.model");
+const MultipleEmployee = require("../models/multipleEmployee.model");
+const ToolShop = require("../models/toolshop.model");
 const AppError = require("../utils/AppError");
 
 exports.createTicket = async (req, res, next) => {
@@ -43,6 +47,14 @@ exports.createTicket = async (req, res, next) => {
             success: true,
             ticket
         });
+
+        // Emit socket event to admin room for real-time updates
+        const io = req.app.get("io");
+        if (io) {
+            io.to("admin_room").emit("new-ticket", {
+                ticket: await Ticket.findById(ticket._id).populate("raisedBy", "fullName phoneNo name email")
+            });
+        }
     } catch (err) {
         next(err);
     }
@@ -91,8 +103,103 @@ exports.getTicketById = async (req, res, next) => {
 // Admin Controllers
 exports.adminGetAllTickets = async (req, res, next) => {
     try {
-        const tickets = await Ticket.find()
-            .populate("raisedBy", "fullName phoneNo name email")
+        const { phoneNo, servicerId, type } = req.query;
+        let query = {};
+
+        if (phoneNo) {
+            const user = await User.findOne({ phoneNo: phoneNo });
+            if (user) {
+                query.raisedBy = user._id;
+                query.raisedByModel = "User";
+            } else {
+                // If phone number is not found for user, it could be a servicer.
+                // Let's check servicers as well if no specific type is requested.
+                const se = await SingleEmployee.findOne({ phoneNo: phoneNo });
+                if (se) {
+                    query.raisedBy = se._id;
+                    query.raisedByModel = "SingleEmployee";
+                } else {
+                    const me = await MultipleEmployee.findOne({ phoneNo: phoneNo });
+                    if (me) {
+                        query.raisedBy = me._id;
+                        query.raisedByModel = "MultipleEmployee";
+                    } else {
+                        const ts = await ToolShop.findOne({ phoneNo: phoneNo });
+                        if (ts) {
+                            query.raisedBy = ts._id;
+                            query.raisedByModel = "ToolShop";
+                        } else {
+                            // If not found anywhere, return empty result or invalid query
+                            return res.status(200).json({ success: true, tickets: [] });
+                        }
+                    }
+                }
+            }
+        } else if (servicerId) {
+            const upId = servicerId.toUpperCase();
+            if (upId.startsWith("E")) {
+                // Try with both 3 and 4 digit padding if user input varies
+                let emp;
+                if (upId.length <= 4) {
+                    const num = parseInt(upId.substring(1));
+                    const padded3 = `E${num.toString().padStart(3, '0')}`;
+                    const padded4 = `E${num.toString().padStart(4, '0')}`;
+                    emp = await SingleEmployee.findOne({ $or: [{ empId: padded3 }, { empId: padded4 }, { empId: upId }] });
+                } else {
+                    emp = await SingleEmployee.findOne({ empId: upId });
+                }
+                
+                if (emp) {
+                    query.raisedBy = emp._id;
+                    query.raisedByModel = "SingleEmployee";
+                } else {
+                    return res.status(200).json({ success: true, tickets: [] });
+                }
+            } else if (upId.startsWith("M")) {
+                let team;
+                if (upId.length <= 4) {
+                    const num = parseInt(upId.substring(1));
+                    const padded3 = `M${num.toString().padStart(3, '0')}`;
+                    const padded4 = `M${num.toString().padStart(4, '0')}`;
+                    team = await MultipleEmployee.findOne({ $or: [{ TeamId: padded3 }, { TeamId: padded4 }, { TeamId: upId }] });
+                } else {
+                    team = await MultipleEmployee.findOne({ TeamId: upId });
+                }
+                
+                if (team) {
+                    query.raisedBy = team._id;
+                    query.raisedByModel = "MultipleEmployee";
+                } else {
+                    return res.status(200).json({ success: true, tickets: [] });
+                }
+            } else if (upId.startsWith("T")) {
+                let shop;
+                if (upId.length <= 4) {
+                    const num = parseInt(upId.substring(1));
+                    const padded3 = `T${num.toString().padStart(3, '0')}`;
+                    const padded4 = `T${num.toString().padStart(4, '0')}`;
+                    shop = await ToolShop.findOne({ $or: [{ toolShopId: padded3 }, { toolShopId: padded4 }, { toolShopId: upId }] });
+                } else {
+                    shop = await ToolShop.findOne({ toolShopId: upId });
+                }
+                
+                if (shop) {
+                    query.raisedBy = shop._id;
+                    query.raisedByModel = "ToolShop";
+                } else {
+                    return res.status(200).json({ success: true, tickets: [] });
+                }
+            }
+        }
+
+        if (type === "user") {
+            query.raisedByModel = "User";
+        } else if (type === "servicer") {
+            query.raisedByModel = { $in: ["SingleEmployee", "MultipleEmployee", "ToolShop"] };
+        }
+
+        const tickets = await Ticket.find(query)
+            .populate("raisedBy", "fullName fullname ownerName phoneNo name email empId TeamId toolShopId")
             .sort({ createdAt: -1 });
 
         res.status(200).json({

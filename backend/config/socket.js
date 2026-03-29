@@ -6,13 +6,19 @@ const User = require("../models/user.model");
 const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const Shop = require("../models/toolshop.model");
+const Admin = require("../models/admin.model");
 const ROLES = require("../enum/role.enum");
 
 const MODEL_MAP = {
     [ROLES.SINGLE_EMPLOYEE]: SingleEmployee,
     [ROLES.MULTIPLE_EMPLOYEE]: MultipleEmployee,
     [ROLES.TOOL_SHOP]: Shop,
-    [ROLES.USER]: User
+    [ROLES.USER]: User,
+    [ROLES.ADMIN]: Admin,
+    [ROLES.SUPER_ADMIN]: Admin,
+    [ROLES.OPERATIONS_MANAGER]: Admin,
+    [ROLES.CITY_MANAGER]: Admin,
+    [ROLES.SUPPORT_EXECUTIVE]: Admin
 };
 
 module.exports = (server) => {
@@ -50,7 +56,6 @@ module.exports = (server) => {
                 return next(new Error("Authentication error: User not found"));
             }
 
-            // ✅ ATTACH PROPERLY
             socket.role = decoded.role;
             socket.identity = identity;
 
@@ -64,6 +69,8 @@ module.exports = (server) => {
                 socket.teamId = identity._id.toString();
             } else if (decoded.role === ROLES.TOOL_SHOP) {
                 socket.shopId = identity._id.toString();
+            } else if ([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.OPERATIONS_MANAGER, ROLES.CITY_MANAGER, ROLES.SUPPORT_EXECUTIVE].includes(decoded.role)) {
+                socket.adminId = identity._id.toString();
             }
 
 
