@@ -6,7 +6,7 @@ const axios = require("axios");
 const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
 const AppError = require("../utils/AppError");
-const msg91 = require("../utils/msg91");
+const firebase = require("../config/firebase");
 require('dotenv').config();
 //token generation
 const generateToken = (user) => {
@@ -49,13 +49,15 @@ exports.sendOtp = async (req, res, next) => {
       { upsert: true, new: true }
     );
     console.log(otpValue);
-    // Send via MSG91
-    await msg91.sendOtp(cleanPhone, otpValue);
+    // Send via Firebase or other SMS provider
+    // await firebase.auth().... (If using backend-initiated SMS)
+    // For now, we'll just log it or handle it via frontend Firebase SDK
+    console.log(`OTP for ${cleanPhone}: ${otpValue}`);
 
     return res.json({
       success: true,
       otp: otpValue,
-      message: "OTP sent successfully via MSG91",
+      message: "OTP generated successfully",
     });
   } catch (err) {
     next(err); //let Global error handler deal with it

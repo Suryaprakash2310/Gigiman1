@@ -10,7 +10,7 @@ const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
 const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
-const msg91 = require("../utils/msg91");
+const firebase = require("../config/firebase");
 
 exports.sendOtp = async (req, res, next) => {
   try {
@@ -42,13 +42,15 @@ exports.sendOtp = async (req, res, next) => {
     );
     console.log(otpValue)
 
-    // Send via MSG91
-    await msg91.sendOtp(cleanPhone, otpValue);
+    // Send via Firebase or other SMS provider
+    // await firebase.auth().... (If using backend-initiated SMS)
+    // For now, we'll just log it or handle it via frontend Firebase SDK
+    console.log(`OTP for ${cleanPhone}: ${otpValue}`);
 
     return res.status(200).json({
       success: true,
       otp: otpValue,
-      message: "OTP sent successfully via MSG91",
+      message: "OTP generated successfully",
     });
   } catch (err) {
     next(err);
