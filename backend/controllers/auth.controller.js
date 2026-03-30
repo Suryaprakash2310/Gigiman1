@@ -117,7 +117,6 @@ exports.ShowServices = async (req, res, next) => {
       serviceImage: 1
     })
       .sort({ domainName: 1 })
-      .limit(10)
       .lean();
 
     if (services.length === 0) {
