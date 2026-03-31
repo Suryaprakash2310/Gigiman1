@@ -5,7 +5,7 @@ const ToolShop = require('../models/toolshop.model');
 const ROLES = require('../enum/role.enum');
 const Review = require('../models/review.model');
 const AppError = require('../utils/AppError');
-const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
+const { uploadToCloudinary } = require('../utils/uploadHandler');
 const cloudinary = require('../config/cloudinary');
 
 exports.getProfile = async (req, res, next) => {

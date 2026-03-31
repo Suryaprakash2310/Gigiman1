@@ -4,18 +4,19 @@ const Banner = require('../models/banner.model');
 
 exports.createBanner = async (req, res, next) => {
     try {
-        const { title, description } = req.body;
-        if (!title || !description || !req.file) {
+        const { title, description, image } = req.body;
+
+        if (!title || !description || !image) {
             return next(new AppError("All fields including image are required", 400));
         }
 
-        const result = await uploadToCloudinary(req.file, 'Gigiman');
+        const result = await uploadToCloudinary(image, 'Gigiman');
 
         const banner = await Banner.create({
             title,
             description,
-            img: result.url, 
-            publicId: result.publicId, 
+            img: result.url,
+            publicId: result.publicId,
         })
         res.status(201).json({
             success: true,
@@ -37,7 +38,7 @@ exports.updateBanner = async (req, res, next) => {
         if (req.file) {
             // Delete old image
             await deleteFromCloudinary(banner.publicId);
-            
+
             const result = await uploadToCloudinary(req.file, 'Gigiman');
             banner.img = result.url;
             banner.publicId = result.publicId;
