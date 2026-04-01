@@ -458,55 +458,65 @@ exports.EditDomainService = async (req, res, next) => {
 
 
 exports.updateServiceCategory = async (req, res, next) => {
-  const { serviceId, categoryId } = req.params;
-  const updates = (({
-    serviceCategoryName,
-    description,
-    price,
-    durationInMinutes,
-    employeeCount,
-  }) => ({
-    serviceCategoryName,
-    description,
-    price,
-    durationInMinutes,
-    employeeCount,
-  }))(req.body);
-
-  // Handled later during manual Cloudinary upload if req.file exists
-
-  if (!mongoose.Types.ObjectId.isValid(serviceId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
-    return next(new AppError("Invalid id", 400));
-  }
-
   try {
+    const { serviceId, categoryId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(serviceId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
+      return next(new AppError("Invalid IDs provided", 400));
+    }
+
     const service = await ServiceList.findById(serviceId);
-    if (!service) return next(new AppError("Service not found", 404));
+
+    if (!service) {
+      return next(new AppError("Service not found", 404));
+    }
 
     const category = service.serviceCategory.id(categoryId);
-    if (!category) return next(new AppError("Category not found", 404));
+
+    if (!category) {
+      return next(new AppError("Category not found", 404));
+    }
+
+    if (req.body.serviceCategoryName) {
+      category.serviceCategoryName = req.body.serviceCategoryName.trim();
+    }
+
+    if (req.body.description) {
+      category.description = req.body.description.trim();
+    }
+
+    if (req.body.price) {
+      category.price = req.body.price;
+    }
+
+    if (req.body.durationInMinutes) {
+      category.durationInMinutes = req.body.durationInMinutes;
+    }
+
+    if (req.body.employeeCount) {
+      category.employeeCount = req.body.employeeCount;
+    }
 
     if (req.file) {
-      // Delete old category image
-      await deleteFromCloudinary(category.servicecategoryImagePublicId);
+      if (category.servicecategoryImagePublicId) {
+        await deleteFromCloudinary(category.servicecategoryImagePublicId);
+      }
 
-      // Upload new to Cloudinary via helper
       const result = await uploadToCloudinary(req.file, 'Gigiman');
 
       category.servicecategoryImage = result.url;
       category.servicecategoryImagePublicId = result.publicId;
     }
 
-    // apply provided fields
-    Object.keys(updates).forEach((k) => {
-      if (typeof updates[k] !== "undefined") category[k] = updates[k];
-    });
-
     await service.save();
 
-    return res.json({ success: true, category });
+    res.status(200).json({
+      success: true,
+      category: category
+    });
+
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
 };
 
