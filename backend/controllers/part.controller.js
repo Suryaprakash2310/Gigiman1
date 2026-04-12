@@ -148,32 +148,6 @@ exports.searchParts = async (req, res, next) => {
     next(err); //let Global error handler deal with it
   }
 };
-// exports.createPartRequest = async (req, res, next) => {
-//   try {
-//     const { bookingId, employeeId, parts, totalCost } = req.body;
-//     if(!bookingId || !employeeId || !parts || parts.length === 0 || !totalCost){
-//       return next(new AppError("All fields are required", 400));
-//     }
-//     const request = await PartRequest.create({
-//       bookingId,
-//       employeeId,
-//       parts,
-//       totalCost,
-//       status: PART_REQUESTED_STATUS.REQUESTED,
-//     });
-//     if(!request){
-//       return next(new AppError("Failed to create part request", 500));
-//     }
-//     res.json({
-//       success: true,
-//       message: "parts required create",
-//       request
-//     });
-//   }
-//   catch (err) {
-//     next(err); //let Global error handler deal with it
-//   }
-// }
 
 
 exports.downloadPartBill = async (req, res, next) => {

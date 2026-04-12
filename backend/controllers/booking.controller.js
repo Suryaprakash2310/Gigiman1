@@ -94,13 +94,6 @@ exports.autoAssignServicer = async (req, res, next) => {
     }
     const io = req.app.get("io");
     const userId = req.userId;
-    console.log("autoAssignServicer called with:", {
-      userId,
-      serviceCategoryName,
-      address,
-      coordinates,
-      serviceCount
-    });
     if (!serviceCategoryName) {
       return next(new AppError("serviceCategoryName is required", 400));
     }
@@ -157,7 +150,7 @@ exports.autoAssignServicer = async (req, res, next) => {
       coordinates: parsedCoordinates,
       serviceCount,
     });
-    console.log(result);
+
     /* -------------------------
        No servicers available
     ------------------------- */
@@ -165,6 +158,14 @@ exports.autoAssignServicer = async (req, res, next) => {
       await Booking.findByIdAndUpdate(booking._id, {
         status: BOOKING_STATUS.NO_PROVIDER,
       });
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to("admin_room").emit("new-failed-booking", {
+          bookingId: booking._id,
+          message: "No servicers found nearby"
+        });
+      }
 
       return next(new AppError("No servicers available nearby", 404));
     }
@@ -669,7 +670,6 @@ exports.paymentSuccess = async (req, res, next) => {
       await booking.save();
       await resetAvailability(booking);
       if (bookingId) {
-        console.log("emitting booking-completed for bookingId:", bookingId);
         io.to(booking?.user?.socketId).emit("booking-completed", {
 
           bookingId,

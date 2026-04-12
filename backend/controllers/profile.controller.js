@@ -7,6 +7,8 @@ const Review = require('../models/review.model');
 const AppError = require('../utils/AppError');
 const { uploadToCloudinary } = require('../utils/uploadHandler');
 const cloudinary = require('../config/cloudinary');
+const Commission = require('../models/commissionwallet.model');
+const mongoose = require('mongoose');
 
 exports.getProfile = async (req, res, next) => {
   try {
@@ -20,6 +22,13 @@ exports.getProfile = async (req, res, next) => {
     if (!employee) {
       return next(new AppError("Employee not found", 404))
     }
+
+    // --- Commission Check ---
+    const unpaidData = await Commission.aggregate([
+      { $match: { empId: new mongoose.Types.ObjectId(employeeId), status: { $ne: 'PAID' } } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
+    ]);
+    const totalUnpaid = unpaidData[0]?.total || 0;
 
     //  If MULTIPLE EMPLOYEE → include team details
     if (employee.role === ROLES.MULTIPLE_EMPLOYEE) {
@@ -45,7 +54,12 @@ exports.getProfile = async (req, res, next) => {
     // Normal user (single employee or shop)
     return res.status(200).json({
       success: true,
-      employee
+      employee: {
+        ...employee.toObject ? employee.toObject() : employee,
+        unpaidCommission: totalUnpaid,
+        isBlockedByCommission: totalUnpaid >= 1000,
+        commissionThreshold: 1000
+      }
     });
 
   } catch (err) {

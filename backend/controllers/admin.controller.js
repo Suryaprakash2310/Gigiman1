@@ -16,12 +16,14 @@ const PERMISSIONS = require('../enum/permission.enum');
 const ROLES = require('../enum/role.enum');
 const Booking = require('../models/Booking.model');
 const EmployeeService = require('../models/employeeService.model');
+const Commission = require('../models/commissionwallet.model');
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const PartRequest = require('../models/partsrequest.model');
 const PART_REQUEST_STATUS = require('../enum/partsstatus.enum');
 const User = require('../models/user.model');
 const Review = require('../models/review.model');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
+const { findNearbyTeams } = require("../services/booking.service");
 
 exports.inviteAdmin = async (req, res, next) => {
   try {
@@ -1174,6 +1176,173 @@ exports.getAdminBookingReview = async (req, res, next) => {
     res.json({
       success: true,
       review: review || null
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   ADMIN MANUAL ASSIGNMENT TOOLS
+====================================================== */
+
+/**
+ * Get bookings where auto-assignment failed (No Provider)
+ */
+exports.getFailedBookings = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find({
+      $or: [
+        { status: BOOKING_STATUS.NO_PROVIDER },
+        { assignmentStatus: "FAILED" }
+      ]
+    })
+      .populate('user', 'fullName phoneNo')
+      .populate('domainService', 'domainName')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: bookings.length,
+      bookings
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Find nearby servicers for a specific failed booking
+ */
+exports.getNearbyServicersForBooking = async (req, res, next) => {
+  try {
+    const { bookingId } = req.params;
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return next(new AppError("Booking not found", 404));
+
+    const result = await findNearbyTeams({
+      serviceCategoryName: booking.serviceCategoryName,
+      coordinates: booking.location.coordinates,
+      serviceCount: booking.serviceCount,
+    });
+
+    res.json({
+      success: true,
+      result
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+exports.adminManualNotifyServicer = async (req, res, next) => {
+  try {
+    const { bookingId, servicerId, servicerType } = req.body;
+    const io = req.app.get("io");
+
+    // 1. Validate IDs
+    if (!mongoose.Types.ObjectId.isValid(bookingId) || !mongoose.Types.ObjectId.isValid(servicerId)) {
+      return next(new AppError("Invalid booking or servicer ID", 400));
+    }
+
+    // 2. Fetch Booking and populate user
+    const booking = await Booking.findById(bookingId).populate("user", "fullName");
+    if (!booking) return next(new AppError("Booking not found", 404));
+
+    // 3. Resolve servicer type and fetch servicer
+    let servicer;
+    const isSingle = servicerType === "single" || servicerType === ROLES.SINGLE_EMPLOYEE;
+    
+    if (isSingle) {
+      servicer = await SingleEmployee.findById(servicerId);
+    } else {
+      servicer = await MultipleEmployee.findById(servicerId);
+    }
+
+    if (!servicer) {
+      return next(new AppError("Servicer not found", 404));
+    }
+
+    // 4. Enhanced Security and Status Checks
+    if (!servicer.isActive) {
+      return next(new AppError("Servicer is not active", 400));
+    }
+
+    if (servicer.isBlocked || (servicer.blockedUntil && servicer.blockedUntil > new Date())) {
+      return next(new AppError("Servicer is currently blocked", 400));
+    }
+
+    // --- Commission Owed Check ---
+    const unpaidData = await Commission.aggregate([
+        { $match: { empId: new mongoose.Types.ObjectId(servicerId), status: { $ne: 'PAID' } } },
+        { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
+    ]);
+    const totalUnpaid = unpaidData[0]?.total || 0;
+    if (totalUnpaid >= 1000) {
+        return next(new AppError("Servicer is blocked due to outstanding commission >= 1000", 400));
+    }
+
+    // Check availability
+    const statusField = isSingle ? "availabilityStatus" : "teamStatus";
+    if (servicer[statusField] !== "AVAILABLE") {
+      return next(new AppError(`Servicer is currently ${servicer[statusField]}`, 400));
+    }
+
+    // 5. Verify Capability (Security: ensures servicer is qualified for this domain)
+    const capability = await EmployeeService.findOne({
+      employeeId: servicerId,
+      capableservice: booking.domainService
+    });
+
+    if (!capability) {
+      return next(new AppError("Servicer is not qualified for this service", 400));
+    }
+
+    // 6. Set status to OFFERED to prevent conflict with other assignments
+    if (isSingle) {
+      await SingleEmployee.findByIdAndUpdate(servicerId, {
+        availabilityStatus: "OFFERED",
+        offerBookingId: bookingId
+      });
+      // Optionally update booking assignment state
+      await Booking.findByIdAndUpdate(bookingId, {
+        assignmentStatus: "OFFERED",
+        offeredEmployee: servicerId
+      });
+    } else {
+      await MultipleEmployee.findByIdAndUpdate(servicerId, {
+        teamStatus: "OFFERED",
+        offerBookingId: bookingId
+      });
+      await Booking.findByIdAndUpdate(bookingId, {
+        assignmentStatus: "OFFERED"
+      });
+    }
+
+    // Prepare payload for provider notification
+    const payload = {
+      bookingId: booking._id,
+      service: booking.serviceCategoryName,
+      totalPrice: booking.totalPrice,
+      address: booking.address,
+      user: { name: booking.user?.fullName },
+      coordinates: booking.location.coordinates, // Lat/Lng back to front
+      employeeCount: booking.employeeCount,
+      isAdminManual: true,
+    };
+
+    if (isSingle) {
+      io.to(`employee_${servicerId}`).emit("new-booking-request", payload);
+    } else {
+      io.to(`team_${servicerId}`).emit("team-booking-request", payload);
+    }
+
+    res.json({
+      success: true,
+      message: "Notification sent to servicer",
+      coordinates: booking.location.coordinates,
+      service: booking.serviceCategoryName
     });
   } catch (err) {
     next(err);

@@ -6,7 +6,7 @@
  const mongoose = require('mongoose');
 
  module.exports.startScheduler = (io) => {
-  console.log("🕒 Booking scheduler started");
+  // console.log("🕒 Booking scheduler started");
 
   setInterval(async () => {
     try {
@@ -28,11 +28,11 @@
       );
 
       if (!booking) {
-        console.log("😴 No due bookings");
+        // console.log("😴 No due bookings");
         return;
       }
 
-      console.log("📦 Dispatching scheduled booking:", booking);
+      // console.log("📦 Dispatching scheduled booking:", booking);
 
       if (booking.employeeCount === 1) {
         await assignNextServicer({

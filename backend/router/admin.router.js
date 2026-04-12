@@ -27,10 +27,15 @@ const {
     exportDashboardData,
     getAllUsers,
     getAdminUserHistory,
-    getAdminBookingReview
+    getAdminBookingReview,
+    getFailedBookings,
+    getNearbyServicersForBooking,
+    adminManualNotifyServicer
 } = require('../controllers/admin.controller');
 const { allowRoles, hasPermission } = require('../middleware/role.middleware');
 const PERMISSIONS = require('../enum/permission.enum');
+const validate = require('../middleware/validation.middleware');
+const bookingSchemas = require('../validations/booking.validation');
 const router = express.Router();
 
 // Login admin
@@ -50,6 +55,9 @@ router.get("/check-auth", protect, checkAuth);
 router.get("/employee-counts", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getEmployeecounts);
 router.get("/get-all-employee", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getAllEmployee); 4
 router.get("/get-all-booking", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), getAllBooking);
+router.get("/failed-bookings", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), getFailedBookings);
+router.get("/nearby-servicers/:bookingId", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), getNearbyServicersForBooking);
+router.post("/manual-notify", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), validate(bookingSchemas.manualNotifyServicer), adminManualNotifyServicer);
 
 const upload = require('../middleware/upload.middleware');
 

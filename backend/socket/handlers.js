@@ -336,9 +336,8 @@ module.exports = (io) => {
 
     socket.on("extra-service-approve", async ({ bookingId, extraServiceId, approve }) => {
       try {
-        console.log("Services");
+
         if (socket.role !== ROLES.USER) return;
-        console.log("Extra Service");
         await approveExtraService({
           bookingId,
           extraServiceId,
@@ -519,18 +518,18 @@ module.exports = (io) => {
     socket.on("verify-part-otp", async ({ requestId, otp }) => {
       try {
         if (!requestId || !otp) {
-          console.log("Missing requestId or otp");
+          // console.log("Missing requestId or otp");
           socket.emit("otp-failed", { message: "Missing requestId or otp" });
           return;
         }
         const result = await verifyPartOTP(requestId, otp);
 
         if (!result.success) {
-          console.log("not sucess");
+          // console.log("not sucess");
           socket.emit("otp-failed", { message: "Invalid OTP" });
           return;
         }
-        console.log("success");
+        // console.log("success");
         socket.emit("part-otp-success", {
           requestId,
         });
@@ -541,20 +540,15 @@ module.exports = (io) => {
     });
 
     socket.on("verify-start-otp", async ({ bookingId, otp }) => {
-      console.log("📥 OTP verify request:", bookingId, otp);
       const booking = await Booking.findById(bookingId);
-      console.log("🔎 Booking status:", booking.status);
       try {
         const result = await verifyStartOTP(bookingId, otp);
         if (!result.success) {
-          console.log("❌ OTP FAILED (backend)");
           socket.emit("start-otp-failed", { message: "Invalid OTP" });
           return;
         }
-        console.log("✅ OTP SUCCESS (backend)");
         socket.emit("otp-success", result);
       } catch (err) {
-        console.log("💥 OTP ERROR:", err.message);
         socket.emit("otp-failed", { message: err.message });
       }
     });

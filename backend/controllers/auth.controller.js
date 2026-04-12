@@ -10,7 +10,8 @@ const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
 const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
-const firebase = require("../config/firebase");
+const { sendOtpMsg91 } = require("../utils/msg91");
+const Commission = require("../models/commissionwallet.model");
 
 exports.sendOtp = async (req, res, next) => {
   try {
@@ -41,11 +42,8 @@ exports.sendOtp = async (req, res, next) => {
       { upsert: true, new: true }
     );
     console.log(otpValue)
-
-    // Send via Firebase or other SMS provider
-    // await firebase.auth().... (If using backend-initiated SMS)
-    // For now, we'll just log it or handle it via frontend Firebase SDK
-    console.log(`OTP for ${cleanPhone}: ${otpValue}`);
+    // Send via MSG91
+    await sendOtpMsg91(cleanPhone, otpValue);
 
     return res.status(200).json({
       success: true,
@@ -93,6 +91,13 @@ exports.verifyOtp = async (req, res, next) => {
       return next(new AppError("Employee not found", 404));
 
     const token = generateToken(emp);
+
+    const unpaidData = await Commission.aggregate([
+      { $match: { empId: emp._id, status: { $ne: 'PAID' } } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
+    ]);
+    const totalUnpaid = unpaidData[0]?.total || 0;
+
     return res.status(200).json({
       success: true,
       id: emp._id,
@@ -100,6 +105,9 @@ exports.verifyOtp = async (req, res, next) => {
       phoneNo: emp.phoneMasked,
       token,
       message: "Login successful",
+      isBlocked: emp.isBlocked || totalUnpaid >= 1000,
+      unpaidCommission: totalUnpaid,
+      showCommissionBlock: totalUnpaid >= 1000
     });
   } catch (err) {
     next(err);
@@ -217,7 +225,6 @@ exports.getServiceCategoryById = async (req, res, next) => {
 exports.ShowsubserviceId = async (req, res, next) => {
   try {
     const { domainServiceId } = req.params;
-    console.log(domainServiceId)
     if (!domainServiceId || !mongoose.Types.ObjectId.isValid(domainServiceId)) {
       return next(new AppError("Invalid or missing DomainServiceId", 400));
     }

@@ -13,6 +13,7 @@ const { SEARCH_RADIUS_METERS, RADIUS_STEPS, MAX_DISPATCH_ATTEMPTS } = require(".
 const mongoose = require("mongoose");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const AppError = require("../utils/AppError");
+const Commission = require("../models/commissionwallet.model");
 require("dotenv").config();
 
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
@@ -183,7 +184,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         throw new AppError("Booking not found", 404);
 
     if (booking.status !== BOOKING_STATUS.PENDING || booking.primaryEmployee) {
-        console.log(`[Assign] Booking ${bookingId} is already ${booking.status} or assigned. Skipping.`);
         return;
     }
 
@@ -213,7 +213,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         RADIUS_STEPS.length - 1
     );
     const dynamicRadius = RADIUS_STEPS[attemptIndex] * 1000;
-    console.log(dynamicRadius);
 
     //  Pick + lock ONE provider atomically
     const servicer = await SingleEmployee.findOneAndUpdate(
@@ -253,7 +252,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         });
     }
 
-    console.log("serviceR", servicer);
 
 
     //  No provider
@@ -279,6 +277,11 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         if (user?.socketId) {
             io.to(user.socketId).emit("no-servicer-available");
         }
+
+        io.to("admin_room").emit("new-failed-booking", {
+            bookingId,
+            message: "Auto-assignment failed after maximum attempts"
+        });
 
         return;
     }
@@ -368,6 +371,55 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
     if (employee?.socketId) {
         io.to(`employee_${employee._id}`).emit("booking-confirmed", { booking: updatedBooking, otp });
     }
+
+    // Record Commission (18% of totalPrice)
+    await exports.recordCommission(updatedBooking, employeeId, "single");
+};
+
+
+exports.recordCommission = async (booking, empId, empType) => {
+    try {
+        const commissionAmount = booking.totalPrice * 0.18;
+        const empModel = empType === "single" ? "SingleEmployee" : "MultipleEmployee";
+
+        // 1. Create commission record
+        await Commission.create({
+            empId,
+            empType,
+            empModel,
+            serviceId: booking.domainService,
+            totalAmount: booking.totalPrice,
+            commissionAmount,
+            status: 'PENDING'
+        });
+
+        // 2. Check total unpaid commission for this servicer
+        const unpaidData = await Commission.aggregate([
+            { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
+            { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
+        ]);
+
+        const totalUnpaid = unpaidData[0]?.total || 0;
+
+        // 3. Block if >= 1000
+        if (totalUnpaid >= 1000) {
+            if (empModel === "SingleEmployee") {
+                await SingleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
+            } else {
+                await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
+            }
+        }
+    } catch (err) {
+        console.error("Commission recording error:", err);
+    }
+};
+
+exports.getServicerUnpaidCommission = async (empId) => {
+    const unpaidData = await Commission.aggregate([
+        { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
+        { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
+    ]);
+    return unpaidData[0]?.total || 0;
 };
 
 
@@ -512,14 +564,15 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
         if (user?.socketId) {
             io.to(`user_${updatedBooking.user._id}`).emit("no-team-available");
         }
+
+        io.to("admin_room").emit("new-failed-booking", {
+            bookingId,
+            message: "Team auto-assignment failed after maximum attempts"
+        });
+
         return;
     }
-    console.log("Team found:", team?._id);
 
-    //  Emit immediately to team leader
-
-    //const booking = await Booking.findById(bookingId);
-    console.log("Emitting team booking to room:", `team_${team._id}`);
     io.to(`team_${team._id}`).emit("team-booking-request", {
         bookingId,
         teamId: team._id,
@@ -685,6 +738,9 @@ exports.teamAccept = async ({
                 otp
             });
         }
+
+        /* Record Commission for Team (18% of totalPrice) */
+        await exports.recordCommission(booking, teamId, "team");
 
         /*  Notify LEADER */
         const leaderSocket = await SingleEmployee.findById(leader._id).select("socketId");
@@ -994,8 +1050,6 @@ exports.assignNextToolshop = async ({ requestId, coordinates, io }) => {
     const radiusIndex = Math.min(attempts, TOOLSHOP_RADIUS_STEPS.length - 1);
     const dynamicRadius = TOOLSHOP_RADIUS_STEPS[radiusIndex] * 1000;
 
-    console.log("Toolshop attempt:", attempts);
-    console.log("Using radius:", dynamicRadius);
 
     const shop = await ToolShop.findOneAndUpdate(
         {
@@ -1065,7 +1119,7 @@ exports.toolshopAccept = async ({ requestId, shopId, io }) => {
         _id: shopId,
         offerRequestId: requestId,
     });
-    console.log(shop);
+
     if (!shop) {
         return;
     }
@@ -1167,10 +1221,8 @@ exports.requestTool = async ({ bookingId, employeeId, parts, totalCost, io }) =>
     //  Validate booking
     const booking = await Booking.findOne({
         _id: bookingId,
-        // primaryEmployee: employeeId,
-        // status: BOOKING_STATUS.IN_PROGRESS,
+
     });
-    console.log("[[[Booking for part request:", booking);
 
     if (!booking) {
         throw new AppError("Invalid booking or employee not assigned", 404);
@@ -1262,7 +1314,6 @@ exports.verifyPartOTP = async (requestId, otp, io) => {
             console.error('emit tool-otp-verified failed', e);
         }
     }
-    console.log("complete");
     return {
         success: true,
         req,
@@ -1482,7 +1533,6 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
     if (booking.user.toString() !== userId) {
         throw new AppError("Unauthorized: Only the customer can approve extra services", 403);
     }
-    console.log(extraServiceId);    // Fallback: search by _id string or serviceCategoryId if .id() fails
     let extraService = booking.extraServices.id(extraServiceId);
     if (!extraService) {
         console.log("Subdocument .id() failed. Falling back to find()...");

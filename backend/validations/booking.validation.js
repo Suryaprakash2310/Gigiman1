@@ -12,6 +12,12 @@ const bookingSchemas = {
     submitReview: Joi.object({
         rating: Joi.number().min(1).max(5).required(),
         comment: Joi.string().max(500).optional()
+    }),
+
+    manualNotifyServicer: Joi.object({
+        bookingId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
+        servicerId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
+        servicerType: Joi.string().valid('single', 'team', 'single_employee', 'multi_employee').required()
     })
 };
 

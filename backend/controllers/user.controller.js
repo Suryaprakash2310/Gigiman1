@@ -6,7 +6,7 @@ const axios = require("axios");
 const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
 const AppError = require("../utils/AppError");
-const firebase = require("../config/firebase");
+const { sendOtpMsg91 } = require("../utils/msg91");
 require('dotenv').config();
 //token generation
 const generateToken = (user) => {
@@ -49,10 +49,8 @@ exports.sendOtp = async (req, res, next) => {
       { upsert: true, new: true }
     );
     console.log(otpValue);
-    // Send via Firebase or other SMS provider
-    // await firebase.auth().... (If using backend-initiated SMS)
-    // For now, we'll just log it or handle it via frontend Firebase SDK
-    console.log(`OTP for ${cleanPhone}: ${otpValue}`);
+    // Send via MSG91
+    await sendOtpMsg91(cleanPhone, otpValue);
 
     return res.json({
       success: true,
