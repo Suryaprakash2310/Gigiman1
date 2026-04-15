@@ -41,6 +41,7 @@ exports.findNearbyTeams = async ({
     serviceCategoryName,
     serviceCount = 1,
     radiusInMeters = SEARCH_RADIUS_METERS,
+    adminOverride = false,
 }) => {
     const serviceList = await ServiceList.findOne({
         "serviceCategory.serviceCategoryName": serviceCategoryName,
@@ -79,6 +80,17 @@ exports.findNearbyTeams = async ({
        SINGLE EMPLOYEE
     ====================================================== */
     if (serviceCount < 2 && employeeCount === 1) {
+        const singleQuery = { _id: { $in: capableEmployeeObjectIds } };
+        if (!adminOverride) {
+            singleQuery.isActive = true;
+            singleQuery.availabilityStatus = "AVAILABLE";
+            singleQuery.isBlocked = { $ne: true };
+            singleQuery.$or = [
+                { blockedUntil: null },
+                { blockedUntil: { $lte: new Date() } }
+            ];
+        }
+
         const singles = await SingleEmployee.aggregate([
             {
                 $geoNear: {
@@ -87,16 +99,7 @@ exports.findNearbyTeams = async ({
                     distanceField: "distance",
                     maxDistance: radiusInMeters,
                     spherical: true,
-                    query: {
-                        _id: { $in: capableEmployeeObjectIds },
-                        isActive: true,
-                        availabilityStatus: "AVAILABLE",
-                        isBlocked: { $ne: true },
-                        $or: [
-                            { blockedUntil: null },
-                            { blockedUntil: { $lte: new Date() } }
-                        ]
-                    }
+                    query: singleQuery
                 }
             }
         ]);
@@ -112,6 +115,17 @@ exports.findNearbyTeams = async ({
     /* ======================================================
        TEAM ONLY
     ====================================================== */
+    const teamQuery = { members: { $in: capableEmployeeObjectIds } };
+    if (!adminOverride) {
+        teamQuery.isActive = true;
+        teamQuery.teamStatus = "AVAILABLE";
+        teamQuery.isBlocked = { $ne: true };
+        teamQuery.$or = [
+            { blockedUntil: null },
+            { blockedUntil: { $lte: new Date() } }
+        ];
+    }
+
     const teams = await MultipleEmployee.aggregate([
         {
             $geoNear: {
@@ -119,16 +133,7 @@ exports.findNearbyTeams = async ({
                 key: "location",
                 distanceField: "distance",
                 spherical: true,
-                query: {
-                    isActive: true,
-                    teamStatus: "AVAILABLE",
-                    isBlocked: { $ne: true },
-                    $or: [
-                        { blockedUntil: null },
-                        { blockedUntil: { $lte: new Date() } }
-                    ],
-                    members: { $in: capableEmployeeObjectIds }
-                }
+                query: teamQuery
             }
         },
         {

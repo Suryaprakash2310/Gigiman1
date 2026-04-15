@@ -24,6 +24,9 @@ const PERMISSIONS = {
 
     // Coupon Management
     MANAGE_COUPONS: "manage_coupons",
+
+    // Financial Management
+    MANAGE_FINANCE: "manage_finance",
 };
 
 module.exports = PERMISSIONS;

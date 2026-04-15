@@ -22,6 +22,7 @@ const PartRequest = require('../models/partsrequest.model');
 const PART_REQUEST_STATUS = require('../enum/partsstatus.enum');
 const User = require('../models/user.model');
 const Review = require('../models/review.model');
+const Notification = require('../models/notification.model');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
 const { findNearbyTeams } = require("../services/booking.service");
 
@@ -1194,7 +1195,9 @@ exports.getFailedBookings = async (req, res, next) => {
     const bookings = await Booking.find({
       $or: [
         { status: BOOKING_STATUS.NO_PROVIDER },
-        { assignmentStatus: "FAILED" }
+        { assignmentStatus: "FAILED" },
+        { status: BOOKING_STATUS.IN_PROGRESS },
+        { status: BOOKING_STATUS.PENDING }
       ]
     })
       .populate('user', 'fullName phoneNo')
@@ -1223,7 +1226,8 @@ exports.getNearbyServicersForBooking = async (req, res, next) => {
     const result = await findNearbyTeams({
       serviceCategoryName: booking.serviceCategoryName,
       coordinates: booking.location.coordinates,
-      serviceCount: booking.serviceCount,
+      serviceCount: booking.employeeCount || 1, // Fix using employeeCount
+      adminOverride: true // Flag to allow searching inactive employees
     });
 
     res.json({
@@ -1338,10 +1342,37 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
       io.to(`team_${servicerId}`).emit("team-booking-request", payload);
     }
 
+    // Save persistent notification for the servicer
+    const [lng1, lat1] = booking.location.coordinates;
+    const [lng2, lat2] = servicer.location.coordinates;
+    
+    // Simple Haversine distance calculation
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = (R * c).toFixed(1);
+
+    const mapsLink = `https://www.google.com/maps?q=${lat1},${lng1}`;
+    const servicerName = servicer.fullname || servicer.storeName || "Servicer";
+
+    await Notification.create({
+      empId: servicerId,
+      empModel: isSingle ? "SingleEmployee" : "MultipleEmployee",
+      title: "New Booking Request (Manual Assign)",
+      message: `Hello ${servicerName}, Admin has assigned you a ${booking.serviceCategoryName} booking request. Distance: ~${distanceKm} km. Location: ${mapsLink}`,
+      type: "BOOKING",
+      data: { bookingId: booking._id }
+    });
+
     res.json({
       success: true,
-      message: "Notification sent to servicer",
+      message: `Notification sent to ${servicerName}`,
       coordinates: booking.location.coordinates,
+      distance: distanceKm,
       service: booking.serviceCategoryName
     });
   } catch (err) {
@@ -1350,4 +1381,89 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
 };
 
 
+exports.getAllCommissionsAdmin = async (req, res, next) => {
+  try {
+    const { status, empId } = req.query;
+    let filter = {};
+    if (status) filter.status = status;
+    if (empId) filter.empId = empId;
 
+    const commissions = await Commission.find(filter)
+      .populate('serviceId', 'serviceName')
+      .populate('empId', 'fullname storeName phoneNo')
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, commissions });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+exports.adminAddCommission = async (req, res, next) => {
+  try {
+    const { empId, amount } = req.body;
+    
+    if (!empId || !amount) {
+      return next(new AppError("empId and amount are required", 400));
+    }
+
+    let servicer = await SingleEmployee.findById(empId);
+    let empModel = "SingleEmployee";
+    let empType = ROLES.SINGLE_EMPLOYEE;
+
+    if (!servicer) {
+      servicer = await MultipleEmployee.findById(empId);
+      empModel = "MultipleEmployee";
+      empType = ROLES.MULTIPLE_EMPLOYEE;
+    }
+
+    if (!servicer) {
+      return next(new AppError("Servicer not found", 404));
+    }
+
+    // Since it's manually added, we might just associate it with the first available service or null.
+    // The model requires a serviceId. Let's find any service they are capable of.
+    const empService = await EmployeeService.findOne({ employeeId: empId }).populate("capableservice");
+    if (!empService || !empService.capableservice || empService.capableservice.length === 0) {
+      return next(new AppError("Servicer does not have an assigned service domain to associate with commission charge", 400));
+    }
+
+    const newCommission = await Commission.create({
+      empId,
+      empType,
+      empModel,
+      serviceId: empService.capableservice[0]._id, // using first capable domain service as proxy
+      totalAmount: 0, 
+      commissionAmount: amount, // The manual penalty / commission
+      status: 'PENDING'
+    });
+
+    const unpaidData = await Commission.aggregate([
+      { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
+    ]);
+    
+    const totalUnpaid = unpaidData[0]?.total || 0;
+    
+    // Automatically block the servicer if >= 1000
+    if (totalUnpaid >= 1000) {
+      if (empType === ROLES.SINGLE_EMPLOYEE) {
+         await SingleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
+      } else if (empType === ROLES.MULTIPLE_EMPLOYEE) {
+         await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Commission added successfully",
+      newCommission,
+      totalUnpaid,
+      isBlocked: totalUnpaid >= 1000
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
