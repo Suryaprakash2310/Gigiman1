@@ -1251,7 +1251,7 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
     }
 
     // 2. Fetch Booking and populate user
-    const booking = await Booking.findById(bookingId).populate("user", "fullName");
+    const booking = await Booking.findById(bookingId).populate("user", "fullName socketId");
     if (!booking) return next(new AppError("Booking not found", 404));
 
     // 3. Resolve servicer type and fetch servicer
@@ -1368,6 +1368,27 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
       data: { bookingId: booking._id }
     });
 
+    // 8. Notify the Customer (User)
+    if (booking.user) {
+      // Real-time notification if user is online
+      if (booking.user.socketId) {
+        io.to(booking.user.socketId).emit("booking-status-update", {
+          bookingId: booking._id,
+          status: "OFFERED",
+          message: `Admin has assigned ${servicerName} to your booking. Waiting for their confirmation.`
+        });
+      }
+
+      // Persistent notification for user history
+      await Notification.create({
+        userId: booking.user._id,
+        title: "Servicer Assigned",
+        message: `Admin has manually assigned ${servicerName} to your booking #${booking._id}. They are currently reviewing the request.`,
+        type: "BOOKING",
+        data: { bookingId: booking._id }
+      });
+    }
+
     res.json({
       success: true,
       message: `Notification sent to ${servicerName}`,
@@ -1422,8 +1443,7 @@ exports.adminAddCommission = async (req, res, next) => {
       return next(new AppError("Servicer not found", 404));
     }
 
-    // Since it's manually added, we might just associate it with the first available service or null.
-    // The model requires a serviceId. Let's find any service they are capable of.
+
     const empService = await EmployeeService.findOne({ employeeId: empId }).populate("capableservice");
     if (!empService || !empService.capableservice || empService.capableservice.length === 0) {
       return next(new AppError("Servicer does not have an assigned service domain to associate with commission charge", 400));

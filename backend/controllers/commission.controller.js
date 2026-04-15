@@ -38,18 +38,31 @@ exports.getCommissionStatus = async (req, res, next) => {
 exports.payCommission = async (req, res, next) => {
     try {
         const empId = req.employee.id;
-        const { amount } = req.body; // Amount servicer wants to pay
+        
+        // Calculate the full outstanding debt automatically
+        const commissionWallet = await Commission.find({ 
+            empId: new mongoose.Types.ObjectId(empId), 
+            status: { $ne: 'PAID' } 
+        });
+        
+        const totalUnpaid = commissionWallet.reduce((sum, comm) => {
+            return sum + (comm.commissionAmount || 0) - (comm.paidAmount || 0);
+        }, 0);
 
-        if (!amount || amount <= 0) {
-            return next(new AppError("Invalid amount", 400));
+        // Servicer pays full amount - no need to get amount from request body
+        const amount = totalUnpaid;
+
+        if (amount <= 0) {
+            return next(new AppError("No outstanding commission to pay", 400));
         }
 
-        // Create Razorpay order specifically for commission
+        // Create Razorpay order specifically for the full debt
         const orderIdPrefix = `comm_${empId.toString().substring(0, 10)}`;
-        const order = await createOrder(orderIdPrefix, amount);
+        const order = await createOrder(orderIdPrefix, Math.round(amount));
 
         res.status(200).json({
             success: true,
+            fullAmountToPay: amount,
             order
         });
     } catch (err) {
