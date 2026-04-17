@@ -4,51 +4,35 @@ const SingleEmployee = require("../models/singleEmployee.model");
 const MultipleEmployee = require("../models/multipleEmployee.model");
 const ToolShop = require("../models/toolshop.model");
 const DomainService = require("../models/domainservice.model");
-const Otp = require('../models/otp.model')
 const { normalizePhone } = require("../utils/crypto");
 const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
 const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
-const { verifyFirebaseToken } = require("../utils/firebase.util");
+const admin = require("../config/firebase");
 const Commission = require("../models/commissionwallet.model");
 
 exports.sendOtp = async (req, res, next) => {
   try {
-    //Get the phone number
     const { phoneNo } = req.body;
     if (!phoneNo)
       return next(new AppError("Phone number is required", 400));
 
     // Check employee existence
+    const cleanPhone = normalizePhone(phoneNo);
     const emp =
-      (await SingleEmployee.findOne({ phoneNo })) ||
-      (await MultipleEmployee.findOne({ phoneNo })) ||
-      (await ToolShop.findOne({ phoneNo }));
+      (await SingleEmployee.findOne({ phoneNo: cleanPhone })) ||
+      (await MultipleEmployee.findOne({ phoneNo: cleanPhone })) ||
+      (await ToolShop.findOne({ phoneNo: cleanPhone }));
 
     if (!emp)
       return next(new AppError("Employee not found", 404));
 
-    const cleanPhone = normalizePhone(phoneNo);
-
-    // Generate a 6-digit OTP
-    const otpValue = Math.floor(1000 + Math.random() * 9000);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Save/Update OTP
-    await Otp.findOneAndUpdate(
-      { cleanPhone },
-      { otp: otpValue, expiresAt, attempts: 0 },
-      { upsert: true, new: true }
-    );
-    console.log(otpValue)
     // In the Firebase flow, the SMS OTP is triggered from the mobile app (Frontend).
-    // The backend just validates that the employee exists.
     console.log(`Firebase flow: Client will handle sending SMS OTP to ${cleanPhone}`);
 
     return res.status(200).json({
       success: true,
-      otp: otpValue, // For testing purposes only. Remove in production.
       message: "Phone number validated. Please trigger Firebase SMS OTP on the client.",
     });
   } catch (err) {
@@ -59,32 +43,28 @@ exports.sendOtp = async (req, res, next) => {
 
 exports.verifyOtp = async (req, res, next) => {
   try {
-    const { phoneNo, firebaseToken,otp } = req.body;
+    const { phoneNo, firebaseToken } = req.body;
 
-    if (!phoneNo )
+    if (!phoneNo || !firebaseToken)
       return next(new AppError("Phone number and Firebase Token are required", 400));
 
-    // Verify the SMS OTP via Firebase Token
-    // const decodedToken = await verifyFirebaseToken(firebaseToken);
-    
     const cleanPhone = normalizePhone(phoneNo);
 
-    // Find OTP record
-    const otpRecord = await Otp.findOne({ cleanPhone });
-
-    if (!otpRecord) {
-      return next(new AppError("OTP not found or expired", 400));
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+    } catch (error) {
+      if (error.code === 'auth/id-token-expired') {
+        return next(new AppError("Firebase token has expired", 401));
+      }
+      return next(new AppError("Invalid Firebase token", 401));
     }
 
-    // Verify OTP
-    if (otpRecord.otp !== parseInt(otp)) {
-      otpRecord.attempts += 1;
-      await otpRecord.save();
-      return next(new AppError("Invalid OTP", 400));
-    }
+    const firebasePhone = normalizePhone(decodedToken.phone_number);
 
-    // Delete OTP record
-    await Otp.deleteOne({ cleanPhone });
+    if (firebasePhone !== cleanPhone) {
+      return next(new AppError("Phone number mismatch. Verification failed.", 400));
+    }
 
     const emp =
       (await SingleEmployee.findOne({ phoneNo: cleanPhone })) ||

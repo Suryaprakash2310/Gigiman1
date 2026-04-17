@@ -7,6 +7,7 @@ const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
 const AppError = require("../utils/AppError");
 const { verifyFirebaseToken } = require("../utils/firebase.util");
+const admin = require("../config/firebase");
 require('dotenv').config();
 //token generation
 const generateToken = (user) => {
@@ -16,7 +17,7 @@ const generateToken = (user) => {
   }, process.env.JWT_KEY,);
 };
 
-//Send-otp always
+//Send-otp always (Firebase Initiation)
 exports.sendOtp = async (req, res, next) => {
   try {
     const { phoneNo } = req.body;
@@ -28,33 +29,22 @@ exports.sendOtp = async (req, res, next) => {
     const cleanPhone = normalizePhone(phoneNo);
 
     // Ensure user exists (temporary user)
-    let user = await User.findOne({ phoneNo });
+    let user = await User.findOne({ phoneNo: cleanPhone });
 
     if (!user) {
       user = await User.create({
-        phoneNo,
-        phoneMasked: maskPhone(phoneNo),
+        phoneNo: cleanPhone,
+        phoneMasked: maskPhone(cleanPhone),
         isVerified: false,
       });
     }
 
-    // Generate a 6-digit OTP
-    const otpValue = Math.floor(1000 + Math.random() * 9000);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
-
-    // Save/Update OTP in database
-    await Otp.findOneAndUpdate(
-      { cleanPhone },
-      { otp: otpValue, expiresAt, attempts: 0 },
-      { upsert: true, new: true }
-    );
-    console.log(otpValue);
     // In the Firebase flow, the SMS OTP is triggered from the mobile app (Frontend).
     console.log(`Firebase flow: Client will handle sending SMS OTP to ${cleanPhone}`);
 
     return res.json({
       success: true,
-      otp: otpValue, // For testing purposes only. Remove in production.
+      // For testing purposes only. Remove in production.
       message: "Phone number validated. Please trigger Firebase SMS OTP on the client.",
     });
   } catch (err) {
@@ -63,19 +53,33 @@ exports.sendOtp = async (req, res, next) => {
 };
 
 
-//verify otp
+//verify otp via Firebase
 exports.verifyOtp = async (req, res, next) => {
   try {
     const { phoneNo, firebaseToken } = req.body;
 
-    if (!phoneNo) {
+    if (!phoneNo || !firebaseToken) {
       return next(new AppError("Phone number and Firebase Token are required", 400));
     }
 
-    // Verify the SMS OTP via Firebase Token (decoded token contains verified phone number)
-    // const decodedToken = await verifyFirebaseToken(firebaseToken);
-    
     const cleanPhone = normalizePhone(phoneNo);
+
+
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+    } catch (error) {
+      if (error.code === 'auth/id-token-expired') {
+        return next(new AppError("Firebase token has expired", 401));
+      }
+      return next(new AppError("Invalid Firebase token", 401));
+    }
+
+    const firebasePhone = normalizePhone(decodedToken.phone_number);
+
+    if (firebasePhone !== cleanPhone) {
+      return next(new AppError("Phone number mismatch. Verification failed.", 400));
+    }
 
     let user = await User.findOne({ phoneNo: cleanPhone });
 
