@@ -77,9 +77,10 @@ exports.findNearbyTeams = async ({
         id => new mongoose.Types.ObjectId(id)
     );
     /* ======================================================
-       SINGLE EMPLOYEE
+       SINGLE OR TEAM
     ====================================================== */
     if (serviceCount < 2 && employeeCount === 1) {
+        // Search Single Employees
         const singleQuery = { _id: { $in: capableEmployeeObjectIds } };
         if (!adminOverride) {
             singleQuery.isActive = true;
@@ -382,9 +383,10 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
 };
 
 
-exports.recordCommission = async (booking, empId, empType) => {
+exports.recordCommission = async (booking, empId, empType, customAmount = null) => {
     try {
-        const commissionAmount = booking.totalPrice * 0.18;
+        const amountToCalculate = customAmount !== null ? customAmount : booking.totalPrice;
+        const commissionAmount = amountToCalculate * 0.18;
         const empModel = empType === "single" ? "SingleEmployee" : "MultipleEmployee";
 
         // 1. Create commission record
@@ -1560,8 +1562,9 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
     if (approve) {
         extraService.status = "APPROVED";
         extraService.approvedAt = new Date();
-        booking.totalPrice += Number(extraService.price || 0);
-        booking.totalServicePrice += Number(extraService.price || 0);
+        const extraPrice = Number(extraService.price || 0);
+        booking.totalPrice += extraPrice;
+        booking.totalServicePrice += extraPrice;
         booking.durationInMinutes += Number(extraService.durationInMinutes || 0);
 
         // Add to regular proposal history for tracking
@@ -1572,36 +1575,42 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
             status: "APPROVED_EXTRA",
             proposedAt: extraService.requestedAt
         });
+
+        // Update commission for the extra service
+        const empId = booking.servicerCompany || booking.primaryEmployee?._id || booking.primaryEmployee;
+        const empType = booking.servicerCompany ? "team" : "single";
+        await exports.recordCommission(booking, empId, empType, extraPrice);
     } else {
         extraService.status = "REJECTED";
     }
 
     await booking.save();
 
-    // Notify primary employee
-    const primaryEmployee = await SingleEmployee.findById(booking.primaryEmployee);
+    const responsePayload = {
+        bookingId,
+        extraServiceId,
+        status: extraService.status,
+        totalPrice: booking.totalPrice,
+        durationInMinutes: booking.durationInMinutes,
+        extraServices: booking.extraServices
+    };
+
+    // 1. Notify the room (User + Assigned Providers)
+    io.to(bookingId.toString()).emit("extra-service-response", responsePayload);
+
+    // 2. Notify primary employee specific room (fallback)
+    const primaryEmployeeId = booking.primaryEmployee?._id || booking.primaryEmployee;
+    const primaryEmployee = await SingleEmployee.findById(primaryEmployeeId);
     if (primaryEmployee?.socketId) {
-        io.to(primaryEmployee.socketId).emit("extra-service-response", {
-            bookingId,
-            extraServiceId,
-            status: extraService.status,
-            totalPrice: booking.totalPrice,
-            durationInMinutes: booking.durationInMinutes,
-            extraServices: booking.extraServices
-        });
+        io.to(primaryEmployee.socketId).emit("extra-service-response", responsePayload);
     }
 
-    // Notify user
-    const userUpdate = await User.findById(booking.user);
-    if (userUpdate?.socketId) {
-        io.to(userUpdate.socketId).emit("extra-service-response", {
-            bookingId,
-            extraServiceId,
-            status: extraService.status,
-            totalPrice: booking.totalPrice,
-            durationInMinutes: booking.durationInMinutes,
-            extraServices: booking.extraServices
-        });
+    // 3. Notify team company room (if applicable)
+    if (booking.servicerCompany) {
+        const team = await MultipleEmployee.findById(booking.servicerCompany);
+        if (team?.socketId) {
+            io.to(team.socketId).emit("extra-service-response", responsePayload);
+        }
     }
 
     return { booking, status: extraService.status };

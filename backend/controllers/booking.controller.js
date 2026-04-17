@@ -493,7 +493,7 @@ exports.getBookingById = async (req, res, next) => {
 
     const booking = await Booking.findById(bookingId)
       .populate("servicerCompany", "storeName avatar")
-      .populate("primaryEmployee", "fullname phoneNo avatar");
+      .populate("primaryEmployee", "fullname storeName phoneNo avatar");
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));

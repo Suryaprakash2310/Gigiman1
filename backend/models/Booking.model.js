@@ -32,9 +32,14 @@ const bookingSchema = new mongoose.Schema({
 
   primaryEmployee: {
     type: mongoose.Types.ObjectId,
-    ref: "SingleEmployee",
+    refPath: "primaryEmployeeModel",
     default: null,
     index: true
+  },
+  primaryEmployeeModel: {
+    type: String,
+    enum: ["SingleEmployee", "MultipleEmployee"],
+    default: "SingleEmployee"
   },
 
   employees: [{

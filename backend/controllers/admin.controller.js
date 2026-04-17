@@ -1257,7 +1257,7 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
     // 3. Resolve servicer type and fetch servicer
     let servicer;
     const isSingle = servicerType === "single" || servicerType === ROLES.SINGLE_EMPLOYEE;
-    
+
     if (isSingle) {
       servicer = await SingleEmployee.findById(servicerId);
     } else {
@@ -1279,12 +1279,12 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
 
     // --- Commission Owed Check ---
     const unpaidData = await Commission.aggregate([
-        { $match: { empId: new mongoose.Types.ObjectId(servicerId), status: { $ne: 'PAID' } } },
-        { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
+      { $match: { empId: new mongoose.Types.ObjectId(servicerId), status: { $ne: 'PAID' } } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
     ]);
     const totalUnpaid = unpaidData[0]?.total || 0;
     if (totalUnpaid >= 1000) {
-        return next(new AppError("Servicer is blocked due to outstanding commission >= 1000", 400));
+      return next(new AppError("Servicer is blocked due to outstanding commission >= 1000", 400));
     }
 
     // Check availability
@@ -1345,14 +1345,14 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
     // Save persistent notification for the servicer
     const [lng1, lat1] = booking.location.coordinates;
     const [lng2, lat2] = servicer.location.coordinates;
-    
+
     // Simple Haversine distance calculation
     const R = 6371; // Radius of the earth in km
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lng2 - lng1) * Math.PI / 180;
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distanceKm = (R * c).toFixed(1);
 
@@ -1414,7 +1414,81 @@ exports.getAllCommissionsAdmin = async (req, res, next) => {
       .populate('empId', 'fullname storeName phoneNo')
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, commissions });
+    // Aggregated summary per employee
+    const summary = await Commission.aggregate([
+      {
+        $group: {
+          _id: "$empId",
+          empModel: { $first: "$empModel" },
+          totalCommission: { $sum: "$commissionAmount" },
+          totalPaid: { $sum: { $ifNull: ["$paidAmount", 0] } },
+          totalPending: { 
+            $sum: { 
+              $subtract: [
+                "$commissionAmount", 
+                { $ifNull: ["$paidAmount", 0] }
+              ] 
+            } 
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: "singleemployees",
+          localField: "_id",
+          foreignField: "_id",
+          as: "singleEmp"
+        }
+      },
+      {
+        $lookup: {
+          from: "multipleemployees",
+          localField: "_id",
+          foreignField: "_id",
+          as: "multiEmp"
+        }
+      },
+      {
+        $lookup: {
+          from: "toolshops",
+          localField: "_id",
+          foreignField: "_id",
+          as: "toolShop"
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          totalCommission: 1,
+          totalPaid: 1,
+          totalPending: 1,
+          employee: {
+            $switch: {
+              branches: [
+                { case: { $gt: [{ $size: "$singleEmp" }, 0] }, then: { $arrayElemAt: ["$singleEmp", 0] } },
+                { case: { $gt: [{ $size: "$multiEmp" }, 0] }, then: { $arrayElemAt: ["$multiEmp", 0] } },
+                { case: { $gt: [{ $size: "$toolShop" }, 0] }, then: { $arrayElemAt: ["$toolShop", 0] } }
+              ],
+              default: null
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          totalCommission: 1,
+          totalPaid: 1,
+          totalPending: 1,
+          name: { $ifNull: ["$employee.fullname", "$employee.storeName", "$employee.shopName"] },
+          phoneNo: "$employee.phoneNo",
+          type: "$employee.role"
+        }
+      },
+      { $sort: { totalPending: -1 } }
+    ]);
+
+    res.json({ success: true, commissions, summary });
   } catch (err) {
     next(err);
   }
@@ -1424,7 +1498,7 @@ exports.getAllCommissionsAdmin = async (req, res, next) => {
 exports.adminAddCommission = async (req, res, next) => {
   try {
     const { empId, amount } = req.body;
-    
+
     if (!empId || !amount) {
       return next(new AppError("empId and amount are required", 400));
     }
@@ -1454,7 +1528,7 @@ exports.adminAddCommission = async (req, res, next) => {
       empType,
       empModel,
       serviceId: empService.capableservice[0]._id, // using first capable domain service as proxy
-      totalAmount: 0, 
+      totalAmount: 0,
       commissionAmount: amount, // The manual penalty / commission
       status: 'PENDING'
     });
@@ -1463,15 +1537,15 @@ exports.adminAddCommission = async (req, res, next) => {
       { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
     ]);
-    
+
     const totalUnpaid = unpaidData[0]?.total || 0;
-    
+
     // Automatically block the servicer if >= 1000
     if (totalUnpaid >= 1000) {
       if (empType === ROLES.SINGLE_EMPLOYEE) {
-         await SingleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
+        await SingleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
       } else if (empType === ROLES.MULTIPLE_EMPLOYEE) {
-         await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
+        await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
       }
     }
 

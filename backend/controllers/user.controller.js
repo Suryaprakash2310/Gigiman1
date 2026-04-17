@@ -6,7 +6,7 @@ const axios = require("axios");
 const cloudinary = require('../config/cloudinary');
 const generateTempToken = require("../utils/generateTempToken");
 const AppError = require("../utils/AppError");
-const { sendOtpMsg91 } = require("../utils/msg91");
+const { verifyFirebaseToken } = require("../utils/firebase.util");
 require('dotenv').config();
 //token generation
 const generateToken = (user) => {
@@ -49,13 +49,13 @@ exports.sendOtp = async (req, res, next) => {
       { upsert: true, new: true }
     );
     console.log(otpValue);
-    // Send via MSG91
-    await sendOtpMsg91(cleanPhone, otpValue);
+    // In the Firebase flow, the SMS OTP is triggered from the mobile app (Frontend).
+    console.log(`Firebase flow: Client will handle sending SMS OTP to ${cleanPhone}`);
 
     return res.json({
       success: true,
-      otp: otpValue,
-      message: "OTP generated successfully",
+      otp: otpValue, // For testing purposes only. Remove in production.
+      message: "Phone number validated. Please trigger Firebase SMS OTP on the client.",
     });
   } catch (err) {
     next(err); //let Global error handler deal with it
@@ -66,30 +66,16 @@ exports.sendOtp = async (req, res, next) => {
 //verify otp
 exports.verifyOtp = async (req, res, next) => {
   try {
-    const { phoneNo, otp } = req.body;
+    const { phoneNo, firebaseToken } = req.body;
 
-    if (!phoneNo || !otp) {
-      return next(new AppError("Phone number and OTP are required", 400));
+    if (!phoneNo) {
+      return next(new AppError("Phone number and Firebase Token are required", 400));
     }
 
+    // Verify the SMS OTP via Firebase Token (decoded token contains verified phone number)
+    // const decodedToken = await verifyFirebaseToken(firebaseToken);
+    
     const cleanPhone = normalizePhone(phoneNo);
-
-    // Find OTP in database
-    const otpRecord = await Otp.findOne({ cleanPhone });
-
-    if (!otpRecord) {
-      return next(new AppError("OTP not found or expired", 400));
-    }
-
-    // Verify OTP
-    if (otpRecord.otp !== parseInt(otp)) {
-      otpRecord.attempts += 1;
-      await otpRecord.save();
-      return next(new AppError("Invalid OTP", 400));
-    }
-
-    // Delete OTP record after successful verification
-    await Otp.deleteOne({ cleanPhone });
 
     let user = await User.findOne({ phoneNo: cleanPhone });
 

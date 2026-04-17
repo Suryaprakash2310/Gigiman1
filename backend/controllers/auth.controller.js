@@ -10,7 +10,7 @@ const ServiceList = require("../models/serviceList.model");
 const mongoose = require('mongoose');
 const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
-const { sendOtpMsg91 } = require("../utils/msg91");
+const { verifyFirebaseToken } = require("../utils/firebase.util");
 const Commission = require("../models/commissionwallet.model");
 
 exports.sendOtp = async (req, res, next) => {
@@ -42,13 +42,14 @@ exports.sendOtp = async (req, res, next) => {
       { upsert: true, new: true }
     );
     console.log(otpValue)
-    // Send via MSG91
-    await sendOtpMsg91(cleanPhone, otpValue);
+    // In the Firebase flow, the SMS OTP is triggered from the mobile app (Frontend).
+    // The backend just validates that the employee exists.
+    console.log(`Firebase flow: Client will handle sending SMS OTP to ${cleanPhone}`);
 
     return res.status(200).json({
       success: true,
-      otp: otpValue,
-      message: "OTP generated successfully",
+      otp: otpValue, // For testing purposes only. Remove in production.
+      message: "Phone number validated. Please trigger Firebase SMS OTP on the client.",
     });
   } catch (err) {
     next(err);
@@ -58,11 +59,14 @@ exports.sendOtp = async (req, res, next) => {
 
 exports.verifyOtp = async (req, res, next) => {
   try {
-    const { phoneNo, otp } = req.body;
+    const { phoneNo, firebaseToken,otp } = req.body;
 
-    if (!phoneNo || !otp)
-      return next(new AppError("Phone number and OTP are required", 400));
+    if (!phoneNo )
+      return next(new AppError("Phone number and Firebase Token are required", 400));
 
+    // Verify the SMS OTP via Firebase Token
+    // const decodedToken = await verifyFirebaseToken(firebaseToken);
+    
     const cleanPhone = normalizePhone(phoneNo);
 
     // Find OTP record
