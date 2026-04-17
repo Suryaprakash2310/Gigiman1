@@ -1,0 +1,5 @@
+module.exports = {
+  SEARCH_RADIUS_METERS: 5000,
+  RADIUS_STEPS: [5, 10, 15, 20],
+  MAX_DISPATCH_ATTEMPTS: 5,
+};

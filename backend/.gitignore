@@ -1,0 +1,7 @@
+node_modules/
+.env
+
+# Security / setup scripts
+createAdmin.js
+logs/
+*.log

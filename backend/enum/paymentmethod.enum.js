@@ -1,0 +1,5 @@
+const PAYMENT_METHOD={
+    CASH:"CASH",
+    RAZORPAY:"RAZORPAY"
+}
+module.exports=PAYMENT_METHOD;
