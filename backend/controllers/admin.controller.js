@@ -911,7 +911,7 @@ exports.getAdminDashboardStats = async (req, res, next) => {
     ]);
 
     // 2. Revenue Totals
-    const [serviceRevenueStats, partRevenueStats] = await Promise.all([
+    const [serviceRevenueStats, partRevenueStats, commissionStats] = await Promise.all([
       Booking.aggregate([
         { $match: { status: BOOKING_STATUS.COMPLETED } },
         { $group: { _id: null, total: { $sum: "$totalServicePrice" } } }
@@ -919,11 +919,15 @@ exports.getAdminDashboardStats = async (req, res, next) => {
       PartRequest.aggregate([
         { $match: { status: PART_REQUEST_STATUS.COLLECTED } },
         { $group: { _id: null, total: { $sum: "$totalCost" } } }
+      ]),
+      Commission.aggregate([
+        { $group: { _id: null, total: { $sum: "$commissionAmount" } } }
       ])
     ]);
 
     const totalServiceRevenue = serviceRevenueStats.length > 0 ? serviceRevenueStats[0].total : 0;
     const totalPartRevenue = partRevenueStats.length > 0 ? partRevenueStats[0].total : 0;
+    const totalCommissionPrice = commissionStats.length > 0 ? commissionStats[0].total : 0;
     const grandTotalRevenue = totalServiceRevenue + totalPartRevenue;
 
     // 3. Trends Aggregation Helper
@@ -1023,6 +1027,7 @@ exports.getAdminDashboardStats = async (req, res, next) => {
       revenueOverview: {
         totalServiceRevenue,
         totalPartRevenue,
+        totalCommissionPrice,
         grandTotalRevenue
       },
       trends: {
@@ -1195,9 +1200,7 @@ exports.getFailedBookings = async (req, res, next) => {
     const bookings = await Booking.find({
       $or: [
         { status: BOOKING_STATUS.NO_PROVIDER },
-        { assignmentStatus: "FAILED" },
-        { status: BOOKING_STATUS.IN_PROGRESS },
-        { status: BOOKING_STATUS.PENDING }
+        { assignmentStatus: "FAILED" }
       ]
     })
       .populate('user', 'fullName phoneNo')
