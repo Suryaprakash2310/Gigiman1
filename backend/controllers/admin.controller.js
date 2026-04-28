@@ -1027,6 +1027,7 @@ exports.getAdminDashboardStats = async (req, res, next) => {
       revenueOverview: {
         totalServiceRevenue,
         totalPartRevenue,
+        totalCommission: totalCommissionPrice,
         totalCommissionPrice,
         grandTotalRevenue
       },
@@ -1200,17 +1201,26 @@ exports.getFailedBookings = async (req, res, next) => {
     const bookings = await Booking.find({
       $or: [
         { status: BOOKING_STATUS.NO_PROVIDER },
-        { assignmentStatus: "FAILED" }
+        {
+          assignmentStatus: "FAILED",
+        }
       ]
     })
       .populate('user', 'fullName phoneNo')
       .populate('domainService', 'domainName')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Map the status for the frontend so it explicitly shows 'failed' or 'no_provider'
+    const formattedBookings = bookings.map(booking => ({
+      ...booking,
+      status: booking.status === BOOKING_STATUS.NO_PROVIDER ? 'no_provider' : 'failed'
+    }));
 
     res.json({
       success: true,
-      count: bookings.length,
-      bookings
+      count: formattedBookings.length,
+      bookings: formattedBookings
     });
   } catch (err) {
     next(err);
@@ -1425,13 +1435,13 @@ exports.getAllCommissionsAdmin = async (req, res, next) => {
           empModel: { $first: "$empModel" },
           totalCommission: { $sum: "$commissionAmount" },
           totalPaid: { $sum: { $ifNull: ["$paidAmount", 0] } },
-          totalPending: { 
-            $sum: { 
+          totalPending: {
+            $sum: {
               $subtract: [
-                "$commissionAmount", 
+                "$commissionAmount",
                 { $ifNull: ["$paidAmount", 0] }
-              ] 
-            } 
+              ]
+            }
           }
         }
       },
