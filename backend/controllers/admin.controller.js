@@ -777,7 +777,7 @@ exports.deleteDomainpartById = async (req, res, next) => {
 
 exports.getAllBooking = async (req, res, next) => {
   try {
-    const booking = await Booking.find();
+    const booking = await Booking.find().select("-addressTitle");
     if (!booking || !booking.lenght === 0) {
       return next(new AppError("No booking Now", 400));
     }

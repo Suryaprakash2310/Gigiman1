@@ -312,8 +312,8 @@ exports.getpendingDetails = async (req, res, next) => {
   try {
     const loggedInEmp = req.employee;
     const team = await MultipleEmployee.findOne({ _id: loggedInEmp._id })
-      .populate("pendingRequests", "fullName empId teamAccepted avatar")
-      .populate("members", "fullName empId teamAccepted avatar")
+      .populate("pendingRequests", "fullname empId teamAccepted avatar")
+      .populate("members", "fullname empId teamAccepted avatar")
     if (!team) {
       return next(new AppError("team not found", 400));
     }
@@ -379,14 +379,23 @@ exports.getTeamMembers = async (req, res, next) => {
     }
 
     const team = await MultipleEmployee.findById(emp._id)
-      .populate("members", "fullname empId phoneNo avatar");
+      .populate({
+        path: "members",
+        match: { availabilityStatus: { $ne: "BUSY" } }
+      });
 
     if (!team) {
       return next(new AppError("Team not found", 404));
     }
 
+    // Also check if owner is available (handle legacy null as AVAILABLE)
+    const isOwnerAvailable = team.availabilityStatus === "AVAILABLE" || !team.availabilityStatus;
+
     return res.status(200).json({
-      members: team.members,
+      members: team.members || [],
+      memberCount: team.members?.length || 0,
+      ownerAvailable: isOwnerAvailable,
+      teamStatus: team.teamStatus
     });
   } catch (err) {
     next(err); //let Global error handler deal with it

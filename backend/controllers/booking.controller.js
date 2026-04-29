@@ -8,6 +8,7 @@ const User = require("../models/user.model");
 const PartRequest = require('../models/partsrequest.model');
 const Domainparts = require('../models/domainparts.model');
 const DomainService = require("../models/domainservice.model")
+const MultipleEmployee = require("../models/multipleEmployee.model");
 const ServiceList = require("../models/serviceList.model");
 const {
   findNearbyTeams,
@@ -227,6 +228,8 @@ exports.teamAssignMembers = async (req, res, next) => {
 
     //  Assign team members atomically
     booking.primaryEmployee = primaryEmployee;
+    booking.teamLeader = primaryEmployee;
+    booking.teamHelpers = helpers;
     booking.employees = [primaryEmployee, ...helpers];
     await booking.save();
 
@@ -395,7 +398,7 @@ exports.getPartRequestById = async (req, res, next) => {
 
     const partRequest = await PartRequest.findById(requestId)
       .populate("employeeId", "fullname phoneNo")
-      .populate("bookingId", "address addressTitle");
+      .populate("bookingId", "address");
 
     if (!partRequest) {
       return next(new AppError("Part request not found", 404));
@@ -494,6 +497,8 @@ exports.getBookingById = async (req, res, next) => {
     const booking = await Booking.findById(bookingId)
       .populate("servicerCompany", "storeName avatar")
       .populate("primaryEmployee", "fullname storeName phoneNo avatar")
+      .populate("teamLeader", "fullname storeName phoneNo avatar")
+      .populate("teamHelpers", "fullname storeName phoneNo avatar")
       .populate("user", "fullName phoneNo avatar");
 
     if (!booking) {
@@ -541,7 +546,6 @@ exports.getBookingById = async (req, res, next) => {
         durationInMinutes: booking.durationInMinutes,
         employeeCount: String(booking.employeeCount || 1),
         address: booking.address,
-        addressTitle: booking.addressTitle,
         status: booking.status,
         otp: booking.StartWorkOTP,
         domainServiceId: booking.domainService?._id,
@@ -550,6 +554,8 @@ exports.getBookingById = async (req, res, next) => {
           rating: techRating,
           reviews: techReviewCount
         },
+        teamLeader: booking.teamLeader,
+        teamHelpers: booking.teamHelpers,
         coordinates: booking.location?.coordinates,
         extraServices: booking.extraServices,
       },
@@ -665,27 +671,45 @@ exports.paymentSuccess = async (req, res, next) => {
     }
 
 
-    /* ---------------- CASH FLOW ---------------- */
-    if (paymentMethod === PAYMENT_METHOD.CASH) {
-      booking.paymentMethod = PAYMENT_METHOD.CASH;
+    /* ------------- NOTIFY EVERYONE & COMPLETE -------------- */
+    const finalizeBooking = async (method) => {
+      booking.paymentMethod = method;
       booking.paymentStatus = PAYMENT_STATUS.PAID;
       booking.status = BOOKING_STATUS.COMPLETED;
       booking.completedAt = new Date();
       await booking.save();
       await resetAvailability(booking);
-      if (bookingId) {
-        io.to(booking?.user?.socketId).emit("booking-completed", {
 
-          bookingId,
-        });
+      // Record Commission on Completion
+      const empId = booking.servicerCompany || booking.primaryEmployee?._id || booking.primaryEmployee;
+      const empType = booking.servicerCompany ? "team" : "single";
+      const { recordCommission } = require("../services/booking.service");
+      await recordCommission(booking, empId, empType);
+
+      // Notify User (Customer)
+      if (booking?.user?.socketId) {
+        io.to(booking.user.socketId).emit("booking-completed", { bookingId });
       }
 
 
-      return res.status(200).json({
-        success: true,
-        message: "Cash payment recorded and booking completed",
-        booking
-      });
+      const memberIds = [];
+      if (booking.primaryEmployee) memberIds.push({ id: booking.primaryEmployee, model: SingleEmployee });
+      if (booking.teamLeader) memberIds.push({ id: booking.teamLeader, model: booking.servicerCompany ? MultipleEmployee : SingleEmployee });
+      if (booking.teamHelpers?.length > 0) {
+        booking.teamHelpers.forEach(h => memberIds.push({ id: h, model: SingleEmployee }));
+      }
+      for (const item of memberIds) {
+        const emp = await item.model.findById(item.id).select("socketId");
+        if (emp?.socketId) {
+          io.to(emp.socketId).emit("booking-completed", { bookingId });
+        }
+      }
+    };
+
+    /* ---------------- CASH FLOW ---------------- */
+    if (paymentMethod === PAYMENT_METHOD.CASH) {
+      await finalizeBooking(PAYMENT_METHOD.CASH);
+      return res.status(200).json({ success: true, message: "Cash payment recorded", booking });
     }
 
     /* ------------- RAZORPAY FLOW -------------- */
@@ -693,34 +717,11 @@ exports.paymentSuccess = async (req, res, next) => {
       if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
         return next(new AppError("Razorpay payment details are required", 400));
       }
+      const result = await verifyPayment({ bookingId, razorpayOrderId, razorpayPaymentId, razorpaySignature });
+      if (!result.success) return next(new AppError("Invalid Razorpay signature", 400));
 
-      const result = await verifyPayment({
-        bookingId,
-        razorpayOrderId,
-        razorpayPaymentId,
-        razorpaySignature
-      });
-
-      if (!result.success) {
-        return next(new AppError("Invalid Razorpay signature", 400));
-      }
-
-      booking.paymentMethod = PAYMENT_METHOD.RAZORPAY;
-      booking.status = BOOKING_STATUS.COMPLETED;
-      booking.completedAt = new Date();
-      await booking.save();
-
-      await resetAvailability(booking);
-
-      io.to(booking?.user?.socketId).emit("booking-completed", {
-        bookingId
-      });
-
-      return res.status(200).json({
-        success: true,
-        message: "Online payment verified and booking completed",
-        booking
-      });
+      await finalizeBooking(PAYMENT_METHOD.RAZORPAY);
+      return res.status(200).json({ success: true, message: "Online payment verified", booking });
     }
 
     return next(new AppError("Unsupported payment method", 400));
@@ -737,9 +738,12 @@ exports.getUserRecentBookingHistory = async (req, res, next) => {
       user: userId,
       status: BOOKING_STATUS.COMPLETED
     })
+      .select("-addressTitle")
       .sort({ createdAt: -1 })
       .populate("primaryEmployee", "empId fullname avatar")
-      .populate("employees", "storeName TeamId avatar")
+      .populate("teamLeader", "empId fullname avatar")
+      .populate("teamHelpers", "empId fullname avatar")
+      .populate("employees", "empId fullname avatar")
       .populate("selectedToolShop", "toolShopId storeLocation");
     if (!bookings || bookings.length === 0) {
       next(new AppError("No bookings found", 404));
@@ -815,12 +819,14 @@ exports.getEmployeeRecentBookingHistory = async (req, res, next) => {
        4. BOOKINGS QUERY
     =============================== */
 
-    let bookingsQuery = Model.find(matchFilter).sort({ createdAt: -1 });
+    let bookingsQuery = Model.find(matchFilter).select("-addressTitle").sort({ createdAt: -1 });
 
     if (!isToolShop) {
       bookingsQuery = bookingsQuery
         .populate("user", "fullname phoneMasked")
         .populate("primaryEmployee", "empId fullname")
+        .populate("teamLeader", "empId fullname")
+        .populate("teamHelpers", "empId fullname")
         .populate("employees", "empId fullname")
         .populate("servicerCompany", "storeName TeamId")
         .populate("selectedToolShop", "shopName storeLocation");

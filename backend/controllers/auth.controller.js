@@ -12,6 +12,7 @@ const generateToken = require("../config/token");
 const AppError = require("../utils/AppError");
 const { verifyFirebaseToken } = require("../utils/firebase.util");
 const Commission = require("../models/commissionwallet.model");
+const sendWhatsAppMessage = require("../config/whatsapp");
 
 exports.sendOtp = async (req, res, next) => {
   try {
@@ -31,7 +32,7 @@ exports.sendOtp = async (req, res, next) => {
 
     const cleanPhone = normalizePhone(phoneNo);
 
-    // Generate a 6-digit OTP
+    // Generate a 4-digit OTP
     const otpValue = Math.floor(1000 + Math.random() * 9000);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -41,14 +42,14 @@ exports.sendOtp = async (req, res, next) => {
       { otp: otpValue, expiresAt, attempts: 0 },
       { upsert: true, new: true }
     );
-    console.log(otpValue)
-    // In the Firebase flow, the SMS OTP is triggered from the mobile app (Frontend).
-    // The backend just validates that the employee exists.
-    console.log(`Firebase flow: Client will handle sending SMS OTP to ${cleanPhone}`);
+    await sendWhatsAppMessage(
+      phoneNo,
+      `Do not share this OTP with anyone. This ${otpValue} is only for signup verification..`
+    );
 
     return res.status(200).json({
       success: true,
-      otp:otpValue,
+      otp: otpValue,
       message: "Phone number validated. Please trigger Firebase SMS OTP on the client.",
     });
   } catch (err) {
@@ -59,14 +60,14 @@ exports.sendOtp = async (req, res, next) => {
 
 exports.verifyOtp = async (req, res, next) => {
   try {
-    const { phoneNo, firebaseToken,otp } = req.body;
+    const { phoneNo, firebaseToken, otp } = req.body;
 
-    if (!phoneNo )
+    if (!phoneNo)
       return next(new AppError("Phone number and Firebase Token are required", 400));
 
     // Verify the SMS OTP via Firebase Token
     // const decodedToken = await verifyFirebaseToken(firebaseToken);
-    
+
     const cleanPhone = normalizePhone(phoneNo);
 
     // Find OTP record

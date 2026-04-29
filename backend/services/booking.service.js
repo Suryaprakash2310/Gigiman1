@@ -138,10 +138,26 @@ exports.findNearbyTeams = async ({
             }
         },
         {
-            $match: {
-                $expr: {
-                    $gte: [{ $add: [{ $size: "$members" }, 1] }, employeeCount]
+            $lookup: {
+                from: "singleemployees",
+                localField: "members",
+                foreignField: "_id",
+                as: "memberDocs"
+            }
+        },
+        {
+            $addFields: {
+                availableMembersCount: {
+                    $add: [
+                        { $size: { $filter: { input: "$memberDocs", as: "m", cond: { $in: ["$$m.availabilityStatus", ["AVAILABLE", null]] } } } },
+                        { $cond: [{ $in: ["$availabilityStatus", ["AVAILABLE", null]] }, 1, 0] }
+                    ]
                 }
+            }
+        },
+        {
+            $match: {
+                availableMembersCount: { $gte: employeeCount }
             }
         },
         {
@@ -379,7 +395,8 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
     }
 
     // Record Commission (18% of totalPrice)
-    await exports.recordCommission(updatedBooking, employeeId, "single");
+    /* Commission should only be recorded upon completion, not acceptance */
+    // await exports.recordCommission(updatedBooking, employeeId, "single");
 };
 
 
@@ -513,33 +530,66 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
     );
     const dynamicRadius = RADIUS_STEPS[attemptIndex] * 1000;
 
-    //  Pick + lock ONE TEAM atomically
-    const team = await MultipleEmployee.findOneAndUpdate(
+    // Find candidate teams with enough available members
+    const candidateTeams = await MultipleEmployee.aggregate([
         {
-            _id: { $nin: rejectedIds },
-            location: {
-                $near: {
-                    $geometry: { type: "Point", coordinates: [lng, lat] },
-                    $maxDistance: dynamicRadius,
+            $geoNear: {
+                near: { type: "Point", coordinates: [lng, lat] },
+                key: "location",
+                distanceField: "distance",
+                maxDistance: dynamicRadius,
+                spherical: true,
+                query: {
+                    _id: { $nin: rejectedIds },
+                    isActive: true,
+                    teamStatus: "AVAILABLE",
+                    isBlocked: { $ne: true },
+                    $or: [
+                        { blockedUntil: null },
+                        { blockedUntil: { $lte: new Date() } },
+                    ],
+                }
+            }
+        },
+        {
+            $lookup: {
+                from: "singleemployees",
+                localField: "members",
+                foreignField: "_id",
+                as: "memberDocs"
+            }
+        },
+        {
+            $addFields: {
+                availableMembersCount: {
+                    $add: [
+                        { $size: { $filter: { input: "$memberDocs", as: "m", cond: { $in: ["$$m.availabilityStatus", ["AVAILABLE", null]] } } } },
+                        { $cond: [{ $in: ["$availabilityStatus", ["AVAILABLE", null]] }, 1, 0] }
+                    ]
+                }
+            }
+        },
+        {
+            $match: {
+                availableMembersCount: { $gte: employeeCount }
+            }
+        },
+        { $limit: 1 }
+    ]);
+
+    let team = null;
+    if (candidateTeams.length > 0) {
+        team = await MultipleEmployee.findOneAndUpdate(
+            { _id: candidateTeams[0]._id, teamStatus: "AVAILABLE" },
+            {
+                $set: {
+                    teamStatus: "OFFERED",
+                    offerBookingId: bookingId,
                 },
             },
-            isActive: true,
-            teamStatus: "AVAILABLE",
-            isBlocked: { $ne: true },
-            $or: [
-                { blockedUntil: null },
-                { blockedUntil: { $lte: new Date() } },
-            ],
-            $expr: { $gte: [{ $add: [{ $size: "$members" }, 1] }, employeeCount] },
-        },
-        {
-            $set: {
-                teamStatus: "OFFERED",
-                offerBookingId: bookingId,
-            },
-        },
-        { new: true }
-    );
+            { new: true }
+        );
+    }
 
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
@@ -727,12 +777,6 @@ exports.teamAccept = async ({
             throw new AppError(`Requires ${bookingMeta.employeeCount} or ${bookingMeta.employeeCount - 1} employees`, 422);
         }
 
-        /*  Assign roles to team */
-        team.leader = isLeaderMultiple ? null : leader._id;
-        team.helpers = helperDocs.map(h => h._id);
-
-        await team.save();
-
         const booking = await Booking.findOneAndUpdate(
             {
                 _id: bookingId,
@@ -744,8 +788,10 @@ exports.teamAccept = async ({
                 serviceType: "team",
                 primaryEmployee: leader._id,
                 primaryEmployeeModel: isLeaderMultiple ? "MultipleEmployee" : "SingleEmployee",
+                teamLeader: leader._id,
+                teamHelpers: helperDocs.map(h => h._id),
                 employees: isLeaderMultiple ? [...helperDocs.map(h => h._id)] : [leader._id, ...helperDocs.map(h => h._id)],
-                status: BOOKING_STATUS.ASSIGNED //  REQUIRED
+                status: BOOKING_STATUS.ASSIGNED
             },
             { new: true }
         );
@@ -761,11 +807,29 @@ exports.teamAccept = async ({
 
         console.log(" OTP generated for team booking:", otp);
 
-        /*  Mark team BUSY */
-        const teamUpdate = await MultipleEmployee.findByIdAndUpdate(teamId, {
-            teamStatus: "BUSY",
-            offerBookingId: null
-        }, { new: true });
+        /*  Mark assigned members as BUSY */
+        if (helperEmpIds.length > 0) {
+            await SingleEmployee.updateMany(
+                { _id: { $in: helperEmpIds } },
+                { availabilityStatus: "BUSY" }
+            );
+        }
+
+        if (isLeaderMultiple) {
+            await MultipleEmployee.findByIdAndUpdate(teamId, {
+                availabilityStatus: "BUSY",
+                teamStatus: "AVAILABLE",
+                offerBookingId: null
+            });
+        } else {
+            await SingleEmployee.findByIdAndUpdate(leaderEmpId, {
+                availabilityStatus: "BUSY"
+            });
+            await MultipleEmployee.findByIdAndUpdate(teamId, {
+                teamStatus: "AVAILABLE",
+                offerBookingId: null
+            });
+        }
 
         /* Notify USER */
         const user = await User.findById(booking.user).select("socketId");
@@ -777,24 +841,38 @@ exports.teamAccept = async ({
         }
 
         /* Record Commission for Team (18% of totalPrice) */
-        await exports.recordCommission(booking, teamId, "team");
+        /* Commission should only be recorded upon completion, not acceptance */
+        // await exports.recordCommission(booking, teamId, "team");
 
-        /*  Notify LEADER */
-        let leaderSocket;
-        if (isLeaderMultiple) {
-            leaderSocket = await MultipleEmployee.findById(leader._id).select("socketId");
-        } else {
-            leaderSocket = await SingleEmployee.findById(leader._id).select("socketId");
-        }
+        /*  Notify ALL ASSIGNED MEMBERS */
+        const notifyMembers = async (empId, isMultiple) => {
+            const model = isMultiple ? MultipleEmployee : SingleEmployee;
+            const emp = await model.findById(empId).select("socketId");
+            if (emp?.socketId) {
+                io.to(emp.socketId).emit("leader-otp-ready", {
+                    bookingId: booking._id,
+                });
+            }
+        };
 
-        if (leaderSocket?.socketId) {
-            io.to(leaderSocket.socketId).emit("leader-otp-ready", {
-                bookingId: booking._id
-            });
+        // Notify Leader
+        await notifyMembers(leaderEmpId, isLeaderMultiple);
+
+        // Notify Helpers
+        for (const helperId of helperEmpIds) {
+            await notifyMembers(helperId, false); // Helpers are always SingleEmployee
         }
+        // Populate for frontend immediately
+        const fullBooking = await Booking.findById(booking._id)
+            .populate("teamLeader", "fullname storeName phoneNo avatar")
+            .populate("teamHelpers", "fullname storeName phoneNo avatar")
+            .populate("user", "fullName phoneNo avatar")
+            .populate("servicerCompany", "storeName avatar");
+
         return {
             success: true,
-            bookingId: booking._id
+            bookingId: booking._id,
+            booking: fullBooking
         };
 
     } catch (err) {
@@ -1377,13 +1455,26 @@ exports.resetAvailability = async (booking) => {
 
     // TEAM
     if (booking.servicerCompany) {
+        // Reset Team owner status
         await MultipleEmployee.findByIdAndUpdate(
             booking.servicerCompany,
             {
                 teamStatus: "AVAILABLE",
+                availabilityStatus: "AVAILABLE", // Reset owner worker status
                 offerBookingId: null
             }
         );
+
+        // Reset All assigned members status
+        if (booking.employees && booking.employees.length > 0) {
+            await SingleEmployee.updateMany(
+                { _id: { $in: booking.employees } },
+                {
+                    availabilityStatus: "AVAILABLE",
+                    offerBookingId: null
+                }
+            );
+        }
     }
 };
 

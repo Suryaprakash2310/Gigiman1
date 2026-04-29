@@ -47,6 +47,16 @@ const bookingSchema = new mongoose.Schema({
     ref: "SingleEmployee"
   }],
 
+  teamLeader: {
+    type: mongoose.Types.ObjectId,
+    refPath: "primaryEmployeeModel",
+    default: null
+  },
+  teamHelpers: [{
+    type: mongoose.Types.ObjectId,
+    ref: "SingleEmployee"
+  }],
+
   /* ---------------- SERVICE DETAILS ---------------- */
   serviceCategoryName: {
     type: String,
@@ -199,7 +209,7 @@ const bookingSchema = new mongoose.Schema({
   },
   addressTitle: {
     type: String,
-    default: "Current Location",
+    default: "",
   },
 
   location: {

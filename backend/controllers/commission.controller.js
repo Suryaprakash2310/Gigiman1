@@ -12,20 +12,32 @@ const mongoose = require("mongoose");
 exports.getCommissionStatus = async (req, res, next) => {
     try {
         const empId = req.employee.id;
-        
+        const empType = req.employee.role;
+
+        // 1. Get unpaid commission total
         const unpaidData = await Commission.aggregate([
             { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
             { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
         ]);
         
         const totalUnpaid = unpaidData[0]?.total || 0;
+
+        // 2. Get actual blocking status from the employee record
+        let employeeDoc;
+        if (empType === ROLES.SINGLE_EMPLOYEE) {
+            employeeDoc = await SingleEmployee.findById(empId).select("isBlocked");
+        } else {
+            employeeDoc = await MultipleEmployee.findById(empId).select("isBlocked");
+        }
+
+        const isActuallyBlocked = employeeDoc?.isBlocked || false;
         
         res.status(200).json({
             success: true,
             totalUnpaid,
-            isBlocked: totalUnpaid >= 1000,
+            isBlocked: isActuallyBlocked,
             threshold: 1000,
-            message: totalUnpaid >= 1000 ? "You are blocked due to outstanding commission. Please pay to resume services." : "Your commission balance is within limits."
+            message: isActuallyBlocked ? "You are blocked due to outstanding commission. Please pay to resume services." : "Your commission balance is within limits."
         });
     } catch (err) {
         next(err);

@@ -375,10 +375,7 @@ module.exports = (io) => {
         /* ============================
            2. Fetch & validate team
         ============================ */
-        const team = await MultipleEmployee.findOne({
-          _id: teamId,
-          teamStatus: "BUSY", // must be BUSY after team-accept
-        });
+        const team = await MultipleEmployee.findById(teamId);
 
         if (!team) return;
 
@@ -397,6 +394,8 @@ module.exports = (io) => {
            4. Assign employees atomically
         ============================ */
         booking.primaryEmployee = primaryEmployee;
+        booking.teamLeader = primaryEmployee;
+        booking.teamHelpers = helpers;
         booking.employees = [primaryEmployee, ...helpers];
         booking.status = BOOKING_STATUS.ASSIGNED;
         booking.assignmentStatus = "ASSIGNED";

@@ -103,6 +103,11 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     ref: "Booking",
     default: null,
   },
+  availabilityStatus: {
+    type: String,
+    enum: ["AVAILABLE", "OFFERED", "BUSY"],
+    default: "AVAILABLE",
+  },
 }, { timestamps: true });
 
 MultipleEmployeeSchema.index({ location: "2dsphere" });
