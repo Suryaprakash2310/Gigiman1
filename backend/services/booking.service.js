@@ -140,7 +140,7 @@ exports.findNearbyTeams = async ({
         {
             $match: {
                 $expr: {
-                    $gte: [{ $size: "$members" }, employeeCount]
+                    $gte: [{ $add: [{ $size: "$members" }, 1] }, employeeCount]
                 }
             }
         },
@@ -161,7 +161,7 @@ exports.findNearbyTeams = async ({
                 preserveNullAndEmptyArrays: true
             }
         }
-    ]);
+    ])
     return {
         type: "team",
         data: teams,
@@ -488,7 +488,9 @@ exports.convertVisitToService = async ({
 exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) => {
     const [lng, lat] = coordinates;
 
-    const booking = await Booking.findById(bookingId).select("rejectedMultipleEmployee dispatchAttempts serviceCategoryName address user location");
+    let booking = await Booking.findById(bookingId)
+        .select("rejectedMultipleEmployee dispatchAttempts serviceCategoryName address user location totalPrice createdAt")
+        .populate("user", "fullName");
 
     if (!booking) return;
 
@@ -528,7 +530,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
                 { blockedUntil: null },
                 { blockedUntil: { $lte: new Date() } },
             ],
-            $expr: { $gte: [{ $size: "$members" }, employeeCount] },
+            $expr: { $gte: [{ $add: [{ $size: "$members" }, 1] }, employeeCount] },
         },
         {
             $set: {
@@ -584,8 +586,14 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
         bookingId,
         teamId: team._id,
         employeeCount,
+        service: booking.serviceCategoryName,
         serviceCategory: booking.serviceCategoryName,
+        totalPrice: booking.totalPrice,
         address: booking.address,
+        user: {
+            name: booking.user?.fullName,
+        },
+        createdAt: booking.createdAt
     });
 
 
@@ -626,10 +634,10 @@ exports.teamAccept = async ({
     io
 }) => {
     try {
-        if (!bookingId || !teamId || !leaderEmpId) {
+        if (!bookingId || !teamId) {
             return {
                 success: false,
-                reason: "bookingId, teamId and leaderEmpId are required"
+                reason: "bookingId and teamId are required"
             };
         }
 
@@ -647,24 +655,6 @@ exports.teamAccept = async ({
             throw new AppError("Team not found or not offered for this booking", 400);
         }
 
-        /*  Fetch leader */
-        const leader = await SingleEmployee.findById(leaderEmpId);
-
-        if (!leader) {
-            throw new AppError("Leader not found", 404);
-        }
-
-        const memberIdSet = new Set(
-            team.members.map(m => m.toString())
-        );
-
-        /*  Validate leader is a team member */
-        if (!memberIdSet.has(leader._id.toString())) {
-            if (!leader) {
-                throw new AppError("Leader not found", 404);
-            }
-        }
-
         // Fetch booking EARLY (read-only)
         const bookingMeta = await Booking.findById(bookingId)
             .select("employeeCount status serviceType user");
@@ -677,16 +667,50 @@ exports.teamAccept = async ({
             throw new AppError("Booking not pending", 409);
         }
 
+        // AUTO-ASSIGNMENT LOGIC
+        if (!leaderEmpId) {
+            if (team.members.length + 1 === bookingMeta.employeeCount) {
+                leaderEmpId = teamId;
+                helperEmpIds = team.members;
+            } else if (team.members.length === bookingMeta.employeeCount) {
+                leaderEmpId = team.members[0];
+                helperEmpIds = team.members.slice(1);
+            } else {
+                return {
+                    success: false,
+                    reason: "leaderEmpId is required because team members exceed required employee count"
+                };
+            }
+        }
+
+        /*  Fetch leader */
+        let leader = await SingleEmployee.findById(leaderEmpId);
+        let isLeaderMultiple = false;
+
+        if (!leader && leaderEmpId.toString() === teamId.toString()) {
+            leader = team;
+            isLeaderMultiple = true;
+        }
+
+        if (!leader) {
+            throw new AppError("Leader not found", 404);
+        }
+
+        const memberIdSet = new Set(
+            team.members.map(m => m.toString())
+        );
+
+        /*  Validate leader is a team member */
+        if (!isLeaderMultiple && !memberIdSet.has(leader._id.toString())) {
+            throw new AppError("Leader not found in team members", 404);
+        }
+
         /*  Fetch helpers */
         let helperDocs = [];
         if (helperEmpIds.length) {
             helperDocs = await SingleEmployee.find({
                 _id: { $in: helperEmpIds }
             });
-
-            if (helperDocs.length + 1 !== bookingMeta.employeeCount) {
-                throw new AppError(`Requires ${bookingMeta.employeeCount} employees`, 422);
-            }
 
             /*  Validate helpers using SET (FAST) */
             const invalidHelper = helperDocs.find(
@@ -698,8 +722,13 @@ exports.teamAccept = async ({
             }
         }
 
+        const totalProvidedEmployees = helperDocs.length + 1;
+        if (totalProvidedEmployees !== bookingMeta.employeeCount && totalProvidedEmployees + 1 !== bookingMeta.employeeCount) {
+            throw new AppError(`Requires ${bookingMeta.employeeCount} or ${bookingMeta.employeeCount - 1} employees`, 422);
+        }
+
         /*  Assign roles to team */
-        team.leader = leader._id;
+        team.leader = isLeaderMultiple ? null : leader._id;
         team.helpers = helperDocs.map(h => h._id);
 
         await team.save();
@@ -714,7 +743,8 @@ exports.teamAccept = async ({
                 servicerCompany: teamId,
                 serviceType: "team",
                 primaryEmployee: leader._id,
-                employees: [leader._id, ...helperDocs.map(h => h._id)],
+                primaryEmployeeModel: isLeaderMultiple ? "MultipleEmployee" : "SingleEmployee",
+                employees: isLeaderMultiple ? [...helperDocs.map(h => h._id)] : [leader._id, ...helperDocs.map(h => h._id)],
                 status: BOOKING_STATUS.ASSIGNED //  REQUIRED
             },
             { new: true }
@@ -750,7 +780,13 @@ exports.teamAccept = async ({
         await exports.recordCommission(booking, teamId, "team");
 
         /*  Notify LEADER */
-        const leaderSocket = await SingleEmployee.findById(leader._id).select("socketId");
+        let leaderSocket;
+        if (isLeaderMultiple) {
+            leaderSocket = await MultipleEmployee.findById(leader._id).select("socketId");
+        } else {
+            leaderSocket = await SingleEmployee.findById(leader._id).select("socketId");
+        }
+
         if (leaderSocket?.socketId) {
             io.to(leaderSocket.socketId).emit("leader-otp-ready", {
                 bookingId: booking._id

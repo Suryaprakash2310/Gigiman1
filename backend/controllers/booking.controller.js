@@ -493,7 +493,8 @@ exports.getBookingById = async (req, res, next) => {
 
     const booking = await Booking.findById(bookingId)
       .populate("servicerCompany", "storeName avatar")
-      .populate("primaryEmployee", "fullname storeName phoneNo avatar");
+      .populate("primaryEmployee", "fullname storeName phoneNo avatar")
+      .populate("user", "fullName phoneNo avatar");
 
     if (!booking) {
       return next(new AppError("Booking not found", 404));
@@ -531,7 +532,10 @@ exports.getBookingById = async (req, res, next) => {
       success: true,
       booking: {
         _id: booking._id,
-        name: booking.servicerCompany?.storeName || booking.primaryEmployee?.fullname,
+        name: booking.servicerCompany?.storeName || booking.primaryEmployee?.fullname || booking.primaryEmployee?.storeName,
+        userName: booking.user?.fullName,
+        userPhone: booking.user?.phoneNo,
+        userAvatar: booking.user?.avatar,
         serviceCategoryName: booking.serviceCategoryName,
         cost: booking.totalPrice,
         durationInMinutes: booking.durationInMinutes,
@@ -542,7 +546,7 @@ exports.getBookingById = async (req, res, next) => {
         otp: booking.StartWorkOTP,
         domainServiceId: booking.domainService?._id,
         technician: {
-          name: booking.primaryEmployee?.fullname,
+          name: booking.primaryEmployee?.fullname || booking.primaryEmployee?.storeName,
           rating: techRating,
           reviews: techReviewCount
         },

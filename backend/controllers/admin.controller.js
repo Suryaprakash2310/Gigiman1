@@ -300,8 +300,8 @@ exports.setServiceList = async (req, res, next) => {
         price,
         durationInMinutes,
         employeeCount,
-        servicecategoryImage: result.url,
-        servicecategoryImagePublicId: result.publicId,
+        servicecategoryImage: result ? result.url : null,
+        servicecategoryImagePublicId: result ? result.publicId : null,
       });
 
       await service.save();
@@ -333,8 +333,8 @@ exports.setServiceList = async (req, res, next) => {
           price,
           durationInMinutes,
           employeeCount,
-          servicecategoryImage: result.url,
-          servicecategoryImagePublicId: result.publicId,
+          servicecategoryImage: result ? result.url : null,
+          servicecategoryImagePublicId: result ? result.publicId : null,
         }
       ]
     });
