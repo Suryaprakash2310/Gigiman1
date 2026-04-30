@@ -551,6 +551,46 @@ exports.deleteServiceCategory = async (req, res, next) => {
   }
 };
 
+exports.deleteServiceList = async (req, res, next) => {
+  try {
+    const { serviceId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+      return next(new AppError("Invalid serviceId", 400));
+    }
+
+    const service = await ServiceList.findById(serviceId);
+
+    if (!service) {
+      return next(new AppError("Service not found", 404));
+    }
+
+    // Delete images of all categories in this service from Cloudinary
+    if (service.serviceCategory && service.serviceCategory.length > 0) {
+      for (const category of service.serviceCategory) {
+        if (category.servicecategoryImagePublicId) {
+          try {
+            await deleteFromCloudinary(category.servicecategoryImagePublicId);
+          } catch (cloudinaryErr) {
+            console.error(`Failed to delete image ${category.servicecategoryImagePublicId} from Cloudinary:`, cloudinaryErr);
+            // Continue with other deletions even if one fails
+          }
+        }
+      }
+    }
+
+    await ServiceList.findByIdAndDelete(serviceId);
+
+    res.status(200).json({
+      success: true,
+      message: "Service list and all its categories deleted successfully"
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
 exports.getServiceCategories = async (req, res) => {
   const { DomainServiceId } = req.params;
 

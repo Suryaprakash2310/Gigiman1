@@ -13,6 +13,7 @@ const {
     setServiceList,
     deleteServiceCategory,
     updateServiceCategory,
+    deleteServiceList,
     EditDomainService,
     getServiceCategories,
     setDomainTool,
@@ -70,6 +71,7 @@ router.delete("/delete-domain-service/:id", protect, hasPermission(PERMISSIONS.M
 router.put("/domainservice-edit/:DomainserviceId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), upload.single('serviceImage'), EditDomainService);
 router.put("/update-service-category/:serviceId/:categoryId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), upload.single('servicecategoryImage'), updateServiceCategory);
 router.delete("/delete-service-category/:serviceId/:categoryId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), deleteServiceCategory);
+router.delete("/delete-service-list/:serviceId", protect, hasPermission(PERMISSIONS.MANAGE_SERVICES), deleteServiceList);
 router.get("/service-categories/:DomainServiceId", protect, hasPermission(PERMISSIONS.VIEW_SERVICES), getServiceCategories);
 
 // Tool/Part management permissions
