@@ -178,7 +178,7 @@ exports.completeProfile = async (req, res, next) => {
       });
     }
     user.isVerified = true;
-    const finalToken = generateToken(user);
+    const finalToken = generateToken(user._id);
 
     await user.save();
 

@@ -16,7 +16,7 @@ const upload = require('../middleware/upload.middleware');
 
 const router = express.Router();
 
-router.post("/complete-profile", tempProtect, upload.single('avatar'), completeProfile);
+router.post("/register", tempProtect, upload.single('avatar'), completeProfile);
 
 router.post("/send-otp", sendOtp);
 router.post("/verify-otp", verifyOtp);
