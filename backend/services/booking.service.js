@@ -15,6 +15,7 @@ const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const AppError = require("../utils/AppError");
 const Commission = require("../models/commissionwallet.model");
 require("dotenv").config();
+const { sendNotification } = require("../utils/notification.util");
 
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 const mapboxClient = mbxGeocoding({ accessToken: MAP_BOX_TOKEN });
@@ -300,12 +301,18 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
             io.to(user.socketId).emit("no-servicer-available");
         }
 
-        io.to("admin_room").emit("new-failed-booking", {
-            bookingId,
-            message: "Auto-assignment failed after maximum attempts"
+        // Notify Admin via Utility (Database + Socket)
+        await sendNotification({
+            targetRole: "ADMIN",
+            title: "Auto-Assignment Failed",
+            message: `Booking ${bookingId} failed to find a single servicer after ${MAX_DISPATCH_ATTEMPTS} attempts.`,
+            type: "FAILED_BOOKING",
+            data: { bookingId },
+            io
         });
 
         return;
+
     }
     //  Emit immediately (FAST)
     if (servicer.socketId) {
@@ -400,7 +407,7 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
 };
 
 
-exports.recordCommission = async (booking, empId, empType, customAmount = null) => {
+exports.recordCommission = async (booking, empId, empType, customAmount = null, io = null) => {
     try {
         const amountToCalculate = customAmount !== null ? customAmount : booking.totalPrice;
         const commissionAmount = amountToCalculate * 0.18;
@@ -432,7 +439,19 @@ exports.recordCommission = async (booking, empId, empType, customAmount = null) 
             } else {
                 await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
             }
+
+            // Notify Servicer and Admin
+            await sendNotification({
+                empId,
+                empModel,
+                title: "Account Blocked (Unpaid Commissions)",
+                message: `Your account has been blocked because your unpaid commissions (₹${totalUnpaid.toFixed(2)}) have exceeded the limit of ₹1000. Please clear your dues to resume services.`,
+                type: "BLOCK",
+                targetRole: "ADMIN",
+                io
+            });
         }
+
     } catch (err) {
         console.error("Commission recording error:", err);
     }
@@ -624,12 +643,18 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             io.to(`user_${updatedBooking.user._id}`).emit("no-team-available");
         }
 
-        io.to("admin_room").emit("new-failed-booking", {
-            bookingId,
-            message: "Team auto-assignment failed after maximum attempts"
+        // Notify Admin via Utility (Database + Socket)
+        await sendNotification({
+            targetRole: "ADMIN",
+            title: "Team Assignment Failed",
+            message: `Booking ${bookingId} failed to find a team after ${MAX_DISPATCH_ATTEMPTS} attempts.`,
+            type: "FAILED_BOOKING",
+            data: { bookingId },
+            io
         });
 
         return;
+
     }
 
     io.to(`team_${team._id}`).emit("team-booking-request", {
@@ -1706,7 +1731,7 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
         // Update commission for the extra service
         const empId = booking.servicerCompany || booking.primaryEmployee?._id || booking.primaryEmployee;
         const empType = booking.servicerCompany ? "team" : "single";
-        await exports.recordCommission(booking, empId, empType, extraPrice);
+        await exports.recordCommission(booking, empId, empType, extraPrice, io);
     } else {
         extraService.status = "REJECTED";
     }

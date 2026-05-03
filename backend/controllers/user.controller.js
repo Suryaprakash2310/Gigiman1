@@ -57,7 +57,6 @@ exports.sendOtp = async (req, res, next) => {
 exports.verifyOtp = async (req, res, next) => {
   try {
     const { phoneNo, firebaseToken } = req.body;
-
     if (!phoneNo || !firebaseToken) {
       return next(new AppError("Phone number and Firebase Token are required", 400));
     }
@@ -69,6 +68,7 @@ exports.verifyOtp = async (req, res, next) => {
     try {
       decodedToken = await admin.auth().verifyIdToken(firebaseToken);
     } catch (error) {
+      console.error("Firebase Verification Error:", error);
       if (error.code === 'auth/id-token-expired') {
         return next(new AppError("Firebase token has expired", 401));
       }
@@ -146,7 +146,8 @@ exports.completeProfile = async (req, res, next) => {
     // Handle Avatar Upload: Case 1: Multer File Upload (Preferred)
     let avatarUrl = null;
     if (req.file) {
-      avatarUrl = req.file.path; // Cloudinary URL directly from multer
+      const result = await require('../utils/uploadHandler').uploadToCloudinary(req.file, "users/avatars");
+      avatarUrl = result.url;
     }
     // Case 2: Manual Base64 Upload (Fallback)
     else if (avatar) {
@@ -177,7 +178,7 @@ exports.completeProfile = async (req, res, next) => {
       });
     }
     user.isVerified = true;
-    const finalToken = generateToken(user._id);
+    const finalToken = generateToken(user);
 
     await user.save();
 
@@ -230,16 +231,24 @@ exports.editprofile = async (req, res, next) => {
 
     // Handle Avatar Upload: Case 1: Multer File Upload (Preferred)
     if (req.file) {
-      user.avatar = req.file.path; // Cloudinary URL directly from multer
+       const result = await require('../utils/uploadHandler').uploadToCloudinary(req.file, "user/avatars");
+       user.avatar = result.url;
     }
     // Case 2: Manual Base64 Upload (Fallback)
     else if (avatar) {
       // ensure avatar is a valid data URI or remote URL; cloudinary accepts both
-      const uploadResult = await cloudinary.uploader.upload(avatar, {
-        folder: "user/avatars",
-        transformation: [{ width: 300, height: 300, crop: "fill" }]
-      });
-      user.avatar = uploadResult.secure_url;
+      try {
+        const uploadResult = await cloudinary.uploader.upload(avatar, {
+          folder: "user/avatars",
+          transformation: [{ width: 300, height: 300, crop: "fill" }]
+        });
+        user.avatar = uploadResult.secure_url;
+      } catch (uploadError) {
+        console.error("Cloudinary upload error in editprofile:", uploadError);
+        // If it's a file URI from frontend, it will fail here. 
+        // We could just ignore it or return an error.
+        // For now, let's just log it and proceed if fullName was updated.
+      }
     }
 
     await user.save();

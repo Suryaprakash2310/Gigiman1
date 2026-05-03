@@ -107,33 +107,27 @@ exports.adminGetAllTickets = async (req, res, next) => {
         let query = {};
 
         if (phoneNo) {
-            const user = await User.findOne({ phoneNo: phoneNo });
-            if (user) {
-                query.raisedBy = user._id;
-                query.raisedByModel = "User";
+            const searchRegex = new RegExp(phoneNo, 'i');
+            
+            const [users, singleEmployees, multipleEmployees, toolShops] = await Promise.all([
+                User.find({ phoneNo: searchRegex }).select('_id'),
+                SingleEmployee.find({ phoneNo: searchRegex }).select('_id'),
+                MultipleEmployee.find({ phoneNo: searchRegex }).select('_id'),
+                ToolShop.find({ phoneNo: searchRegex }).select('_id')
+            ]);
+
+            const userIds = users.map(u => u._id);
+            const seIds = singleEmployees.map(e => e._id);
+            const meIds = multipleEmployees.map(m => m._id);
+            const tsIds = toolShops.map(t => t._id);
+
+            const allIds = [...userIds, ...seIds, ...meIds, ...tsIds];
+            
+            if (allIds.length > 0) {
+                query.raisedBy = { $in: allIds };
             } else {
-                // If phone number is not found for user, it could be a servicer.
-                // Let's check servicers as well if no specific type is requested.
-                const se = await SingleEmployee.findOne({ phoneNo: phoneNo });
-                if (se) {
-                    query.raisedBy = se._id;
-                    query.raisedByModel = "SingleEmployee";
-                } else {
-                    const me = await MultipleEmployee.findOne({ phoneNo: phoneNo });
-                    if (me) {
-                        query.raisedBy = me._id;
-                        query.raisedByModel = "MultipleEmployee";
-                    } else {
-                        const ts = await ToolShop.findOne({ phoneNo: phoneNo });
-                        if (ts) {
-                            query.raisedBy = ts._id;
-                            query.raisedByModel = "ToolShop";
-                        } else {
-                            // If not found anywhere, return empty result or invalid query
-                            return res.status(200).json({ success: true, tickets: [] });
-                        }
-                    }
-                }
+                // If no user/employee found with this phone, return empty results
+                return res.status(200).json({ success: true, tickets: [] });
             }
         } else if (servicerId) {
             const upId = servicerId.toUpperCase();
@@ -229,12 +223,22 @@ exports.adminReplyTicket = async (req, res, next) => {
 
         // If it's a Chat, add to message history
         if (ticket.supportType === "Chat" && adminReply) {
-            await TicketMessage.create({
+            const newMsg = await TicketMessage.create({
                 ticket: ticket._id,
-                sender: req.user?._id || req.userId, // Assuming admin userId from protect middleware
+                sender: req.employeeId || req.user?._id || req.userId, // Use req.employeeId from protect middleware
                 senderModel: "Admin",
                 message: adminReply
             });
+
+            // Emit socket event for real-time chat
+            const io = req.app.get("io");
+            if (io) {
+                io.to(`ticket_${ticket._id}`).emit("receive-ticket-chat-message", {
+                    ticketId: ticket._id,
+                    message: newMsg,
+                    senderRole: req.role || "Admin"
+                });
+            }
         }
 
         res.status(200).json({
@@ -297,6 +301,16 @@ exports.sendChatMessage = async (req, res, next) => {
             message,
             type: type || "text"
         });
+
+        // Emit socket event for real-time chat
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`ticket_${ticketId}`).emit("receive-ticket-chat-message", {
+                ticketId: ticketId,
+                message: msg,
+                senderRole: req.role || (req.user ? "Admin" : "User")
+            });
+        }
 
         res.status(201).json({
             success: true,

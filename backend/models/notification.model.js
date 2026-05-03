@@ -13,7 +13,12 @@ const notificationSchema = new mongoose.Schema({
     },
     empModel: { 
         type: String, 
-        enum: ['SingleEmployee', 'MultipleEmployee', 'ToolShop'],
+        enum: ['SingleEmployee', 'MultipleEmployee', 'ToolShop', 'Admin'],
+        default: null
+    },
+    adminId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Admin',
         default: null
     },
     title: { 
@@ -30,7 +35,12 @@ const notificationSchema = new mongoose.Schema({
     },
     type: { 
         type: String, 
-        default: 'SYSTEM' // e.g., BOOKING, SYSTEM, ALERT, PROMO
+        enum: ['BOOKING', 'SYSTEM', 'ALERT', 'PROMO', 'FAILED_BOOKING', 'BLOCK'],
+        default: 'SYSTEM'
+    },
+    targetRole: {
+        type: String,
+        default: null // Can be used for role-based notifications like 'ADMIN'
     },
     data: {
         type: mongoose.Schema.Types.Mixed,

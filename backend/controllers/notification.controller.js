@@ -70,3 +70,57 @@ exports.markServicerNotificationsRead = async (req, res, next) => {
         next(err);
     }
 };
+
+// For Admins
+exports.getAdminNotifications = async (req, res, next) => {
+    try {
+        const adminId = req.employee.id;
+        
+        // Admins can see notifications directed specifically to them (adminId) 
+        // OR general admin notifications (targetRole: 'ADMIN')
+        const notifications = await Notification.find({
+            $or: [
+                { adminId },
+                { targetRole: 'ADMIN' }
+            ]
+        })
+            .sort({ createdAt: -1 })
+            .limit(50);
+
+        const unreadCount = await Notification.countDocuments({
+            $or: [
+                { adminId },
+                { targetRole: 'ADMIN' }
+            ],
+            isRead: false
+        });
+
+        res.status(200).json({
+            success: true,
+            notifications,
+            unreadCount
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+exports.markAdminNotificationsRead = async (req, res, next) => {
+    try {
+        const adminId = req.employee.id;
+        await Notification.updateMany({
+            $or: [
+                { adminId },
+                { targetRole: 'ADMIN' }
+            ],
+            isRead: false
+        }, { isRead: true });
+
+        res.status(200).json({
+            success: true,
+            message: "Admin notifications marked as read"
+        });
+    } catch (err) {
+        next(err);
+    }
+};

@@ -684,7 +684,7 @@ exports.paymentSuccess = async (req, res, next) => {
       const empId = booking.servicerCompany || booking.primaryEmployee?._id || booking.primaryEmployee;
       const empType = booking.servicerCompany ? "team" : "single";
       const { recordCommission } = require("../services/booking.service");
-      await recordCommission(booking, empId, empType);
+      await recordCommission(booking, empId, empType, null, io);
 
       // Notify User (Customer)
       if (booking?.user?.socketId) {

@@ -827,8 +827,12 @@ exports.getAllBooking = async (req, res, next) => {
   }
 }
 
+const { sendNotification } = require("../utils/notification.util");
+
 exports.blockServicer = async (req, res, next) => {
   try {
+    const io = req.app.get("io");
+
     const { id } = req.params;
     const { servicerType, blockedUntil } = req.body;
 
@@ -861,7 +865,20 @@ exports.blockServicer = async (req, res, next) => {
       if (servicer.availabilityStatus) servicer.availabilityStatus = "AVAILABLE";
       if (servicer.teamStatus) servicer.teamStatus = "AVAILABLE";
       await servicer.save();
+
+      // Notify Servicer and Admin
+      await sendNotification({
+        empId: servicer._id,
+        empModel: single ? "SingleEmployee" : (multiple ? "MultipleEmployee" : "ToolShop"),
+        title: "Account Blocked",
+        message: `Your account has been blocked by the administrator${blockDate ? ` until ${blockDate.toDateString()}` : ""}. Please contact support for more details.`,
+        type: "BLOCK",
+        targetRole: "ADMIN",
+        io
+      });
+
       return res.json({ success: true, message: "Servicer blocked successfully" });
+
     }
 
     const updatePayload = {
@@ -883,7 +900,19 @@ exports.blockServicer = async (req, res, next) => {
       await servicer.save();
     }
 
+    // Notify Servicer and Admin
+    await sendNotification({
+      empId: servicer._id,
+      empModel: servicerType,
+      title: "Account Blocked",
+      message: `Your account has been blocked by the administrator${blockDate ? ` until ${blockDate.toDateString()}` : ""}. Please contact support for more details.`,
+      type: "BLOCK",
+      targetRole: "ADMIN",
+      io
+    });
+
     res.json({ success: true, message: "Servicer blocked successfully" });
+
 
   } catch (err) {
     next(err);
@@ -912,10 +941,37 @@ exports.unblockServicer = async (req, res, next) => {
       servicer.isBlocked = false;
       servicer.blockedUntil = null; // Clear date-based block too
       await servicer.save();
+
+      // Notify Servicer and Admin
+      await sendNotification({
+        empId: servicer._id,
+        empModel: single ? "SingleEmployee" : (multiple ? "MultipleEmployee" : "ToolShop"),
+        title: "Account Unblocked",
+        message: "Your account has been unblocked by the administrator. You can now resume your services.",
+        type: "SYSTEM",
+        targetRole: "ADMIN",
+        io: req.app.get("io")
+      });
+
       return res.json({ success: true, message: "Servicer unblocked successfully" });
+
     }
 
     const servicer = await model.findByIdAndUpdate(id, { isBlocked: false, blockedUntil: null }, { new: true });
+
+    if (servicer) {
+      // Notify Servicer and Admin
+      await sendNotification({
+        empId: servicer._id,
+        empModel: servicerType,
+        title: "Account Unblocked",
+        message: "Your account has been unblocked by the administrator. You can now resume your services.",
+        type: "SYSTEM",
+        targetRole: "ADMIN",
+        io: req.app.get("io")
+      });
+    }
+
 
 
     if (!servicer) return next(new AppError("Servicer not found", 404));
@@ -972,7 +1028,7 @@ exports.getAdminDashboardStats = async (req, res, next) => {
 
     // 3. Trends Aggregation Helper
     const getTrends = async (startDate, groupFormat) => {
-      const [service, parts] = await Promise.all([
+      const [service, parts, commissions] = await Promise.all([
         Booking.aggregate([
           { $match: { status: BOOKING_STATUS.COMPLETED, createdAt: { $gte: startDate } } },
           {
@@ -992,10 +1048,21 @@ exports.getAdminDashboardStats = async (req, res, next) => {
             }
           },
           { $sort: { "_id": 1 } }
+        ]),
+        Commission.aggregate([
+          { $match: { createdAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: groupFormat,
+              commissionRevenue: { $sum: "$commissionAmount" }
+            }
+          },
+          { $sort: { "_id": 1 } }
         ])
       ]);
-      return { service, parts };
+      return { service, parts, commissions };
     };
+
 
     // Define Timeframes
     const dayStart = getStartOf('day', 7);
@@ -1040,11 +1107,12 @@ exports.getAdminDashboardStats = async (req, res, next) => {
           label = key;
         }
 
-        merged[key] = { label, serviceRevenue: 0, partRevenue: 0, totalRevenue: 0 };
+        merged[key] = { label, serviceRevenue: 0, partRevenue: 0, commissionRevenue: 0, totalRevenue: 0 };
       }
 
       data.service.forEach(item => { if (merged[item._id]) { merged[item._id].serviceRevenue = item.serviceRevenue; merged[item._id].totalRevenue += item.serviceRevenue; } });
       data.parts.forEach(item => { if (merged[item._id]) { merged[item._id].partRevenue = item.partRevenue; merged[item._id].totalRevenue += item.partRevenue; } });
+      data.commissions.forEach(item => { if (merged[item._id]) { merged[item._id].commissionRevenue = item.commissionRevenue; } });
 
       return Object.values(merged).reverse();
     };
