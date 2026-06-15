@@ -3,7 +3,7 @@ const Joi = require('joi');
 const bookingSchemas = {
     autoAssignServicer: Joi.object({
         userId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
-        serviceCategoryName: Joi.string().required(),
+        serviceCategoryName: Joi.string().optional(),
         address: Joi.string().optional(),
         coordinates: Joi.array().items(Joi.number()).length(2).optional(),
         serviceCount: Joi.number().integer().min(1).default(1)

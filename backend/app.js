@@ -26,6 +26,7 @@ const couponRouter = require("./router/coupon.router");
 const ticketRouter = require("./router/ticket.router");
 const commissionRouter = require("./router/commission.router");
 const notificationRouter = require("./router/notification.router");
+const cartRouter = require("./router/cart.router");
 const { startScheduler } = require("./services/booking.schedule");
 const errorHandler = require("./middleware/error.middleware");
 const setupGracefulShutdown = require("./utils/gracefulShutdown");
@@ -82,17 +83,14 @@ app.use("/api/coupon", couponRouter);
 app.use("/api/tickets", ticketRouter);
 app.use("/api/commission", commissionRouter);
 app.use("/api/notifications", notificationRouter);
+app.use("/api/cart", cartRouter);
 
 // Global Error Handler
 app.use(errorHandler);
 
 // ------------------- START SERVER -------------------
 const port = process.env.PORT || 5000;
-// app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
-
-server.listen(port, () =>
-  logger.info(`🚀 Server + Socket.IO running on port ${port}`)
-);
+server.listen(port, () => console.log(`Server running at http://localhost:${port}`));
 
 // Graceful Shutdown
 setupGracefulShutdown(server, mongoose);

@@ -95,30 +95,13 @@ exports.autoAssignServicer = async (req, res, next) => {
     }
     const io = req.app.get("io");
     const userId = req.userId;
-    if (!serviceCategoryName) {
-      return next(new AppError("serviceCategoryName is required", 400));
-    }
+
     if (!address && !coordinates) {
       return next(
         new AppError("Either address or coordinates is required", 400)
       );
     }
-    const serviceList = await ServiceList.findOne({
-      "serviceCategory.serviceCategoryName": serviceCategoryName,
-    });
 
-    if (!serviceList) {
-      throw new AppError("Service Category not found", 404);
-    }
-
-
-    const category = serviceList.serviceCategory.find(
-      c => c.serviceCategoryName === serviceCategoryName
-    );
-
-    if (!category) throw new AppError("Invalid service category", 400);
-
-    const domainServiceId = serviceList.DomainServiceId;
     /* -------------------------
        Validate user + socket
     ------------------------- */
@@ -127,80 +110,154 @@ exports.autoAssignServicer = async (req, res, next) => {
       return next(new AppError("Invalid user or user not connected", 400));
     }
 
-    /* ======================================================
-        CREATE BOOKING (ALWAYS FIRST)
-    ====================================================== */
-    const { booking } = await createBooking({
-      userId,
-      serviceCategoryName,
-      domainService: domainServiceId,
-      address,
-      addressTitle,
-      coordinates: parsedCoordinates,
-      serviceCount,
-      couponCode,
-    });
+    let cartGroups = [];
 
-    /* ======================================================
-        FIND NEARBY SERVICERS / TEAMS
-    ====================================================== */
-    const result = await findNearbyTeams({
-      serviceCategoryName,
-      address,
-      addressTitle,
-      coordinates: parsedCoordinates,
-      serviceCount,
-    });
-
-    /* -------------------------
-       No servicers available
-    ------------------------- */
-    if (!result || result.length === 0) {
-      await Booking.findByIdAndUpdate(booking._id, {
-        status: BOOKING_STATUS.NO_PROVIDER,
+    if (serviceCategoryName) {
+      // Legacy single-item flow
+      const serviceList = await ServiceList.findOne({
+        "serviceCategory.serviceCategoryName": serviceCategoryName,
       });
 
-      const io = req.app.get("io");
-      if (io) {
-        io.to("admin_room").emit("new-failed-booking", {
-          bookingId: booking._id,
-          message: "No servicers found nearby"
-        });
+      if (!serviceList) {
+        throw new AppError("Service Category not found", 404);
       }
 
+      const category = serviceList.serviceCategory.find(
+        c => c.serviceCategoryName === serviceCategoryName
+      );
+
+      if (!category) throw new AppError("Invalid service category", 400);
+
+      cartGroups.push({
+        domainServiceId: serviceList.DomainServiceId,
+        items: [{
+          serviceCategoryId: category._id,
+          serviceCategoryName: category.serviceCategoryName,
+          price: category.price,
+          durationInMinutes: category.durationInMinutes,
+          employeeCount: category.employeeCount,
+          quantity: serviceCount
+        }]
+      });
+    } else {
+      // Cart checkout flow
+      const Cart = require("../models/cart.model");
+      const cart = await Cart.findOne({ user: userId });
+      if (!cart || !cart.items || cart.items.length === 0) {
+        return next(new AppError("Cart is empty or not found", 400));
+      }
+
+      // Group cart items by domainService
+      const groups = {};
+      for (const item of cart.items) {
+        const domainId = item.domainService.toString();
+        if (!groups[domainId]) {
+          groups[domainId] = [];
+        }
+        groups[domainId].push(item);
+      }
+
+      for (const domainId of Object.keys(groups)) {
+        cartGroups.push({
+          domainServiceId: domainId,
+          items: groups[domainId]
+        });
+      }
+    }
+
+    const createdBookings = [];
+    const failedBookings = [];
+
+    for (let i = 0; i < cartGroups.length; i++) {
+      const group = cartGroups[i];
+      
+      const maxEmployeeCount = Math.max(...group.items.map(item => item.employeeCount));
+      const appliedCouponCode = i === 0 ? couponCode : undefined;
+
+      /* ======================================================
+          CREATE BOOKING
+      ====================================================== */
+      const { booking } = await createBooking({
+        userId,
+        cartItems: group.items,
+        domainService: group.domainServiceId,
+        address,
+        addressTitle,
+        coordinates: parsedCoordinates,
+        couponCode: appliedCouponCode,
+      });
+
+      /* ======================================================
+          FIND NEARBY SERVICERS / TEAMS
+      ====================================================== */
+      const result = await findNearbyTeams({
+        serviceCategoryName: group.items[0].serviceCategoryName,
+        address,
+        addressTitle,
+        coordinates: parsedCoordinates,
+        serviceCount: group.items.reduce((sum, item) => sum + (item.quantity || 1), 0),
+        overrideEmployeeCount: maxEmployeeCount,
+      });
+      console.log(result);
+
+      if (!result || !result.data || result.data.length === 0) {
+        await Booking.findByIdAndUpdate(booking._id, {
+          status: BOOKING_STATUS.NO_PROVIDER,
+        });
+
+        if (io) {
+          io.to("admin_room").emit("new-failed-booking", {
+            bookingId: booking._id,
+            message: "No servicers found nearby"
+          });
+        }
+        failedBookings.push(booking);
+      } else {
+        const employeeCount = booking.employeeCount;
+
+        if (employeeCount === 1) {
+          assignNextServicer({
+            bookingId: booking._id.toString(),
+            coordinates: booking.location.coordinates,
+            io,
+          });
+        } else {
+          assignNextTeam({
+            bookingId: booking._id.toString(),
+            coordinates: booking.location.coordinates,
+            employeeCount,
+            io: io,
+          });
+        }
+        createdBookings.push(booking);
+      }
+    }
+
+    // Clear user's Cart since booking checkout was successful
+    if (!serviceCategoryName) {
+      const Cart = require("../models/cart.model");
+      await Cart.deleteOne({ user: userId });
+    }
+
+    const primaryBooking = createdBookings[0] || failedBookings[0];
+    console.log(primaryBooking);
+    console.log(createdBookings);
+    console.log(primaryBooking);
+    const isFailed = failedBookings.includes(primaryBooking);
+
+    if (isFailed && createdBookings.length === 0) {
       return next(new AppError("No servicers available nearby", 404));
     }
-    /* ======================================================
-        START AUTO-ASSIGN QUEUE
-    ====================================================== */
-    if (result.type === "single") {
-      assignNextServicer({
-        bookingId: booking._id.toString(),
-        coordinates: result.coordinates,
-        io,
-      });
 
-    } else {
-      assignNextTeam({
-        bookingId: booking._id.toString(),
-        coordinates: result.coordinates,
-        employeeCount: result.employeeCount,
-        io: io,
-      });
-    }
-
-    /* -------------------------
-       Success response
-    ------------------------- */
     return res.status(200).json({
       success: true,
-      bookingId: booking._id,
-      assignType: result.type,
+      bookingId: primaryBooking._id,
+      assignType: primaryBooking.employeeCount === 1 ? "single" : "team",
       message: "Booking created and auto-assign started",
     });
 
   } catch (err) {
-    next(err); //let Global error handler deal with it
+    next(err);
   }
 };
 
@@ -1054,13 +1111,33 @@ exports.getPopularBookings = async (req, res, next) => {
           from: "servicelists",
           let: { categoryName: "$_id" },
           pipeline: [
-            { $unwind: "$serviceCategory" },
+            {
+              $unwind: {
+                path: "$serviceCategory",
+                includeArrayIndex: "categoryIndex"
+              }
+            },
             {
               $match: {
                 $expr: {
-                  $eq: [
-                    "$serviceCategory.serviceCategoryName",
-                    "$$categoryName"
+                  $or: [
+                    {
+                      $eq: [
+                        { $trim: { input: "$serviceCategory.serviceCategoryName" } },
+                        { $trim: { input: "$$categoryName" } }
+                      ]
+                    },
+                    {
+                      $and: [
+                        {
+                          $eq: [
+                            { $trim: { input: "$serviceName" } },
+                            { $trim: { input: "$$categoryName" } }
+                          ]
+                        },
+                        { $eq: ["$categoryIndex", 0] }
+                      ]
+                    }
                   ]
                 }
               }
@@ -1206,7 +1283,8 @@ exports.scheduleBooking = async (req, res, next) => {
       address,
       coordinates,
       serviceCount = 1,
-      scheduleDateTime
+      scheduleDateTime,
+      couponCode
     } = req.body;
 
     const userId = req.userId;
@@ -1220,55 +1298,103 @@ exports.scheduleBooking = async (req, res, next) => {
       return next(new AppError("Invalid schedule time", 400));
     }
 
-    /* -------------------------
-       RESOLVE DOMAIN SERVICE
-    ------------------------- */
-    const serviceList = await ServiceList.findOne({
-      "serviceCategory.serviceCategoryName": serviceCategoryName,
-    });
-
-    if (!serviceList) {
-      return next(new AppError("Service category not found", 404));
+    let parsedCoordinates = coordinates;
+    if (Array.isArray(coordinates)) {
+      parsedCoordinates = [parseFloat(coordinates[0]), parseFloat(coordinates[1])];
     }
 
-    const category = serviceList.serviceCategory.find(
-      c => c.serviceCategoryName === serviceCategoryName
-    );
+    let cartGroups = [];
 
-    if (!category) {
-      return next(new AppError("Invalid service category", 400));
+    if (serviceCategoryName) {
+      // Legacy single-item flow
+      const serviceList = await ServiceList.findOne({
+        "serviceCategory.serviceCategoryName": serviceCategoryName,
+      });
+
+      if (!serviceList) {
+        return next(new AppError("Service category not found", 404));
+      }
+
+      const category = serviceList.serviceCategory.find(
+        c => c.serviceCategoryName === serviceCategoryName
+      );
+
+      if (!category) {
+        return next(new AppError("Invalid service category", 400));
+      }
+
+      cartGroups.push({
+        domainServiceId: serviceList.DomainServiceId,
+        items: [{
+          serviceCategoryId: category._id,
+          serviceCategoryName: category.serviceCategoryName,
+          price: category.price,
+          durationInMinutes: category.durationInMinutes,
+          employeeCount: category.employeeCount,
+          quantity: serviceCount
+        }]
+      });
+    } else {
+      // Cart checkout flow
+      const Cart = require("../models/cart.model");
+      const cart = await Cart.findOne({ user: userId });
+      if (!cart || !cart.items || cart.items.length === 0) {
+        return next(new AppError("Cart is empty or not found", 400));
+      }
+
+      // Group cart items by domainService
+      const groups = {};
+      for (const item of cart.items) {
+        const domainId = item.domainService.toString();
+        if (!groups[domainId]) {
+          groups[domainId] = [];
+        }
+        groups[domainId].push(item);
+      }
+
+      for (const domainId of Object.keys(groups)) {
+        cartGroups.push({
+          domainServiceId: domainId,
+          items: groups[domainId]
+        });
+      }
     }
 
-    const domainServiceId = serviceList.DomainServiceId;
+    const createdBookings = [];
 
+    for (let i = 0; i < cartGroups.length; i++) {
+      const group = cartGroups[i];
+      const appliedCouponCode = i === 0 ? couponCode : undefined;
 
-    /* -------------------------
-       CREATE BOOKING
-    ------------------------- */
-    const booking = await Booking.create({
-      user: userId,
-      serviceCategoryName,
-      domainService: domainServiceId,
-      serviceType: category.employeeCount === 1 ? "single" : "team",
-      serviceCount,
-      pricePerService: category.price,
-      totalServicePrice: category.price * serviceCount,
-      durationInMinutes: category.durationInMinutes,
-      employeeCount: category.employeeCount,
-      totalPrice: category.price * serviceCount,
-      address,
-      location: { type: "Point", coordinates },
+      const { booking } = await createBooking({
+        userId,
+        cartItems: group.items,
+        domainService: group.domainServiceId,
+        address,
+        coordinates: parsedCoordinates,
+        couponCode: appliedCouponCode,
+      });
 
-      isScheduled: true,
-      scheduleDateTime: scheduleTime,
-      scheduleExecuted: false,
-      assignmentStatus: "SCHEDULED",
-    });
+      // Update booking to be scheduled
+      booking.isScheduled = true;
+      booking.scheduleDateTime = scheduleTime;
+      booking.scheduleExecuted = false;
+      booking.assignmentStatus = "SCHEDULED";
+      await booking.save();
+
+      createdBookings.push(booking);
+    }
+
+    // Clear user's Cart since booking checkout was successful
+    if (!serviceCategoryName) {
+      const Cart = require("../models/cart.model");
+      await Cart.deleteOne({ user: userId });
+    }
 
     return res.status(201).json({
       success: true,
       message: "Booking scheduled successfully",
-      bookingId: booking._id,
+      bookingId: createdBookings[0]._id,
       scheduledFor: scheduleTime
     });
 

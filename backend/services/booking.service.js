@@ -43,6 +43,7 @@ exports.findNearbyTeams = async ({
     serviceCount = 1,
     radiusInMeters = SEARCH_RADIUS_METERS,
     adminOverride = false,
+    overrideEmployeeCount,
 }) => {
     const serviceList = await ServiceList.findOne({
         "serviceCategory.serviceCategoryName": serviceCategoryName,
@@ -59,7 +60,7 @@ exports.findNearbyTeams = async ({
 
     if (!category) throw new AppError("Invalid service category", 400);
 
-    const employeeCount = category.employeeCount;
+    const employeeCount = overrideEmployeeCount !== undefined ? overrideEmployeeCount : category.employeeCount;
     const domainServiceId = serviceList.DomainServiceId;
 
     let lngLat = coordinates;
@@ -80,7 +81,7 @@ exports.findNearbyTeams = async ({
     /* ======================================================
        SINGLE OR TEAM
     ====================================================== */
-    if (serviceCount < 2 && employeeCount === 1) {
+    if (employeeCount === 1) {
         // Search Single Employees
         const singleQuery = { _id: { $in: capableEmployeeObjectIds } };
         if (!adminOverride) {
@@ -105,6 +106,7 @@ exports.findNearbyTeams = async ({
                 }
             }
         ]);
+        console.log(singles);
 
         return {
             type: "single",
@@ -195,6 +197,8 @@ exports.findNearbyTeams = async ({
 exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const [lng, lat] = coordinates;
     const booking = await Booking.findById(bookingId).populate('user', "fullName").populate("domainService", "_id");
+    if (!booking) return;
+
     const capableEmployees = await EmployeeService.find({
         capableservice: booking.domainService
     });
@@ -202,9 +206,6 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     const capableEmployeeObjectIds = capableEmployeeIds.map(
         id => new mongoose.Types.ObjectId(id)
     );
-
-    if (!booking)
-        throw new AppError("Booking not found", 404);
 
     if (booking.status !== BOOKING_STATUS.PENDING || booking.primaryEmployee) {
         return;
@@ -288,13 +289,15 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         const updatedBooking = await Booking.findById(bookingId);
 
         // If still attempts left → retry with next radius
-        if (updatedBooking.dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
+        if (updatedBooking && updatedBooking.dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
             return exports.assignNextServicer({ bookingId, coordinates, io });
         }
 
-        await Booking.findByIdAndUpdate(bookingId, {
-            assignmentStatus: "FAILED"
-        });
+        if (updatedBooking) {
+            await Booking.findByIdAndUpdate(bookingId, {
+                assignmentStatus: "FAILED"
+            });
+        }
 
         const user = await User.findById(updatedBooking.user).select("socketId");
         if (user?.socketId) {
@@ -524,11 +527,16 @@ exports.convertVisitToService = async ({
 exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) => {
     const [lng, lat] = coordinates;
 
-    let booking = await Booking.findById(bookingId)
-        .select("rejectedMultipleEmployee dispatchAttempts serviceCategoryName address user location totalPrice createdAt")
-        .populate("user", "fullName");
-
+    let booking = await Booking.findById(bookingId).populate("user", "fullName").populate("domainService", "_id");
     if (!booking) return;
+
+    const capableEmployees = await EmployeeService.find({
+        capableservice: booking.domainService
+    });
+    const capableEmployeeIds = capableEmployees.map(e => e.employeeId);
+    const capableEmployeeObjectIds = capableEmployeeIds.map(
+        id => new mongoose.Types.ObjectId(id)
+    );
 
     if (booking.dispatchAttempts >= MAX_DISPATCH_ATTEMPTS) {
         await Booking.findByIdAndUpdate(bookingId, {
@@ -560,6 +568,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
                 spherical: true,
                 query: {
                     _id: { $nin: rejectedIds },
+                    members: { $in: capableEmployeeObjectIds },
                     isActive: true,
                     teamStatus: "AVAILABLE",
                     isBlocked: { $ne: true },
@@ -625,7 +634,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             $inc: { dispatchAttempts: 1 }
         });
         const updatedBooking = await Booking.findById(bookingId);
-        if (updatedBooking.dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
+        if (updatedBooking && updatedBooking.dispatchAttempts < MAX_DISPATCH_ATTEMPTS) {
             return exports.assignNextTeam({
                 bookingId,
                 coordinates,
@@ -634,9 +643,11 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             });
         }
 
-        await Booking.findByIdAndUpdate(bookingId, {
-            assignmentStatus: "FAILED"
-        });
+        if (updatedBooking) {
+            await Booking.findByIdAndUpdate(bookingId, {
+                assignmentStatus: "FAILED"
+            });
+        }
 
         const user = await User.findById(updatedBooking.user).select("socketId");
         if (user?.socketId) {
@@ -951,35 +962,63 @@ exports.createBooking = async ({
     coordinates,
     serviceCount = 1,
     couponCode,
+    cartItems,
 }) => {
 
     /* -------------------------
-       Validate serviceCount
+       Validate coordinates
     ------------------------- */
-    if (!Number.isInteger(serviceCount) || serviceCount < 1) {
-        throw new AppError("Invalid service count", 400);
+    if (
+        !Array.isArray(coordinates) ||
+        coordinates.length !== 2 ||
+        typeof coordinates[0] !== "number" ||
+        typeof coordinates[1] !== "number"
+    ) {
+        throw new AppError("Invalid or missing coordinates", 400);
     }
 
-    /* -------------------------
-       Fetch service category
-    ------------------------- */
-    const serviceList = await ServiceList.findOne({
-        "serviceCategory.serviceCategoryName": serviceCategoryName,
-    });
-    if (!serviceList) {
-        throw new AppError("Service category not found", 404);
+    let items = cartItems;
+    if (!items && serviceCategoryName) {
+        /* -------------------------
+           Fetch service category (Legacy Compatibility)
+        ------------------------- */
+        const serviceList = await ServiceList.findOne({
+            "serviceCategory.serviceCategoryName": serviceCategoryName,
+        });
+        if (!serviceList) {
+            throw new AppError("Service category not found", 404);
+        }
+
+        const category = serviceList.serviceCategory.find(
+            c => c.serviceCategoryName === serviceCategoryName
+        );
+        if (!category) {
+            throw new AppError("Invalid service category", 400);
+        }
+        
+        items = [{
+            serviceCategoryId: category._id,
+            serviceCategoryName: category.serviceCategoryName,
+            price: category.price,
+            durationInMinutes: category.durationInMinutes,
+            employeeCount: category.employeeCount,
+            quantity: serviceCount
+        }];
     }
 
-    const category = serviceList.serviceCategory.find(
-        c => c.serviceCategoryName === serviceCategoryName
+    if (!items || items.length === 0) {
+        throw new AppError("No services in booking", 400);
+    }
+
+    const employeeCount = Math.max(...items.map(item => item.employeeCount));
+    const totalServicePrice = items.reduce(
+        (sum, item) => sum + (item.price * (item.quantity || 1)),
+        0
     );
-    if (!category) {
-        throw new AppError("Invalid service category", 400);
-    }
-    const employeeCount = category.employeeCount;
-    const pricePerService = category.price;
-    const durationInMinutes = category.durationInMinutes;
-    const totalServicePrice = pricePerService * serviceCount;
+    const durationInMinutes = items.reduce(
+        (sum, item) => sum + item.durationInMinutes,
+        0
+    );
     let totalPrice = totalServicePrice;
 
     /* -------------------------
@@ -1028,63 +1067,23 @@ exports.createBooking = async ({
         await coupon.save();
     }
 
-    if (
-        !Array.isArray(coordinates) ||
-        coordinates.length !== 2 ||
-        typeof coordinates[0] !== "number" ||
-        typeof coordinates[1] !== "number"
-    ) {
-        throw new AppError("Invalid or missing coordinates", 400);
-    }
-    /* ======================================================
-       SINGLE SERVICE (NO EMPLOYEE YET)
-    ====================================================== */
-    if (serviceCount < 2 && employeeCount === 1) {
-        const booking = await Booking.create({
-            user: userId,
-            serviceType: "single",
-            primaryEmployee: null,     //  assigned after accept
-            employees: [],
-            serviceCategoryName,
-            domainService,
-            serviceCount,
-            pricePerService,
-            totalServicePrice,
-            durationInMinutes,
-            totalPrice,
-            employeeCount: 1,
-            status: BOOKING_STATUS.PENDING,
-            address,
-            addressTitle,
-            location: { type: "Point", coordinates },
-            StartWorkOTP: null,
-            appliedCoupon: appliedCouponId,
-            discountAmount: discountAmount
-        });
+    const serviceCategoryNameStr = items.map(item => item.serviceCategoryName).join(", ");
+    const serviceCountSum = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+    const serviceType = employeeCount === 1 ? "single" : "team";
 
-        return {
-            booking,
-            serviceType: "single",
-            employeeCount: 1,
-        };
-    }
-
-    /* ======================================================
-       TEAM SERVICE
-    ====================================================== */
     const booking = await Booking.create({
         user: userId,
-        serviceType: "team",
+        serviceType,
         servicerCompany: null,
         primaryEmployee: null,
         employees: [],
-        serviceCategoryName,
+        serviceCategoryName: serviceCategoryNameStr,
         domainService,
-        serviceCount,
-        pricePerService,
-        totalPrice,
+        serviceCount: serviceCountSum,
+        pricePerService: items[0].price,
         totalServicePrice,
         durationInMinutes,
+        totalPrice,
         employeeCount,
         status: BOOKING_STATUS.PENDING,
         address,
@@ -1092,12 +1091,13 @@ exports.createBooking = async ({
         location: { type: "Point", coordinates },
         StartWorkOTP: null,
         appliedCoupon: appliedCouponId,
-        discountAmount: discountAmount
+        discountAmount: discountAmount,
+        cartItems: items
     });
 
     return {
         booking,
-        serviceType: "team",
+        serviceType,
         employeeCount,
     };
 };

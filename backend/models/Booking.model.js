@@ -256,7 +256,20 @@ const bookingSchema = new mongoose.Schema({
   employeeCount: {
     type: Number,
     required: true,
+    default: 1
   },
+  
+  cartItems: [{
+    serviceCategoryId: mongoose.Types.ObjectId,
+    serviceCategoryName: String,
+    price: Number,
+    durationInMinutes: Number,
+    employeeCount: Number,
+    quantity: {
+      type: Number,
+      default: 1
+    }
+  }],
   
   /* ---------------- COUPON / REFERRAL ---------------- */
   appliedCoupon: {
