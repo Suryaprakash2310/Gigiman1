@@ -688,6 +688,7 @@ exports.createOrderController = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
+      keyId: process.env.RZ_KEY_ID,
       orderId: order.id,
       amount: order.amount,
       currency: order.currency
@@ -1162,6 +1163,20 @@ exports.getPopularBookings = async (req, res, next) => {
         }
       },
       {
+        $addFields: {
+          firstCategoryName: {
+            $trim: {
+              input: {
+                $arrayElemAt: [
+                  { $split: ["$_id", ","] },
+                  0
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
         $sort: {
           totalBookings: -1
         }
@@ -1169,7 +1184,7 @@ exports.getPopularBookings = async (req, res, next) => {
       {
         $lookup: {
           from: "servicelists",
-          let: { categoryName: "$_id" },
+          let: { categoryName: "$firstCategoryName" },
           pipeline: [
             {
               $unwind: {
@@ -1629,184 +1644,5 @@ exports.getScheduledUserBookings = async (req, res) => {
     res.status(200).json({ success: true, bookings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.renderPaymentPage = async (req, res, next) => {
-  try {
-    const { bookingId } = req.params;
-    const { paymentType = "FULL" } = req.query;
-
-    const booking = await Booking.findById(bookingId).populate("user");
-    if (!booking) {
-      return res.status(404).send("Booking not found");
-    }
-
-    let amountToPay = booking.totalPrice;
-    if (booking.paymentStatus === "partially_paid") {
-      amountToPay = booking.remainingAmount;
-    } else if (paymentType === "ADVANCE") {
-      amountToPay = Math.round(booking.totalPrice * 0.18 * 100) / 100;
-    }
-    
-    // We create a Razorpay order
-    const { createOrder } = require("../transaction/razorpay.config");
-    const order = await createOrder(bookingId, amountToPay);
-
-    const keyId = process.env.RZ_KEY_ID;
-    if (!keyId) {
-      return res.status(500).send("Razorpay Key ID is not configured on the server. Please check your .env file.");
-    }
-    
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Gigiman Checkout</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #0f172a;
-            color: #f1f5f9;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            padding: 20px;
-            box-sizing: border-box;
-          }
-          .card {
-            background: #1e293b;
-            border-radius: 16px;
-            padding: 32px;
-            text-align: center;
-            max-width: 400px;
-            width: 100%;
-            border: 1px solid #334155;
-          }
-          h2 { color: #f8fafc; margin-top: 0; font-size: 24px; }
-          .price { font-size: 36px; font-weight: 800; color: #6366f1; margin: 16px 0; }
-          p { color: #94a3b8; font-size: 14px; margin-bottom: 28px; line-height: 1.5; }
-          button {
-            background-color: #6366f1;
-            color: white;
-            border: none;
-            padding: 14px 24px;
-            font-size: 16px;
-            font-weight: 700;
-            border-radius: 10px;
-            cursor: pointer;
-            width: 100%;
-            transition: background-color 0.2s;
-            box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2);
-          }
-          button:hover { background-color: #4f46e5; }
-          .loader {
-            border: 3px solid #334155;
-            border-top: 3px solid #6366f1;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-            display: none;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <h2>Secure Checkout</h2>
-          <div class="price">₹${amountToPay}</div>
-          <p>Please pay using any test method to complete your Gigiman booking.</p>
-          <button id="pay-btn">Pay with Razorpay</button>
-          <div id="loader" class="loader"></div>
-        </div>
-        
-        <script>
-          window.onerror = function(msg, url, line) {
-            alert("Error loading payment gateway: " + msg + " (Line: " + line + ")");
-            return false;
-          };
-
-          const options = {
-            key: "${keyId}",
-            amount: ${Math.round(amountToPay * 100)},
-            currency: "INR",
-            name: "Gigiman Services",
-            description: "Secure Payment Verification",
-            order_id: "${order.id}",
-            handler: function (response) {
-              document.getElementById('pay-btn').style.display = 'none';
-              document.getElementById('loader').style.display = 'block';
-              
-              fetch("/api/booking/payment/success", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  bookingId: "${bookingId}",
-                  paymentMethod: "RAZORPAY",
-                  razorpayOrderId: response.razorpay_order_id,
-                  razorpayPaymentId: response.razorpay_payment_id,
-                  razorpaySignature: response.razorpay_signature
-                })
-              })
-              .then(res => res.json())
-              .then(data => {
-                if (data.success) {
-                  window.location.href = "gigiman://payment-success?status=success&bookingId=${bookingId}";
-                } else {
-                  window.location.href = "gigiman://payment-success?status=failed&message=" + encodeURIComponent(data.message);
-                }
-              })
-              .catch(err => {
-                window.location.href = "gigiman://payment-success?status=failed&message=Connection%20Error";
-              });
-            },
-            prefill: {
-              name: "${booking.user?.fullName || ''}",
-              contact: "${booking.user?.phoneNo || ''}"
-            },
-            theme: { color: "#6366f1" }
-          };
-          
-          document.getElementById('pay-btn').onclick = function() {
-            if (typeof Razorpay === 'undefined') {
-              alert("Razorpay payment gateway could not be loaded. Please check your internet connection or disable ad blockers/privacy shields, then refresh the page.");
-              return;
-            }
-            try {
-              const rzp = new Razorpay(options);
-              rzp.open();
-            } catch (e) {
-              alert("Error initializing Razorpay: " + e.message);
-            }
-          };
-          
-          window.onload = function() {
-            if (typeof Razorpay !== 'undefined') {
-              try {
-                const rzp = new Razorpay(options);
-                rzp.open();
-              } catch (e) {
-                console.error("Auto-open failed:", e);
-              }
-            } else {
-              console.error("Razorpay SDK not loaded.");
-            }
-          };
-        </script>
-      </body>
-      </html>
-    `;
-    res.send(html);
-  } catch (err) {
-    next(err);
   }
 };

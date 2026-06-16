@@ -57,7 +57,6 @@ router.post("/tool/otp/verify", bookingController.verifyPartOTPcontroller);
 router.post("/review/:bookingId", userProtect, validate(schemas.submitReview), bookingController.submitReview);
 router.get("/review", protect, bookingController.getReviewByService);
 router.post("/createorder/:bookingId", bookingController.createOrderController);
-router.get("/pay/:bookingId", bookingController.renderPaymentPage);
 router.post("/payment/success", bookingController.paymentSuccess);
 
 

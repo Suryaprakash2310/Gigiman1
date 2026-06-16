@@ -124,7 +124,7 @@ exports.verifyOtp = async (req, res, next) => {
 exports.completeProfile = async (req, res, next) => {
   try {
     const userId = req.userId;
-    const { fullName, latitude, longitude, avatar } = req.body;
+    const { fullName, email, latitude, longitude, avatar } = req.body;
 
     if (!userId || !fullName) {
       return next(new AppError("User ID and full name are required", 400));
@@ -166,6 +166,7 @@ exports.completeProfile = async (req, res, next) => {
 
     // Update user
     user.fullName = fullName;
+    if (email) user.email = email;
     if (avatarUrl) user.avatar = avatarUrl;
     if (latitude && longitude) {
       user.location = {
@@ -217,7 +218,7 @@ exports.getProfile = async (req, res, next) => {
 
 exports.editprofile = async (req, res, next) => {
   try {
-    const { fullName, latitude, longitude, avatar } = req.body;
+    const { fullName, email, latitude, longitude, avatar } = req.body;
     const userId = req.user._id;
     const user = await User.findById(userId);
     console.log(user);
@@ -225,6 +226,10 @@ exports.editprofile = async (req, res, next) => {
 
     if (fullName !== undefined) {
       user.fullName = fullName;
+    }
+
+    if (email !== undefined) {
+      user.email = email;
     }
 
     if (latitude !== undefined && longitude !== undefined) {

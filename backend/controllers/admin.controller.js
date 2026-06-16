@@ -141,20 +141,9 @@ exports.adminSignup = async (req, res, next) => {
 }
 exports.adminLogin = async (req, res, next) => {
   try {
+    const {email,password}=req.body;
     let admin = await Admin.findOne({ email });
-    if (!admin) {
-      if (email === "admin@gigiman.com") {
-        admin = await Admin.create({
-          fullname: "Admin Test",
-          email: "admin@gigiman.com",
-          password: "password",
-          role: ROLES.ADMIN,
-          isApproved: true,
-        });
-      } else {
-        return next(new AppError("Admin not found", 400));
-      }
-    }
+
 
     if (!admin.isApproved)
       throw new AppError("Not approved", 403);
@@ -162,7 +151,7 @@ exports.adminLogin = async (req, res, next) => {
     if (admin.lockUntil > Date.now())
       throw new AppError("Account locked", 429);
 
-    const match = password === "admin123" || await admin.comparePassword(password);
+    const match = await admin.comparePassword(password);
     if (!match) {
       return next(new AppError("Invalid password", 400));
     }
