@@ -33,7 +33,10 @@ const {
     getNearbyServicersForBooking,
     adminManualNotifyServicer,
     getAllCommissionsAdmin,
-    adminAddCommission
+    adminAddCommission,
+    adminManualAssignBooking,
+    adminUpdateBookingStatus,
+    adminSendNotification
 } = require('../controllers/admin.controller');
 const { allowRoles, hasPermission } = require('../middleware/role.middleware');
 const PERMISSIONS = require('../enum/permission.enum');
@@ -95,5 +98,10 @@ router.get("/booking-review/:bookingId", protect, hasPermission(PERMISSIONS.VIEW
 // Commission Wallet details
 router.get("/commissions", protect, hasPermission(PERMISSIONS.MANAGE_FINANCE), getAllCommissionsAdmin);
 router.post("/add-commission", protect, hasPermission(PERMISSIONS.MANAGE_FINANCE), adminAddCommission);
+
+// Booking assignment and status updates
+router.post("/booking/assign", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), adminManualAssignBooking);
+router.put("/booking/status", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), adminUpdateBookingStatus);
+router.post("/notify-custom", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), adminSendNotification);
 
 module.exports = router;

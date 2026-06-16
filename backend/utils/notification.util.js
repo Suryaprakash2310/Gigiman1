@@ -20,14 +20,20 @@ exports.sendNotification = async ({
         // 1. Create Database Record
         const notification = await Notification.create({
             userId,
+            user: userId,
             empId,
             empModel,
             adminId,
             targetRole,
             title,
             message,
+            description: message,
             type,
-            data
+            data,
+            bookingId: data?.bookingId || null,
+            serviceName: data?.serviceName || null,
+            serviceDetails: data?.serviceDetails || null,
+            metadata: data?.metadata || data || {}
         });
 
         // 2. Real-time Delivery via Socket.io

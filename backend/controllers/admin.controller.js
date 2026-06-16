@@ -1692,3 +1692,385 @@ exports.adminAddCommission = async (req, res, next) => {
     next(err);
   }
 };
+
+/* ======================================================
+   ADMIN MANUAL ASSIGN BOOKING
+====================================================== */
+exports.adminManualAssignBooking = async (req, res, next) => {
+  try {
+    const { bookingId, servicerId, servicerType, assignmentNotes, eta, externalName, externalPhone } = req.body;
+    const io = req.app.get("io");
+
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return next(new AppError("Invalid booking ID", 400));
+    }
+
+    const isExternal = servicerId === "external" || !!externalName;
+
+    if (!isExternal && !mongoose.Types.ObjectId.isValid(servicerId)) {
+      return next(new AppError("Invalid servicer ID", 400));
+    }
+
+    const booking = await Booking.findById(bookingId).populate("user");
+    if (!booking) return next(new AppError("Booking not found", 404));
+
+    let servicerName = "";
+    let servicerPhone = "";
+
+    const { generateStartOTP } = require("../services/booking.service");
+    const { sendNotification } = require("../utils/notification.util");
+
+    if (isExternal) {
+      booking.primaryEmployee = null;
+      booking.primaryEmployeeModel = "SingleEmployee";
+      booking.employees = [];
+      booking.servicerCompany = null;
+      booking.teamLeader = null;
+      booking.teamHelpers = [];
+      booking.externalTechnicianName = externalName || "Technician";
+      booking.externalTechnicianPhone = externalPhone || "";
+
+      servicerName = externalName || "Technician";
+      servicerPhone = externalPhone || "";
+    } else if (servicerType === "single" || servicerType === ROLES.SINGLE_EMPLOYEE) {
+      const employee = await SingleEmployee.findById(servicerId);
+      if (!employee) return next(new AppError("Technician not found", 404));
+
+      booking.primaryEmployee = employee._id;
+      booking.primaryEmployeeModel = "SingleEmployee";
+      booking.employees = [employee._id];
+      booking.servicerCompany = null;
+      booking.teamLeader = null;
+      booking.teamHelpers = [];
+
+      servicerName = employee.fullname;
+      servicerPhone = employee.phoneNo || employee.phoneno || "";
+
+      await SingleEmployee.findByIdAndUpdate(employee._id, {
+        availabilityStatus: "BUSY",
+        offerBookingId: null
+      });
+    } else {
+      const team = await MultipleEmployee.findById(servicerId);
+      if (!team) return next(new AppError("Team not found", 404));
+
+      const leaderId = team.leader || team.members[0];
+      const helperIds = team.members.filter(m => m.toString() !== leaderId.toString());
+
+      booking.servicerCompany = team._id;
+      booking.primaryEmployee = leaderId;
+      booking.primaryEmployeeModel = "SingleEmployee";
+      booking.teamLeader = leaderId;
+      booking.teamHelpers = helperIds;
+      booking.employees = [leaderId, ...helperIds];
+
+      const leader = await SingleEmployee.findById(leaderId);
+      servicerName = leader ? leader.fullname : (team.storeName || "Team Leader");
+      servicerPhone = leader ? (leader.phoneNo || leader.phoneno || "") : "";
+
+      await MultipleEmployee.findByIdAndUpdate(team._id, {
+        teamStatus: "BUSY",
+        offerBookingId: null
+      });
+      await SingleEmployee.updateMany(
+        { _id: { $in: [leaderId, ...helperIds] } },
+        { availabilityStatus: "BUSY", offerBookingId: null }
+      );
+    }
+
+    booking.assignmentStatus = "ASSIGNED";
+    booking.status = BOOKING_STATUS.ASSIGNED;
+    booking.assignmentNotes = assignmentNotes || "";
+    booking.location = {
+      ...booking.location,
+      eta: eta || null
+    };
+
+    await booking.save();
+
+    const { otp } = await generateStartOTP(booking._id);
+
+    const serviceDetails = booking.cartItems && booking.cartItems.length > 0 
+        ? booking.cartItems.map(item => `${item.serviceCategoryName} (x${item.quantity || 1})`).join(", ")
+        : booking.serviceCategoryName;
+
+    await sendNotification({
+        userId: booking.user._id,
+        title: "Technician Assigned",
+        message: `A technician has been manually assigned to your booking. Name: ${servicerName}, Phone: ${servicerPhone}, ETA: ${eta || "Not specified"}.`,
+        type: "SYSTEM",
+        data: {
+            bookingId: booking._id,
+            technicianName: servicerName,
+            phoneNumber: servicerPhone,
+            eta: eta || "",
+            serviceName: booking.serviceCategoryName,
+            serviceDetails
+        },
+        io
+    });
+
+    if (booking.user?.socketId) {
+      io.to(booking.user.socketId).emit("servicer-accepted", {
+        booking,
+        otp,
+        technicianName: servicerName,
+        phoneNumber: servicerPhone,
+        eta: eta
+      });
+    }
+
+    const memberIds = [booking.primaryEmployee].filter(Boolean);
+    if (booking.teamHelpers && booking.teamHelpers.length > 0) {
+      memberIds.push(...booking.teamHelpers);
+    }
+    for (const memberId of memberIds) {
+      const emp = await SingleEmployee.findById(memberId);
+      if (emp?.socketId) {
+        io.to(`employee_${emp._id}`).emit("booking-confirmed", { booking, otp });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Technician manually assigned successfully",
+      booking
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   ADMIN UPDATE BOOKING STATUS
+====================================================== */
+exports.adminUpdateBookingStatus = async (req, res, next) => {
+  try {
+    const { bookingId, status, employeeId, employeeType, notes } = req.body;
+    const io = req.app.get("io");
+
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return next(new AppError("Invalid booking ID", 400));
+    }
+
+    const booking = await Booking.findById(bookingId).populate("user");
+    if (!booking) return next(new AppError("Booking not found", 404));
+
+    const oldStatus = booking.status;
+    const { resetAvailability, assignNextServicer, assignNextTeam } = require("../services/booking.service");
+    const { sendNotification } = require("../utils/notification.util");
+    const PAYMENT_STATUS = require("../enum/payment.enum");
+
+    if (status === "retry_assignment") {
+      booking.status = BOOKING_STATUS.CONFIRMED;
+      booking.assignmentStatus = "SEARCHING";
+      booking.dispatchAttempts = 0;
+      booking.rejectedEmployees = [];
+      booking.rejectedMultipleEmployee = [];
+      
+      booking._updatedBy = "ADMIN";
+      booking._statusNotes = notes || `Admin retried assignment`;
+      await booking.save();
+
+      const employeeCount = booking.employeeCount;
+      if (employeeCount === 1) {
+        assignNextServicer({
+          bookingId: booking._id.toString(),
+          coordinates: booking.location.coordinates,
+          io,
+        });
+      } else {
+        assignNextTeam({
+          bookingId: booking._id.toString(),
+          coordinates: booking.location.coordinates,
+          employeeCount,
+          io,
+        });
+      }
+
+      await sendNotification({
+        userId: booking.user._id,
+        title: "Retrying Technician Assignment",
+        message: `We are retrying technician assignment for your booking.`,
+        type: "SYSTEM",
+        data: { bookingId: booking._id },
+        io
+      });
+      
+      return res.status(200).json({
+        success: true,
+        message: "Assignment retry started",
+        booking
+      });
+    }
+
+    booking.status = status;
+    booking._updatedBy = "ADMIN";
+    booking._statusNotes = notes || `Admin updated status from ${oldStatus} to ${status}`;
+
+    if (status === BOOKING_STATUS.ASSIGNED) {
+      booking.assignmentStatus = "ASSIGNED";
+      if (employeeId) {
+        if (employeeType === "single") {
+          booking.primaryEmployee = employeeId;
+          booking.employees = [employeeId];
+          booking.primaryEmployeeModel = "SingleEmployee";
+          await SingleEmployee.findByIdAndUpdate(employeeId, { availabilityStatus: "BUSY" });
+        } else {
+          booking.servicerCompany = employeeId;
+          const team = await MultipleEmployee.findById(employeeId);
+          if (team) {
+            const leaderId = team.leader || team.members[0];
+            booking.primaryEmployee = leaderId;
+            booking.primaryEmployeeModel = "SingleEmployee";
+            booking.teamLeader = leaderId;
+            booking.teamHelpers = team.members.filter(m => m.toString() !== leaderId.toString());
+            booking.employees = team.members;
+            await MultipleEmployee.findByIdAndUpdate(employeeId, { teamStatus: "BUSY" });
+            await SingleEmployee.updateMany({ _id: { $in: team.members } }, { availabilityStatus: "BUSY" });
+          }
+        }
+      }
+      
+      const otp = Math.floor(1000 + Math.random() * 9000);
+      booking.StartWorkOTP = otp;
+      
+      await sendNotification({
+        userId: booking.user._id,
+        title: "Booking Status Updated",
+        message: `Your booking status has been updated to ASSIGNED by the administrator.`,
+        type: "SYSTEM",
+        data: { bookingId: booking._id },
+        io
+      });
+      if (booking.user?.socketId) {
+        io.to(booking.user.socketId).emit("servicer-accepted", { booking, otp });
+      }
+    } else if (status === BOOKING_STATUS.IN_PROGRESS) {
+      await sendNotification({
+        userId: booking.user._id,
+        title: "Service Started",
+        message: `Your service has started!`,
+        type: "SYSTEM",
+        data: { bookingId: booking._id },
+        io
+      });
+      if (booking.user?.socketId) {
+        io.to(booking.user.socketId).emit("booking-started", { bookingId: booking._id });
+      }
+    } else if (status === BOOKING_STATUS.COMPLETED) {
+      booking.paymentStatus = PAYMENT_STATUS.PAID;
+      booking.completedAt = new Date();
+      await resetAvailability(booking);
+      
+      const empId = booking.servicerCompany || booking.primaryEmployee?._id || booking.primaryEmployee;
+      if (empId) {
+        const empType = booking.servicerCompany ? "team" : "single";
+        const { recordCommission } = require("../services/booking.service");
+        await recordCommission(booking, empId, empType, null, io);
+      }
+
+      await sendNotification({
+        userId: booking.user._id,
+        title: "Service Completed",
+        message: `Your service has been marked as completed!`,
+        type: "SYSTEM",
+        data: { bookingId: booking._id },
+        io
+      });
+      if (booking.user?.socketId) {
+        io.to(booking.user.socketId).emit("booking-completed", { bookingId: booking._id });
+      }
+    }
+
+    await booking.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Booking status updated to ${status} successfully`,
+      booking
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   ADMIN SEND CUSTOM NOTIFICATION
+====================================================== */
+exports.adminSendNotification = async (req, res, next) => {
+  try {
+    const { title, message, targetAudience, targetId, metadata = {} } = req.body;
+    const io = req.app.get("io");
+
+    if (!title || !message || !targetAudience) {
+      return next(new AppError("Title, message, and target audience are required", 400));
+    }
+
+    const { sendNotification } = require("../utils/notification.util");
+
+    if (targetAudience === "single_user") {
+      if (!targetId) return next(new AppError("Target ID is required for single user", 400));
+      const targetUser = await User.findById(targetId);
+      if (!targetUser) return next(new AppError("User not found", 404));
+
+      await sendNotification({
+        userId: targetUser._id,
+        title,
+        message,
+        type: "ALERT",
+        data: metadata,
+        io
+      });
+    } else if (targetAudience === "all_users") {
+      const users = await User.find({ role: ROLES.USER });
+      for (const u of users) {
+        await sendNotification({
+          userId: u._id,
+          title,
+          message,
+          type: "SYSTEM",
+          data: metadata,
+          io
+        });
+      }
+    } else if (targetAudience === "employees") {
+      const employees = await SingleEmployee.find({ isActive: true });
+      for (const emp of employees) {
+        await sendNotification({
+          empId: emp._id,
+          empModel: "SingleEmployee",
+          title,
+          message,
+          type: "SYSTEM",
+          data: metadata,
+          io
+        });
+      }
+    } else if (targetAudience === "teams") {
+      const teams = await MultipleEmployee.find({ isActive: true });
+      for (const team of teams) {
+        await sendNotification({
+          empId: team._id,
+          empModel: "MultipleEmployee",
+          title,
+          message,
+          type: "SYSTEM",
+          data: metadata,
+          io
+        });
+      }
+    } else {
+      return next(new AppError("Invalid target audience", 400));
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Custom notification sent successfully"
+    });
+  } catch (err) {
+    next(err);
+  }
+};

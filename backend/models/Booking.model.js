@@ -41,6 +41,14 @@ const bookingSchema = new mongoose.Schema({
     enum: ["SingleEmployee", "MultipleEmployee"],
     default: "SingleEmployee"
   },
+  externalTechnicianName: {
+    type: String,
+    default: null
+  },
+  externalTechnicianPhone: {
+    type: String,
+    default: null
+  },
 
   employees: [{
     type: mongoose.Types.ObjectId,
@@ -282,6 +290,30 @@ const bookingSchema = new mongoose.Schema({
     default: 0
   },
 
+  paymentType: {
+    type: String,
+    enum: ["FULL", "ADVANCE"],
+    default: "FULL"
+  },
+  advanceAmount: {
+    type: Number,
+    default: 0
+  },
+  remainingAmount: {
+    type: Number,
+    default: 0
+  },
+  assignmentNotes: {
+    type: String,
+    default: ""
+  },
+  statusHistory: [{
+    status: String,
+    updatedAt: { type: Date, default: Date.now },
+    updatedBy: String,
+    notes: String
+  }],
+
 }, { timestamps: true });
 
 /* ---------------- INDEXES ---------------- */
@@ -289,5 +321,18 @@ bookingSchema.index({ location: "2dsphere" });
 bookingSchema.index({ status: 1, createdAt: -1 });
 bookingSchema.index({ servicerCompany: 1, status: 1 });
 bookingSchema.index({ primaryEmployee: 1, status: 1 });
+
+/* ---------------- PRE-SAVE HOOK FOR STATUS HISTORY ---------------- */
+bookingSchema.pre('save', function(next) {
+  if (this.isModified('status')) {
+    this.statusHistory.push({
+      status: this.status,
+      updatedAt: new Date(),
+      updatedBy: this._updatedBy || 'SYSTEM',
+      notes: this._statusNotes || `Status updated to ${this.status}`
+    });
+  }
+  next();
+});
 
 module.exports = mongoose.model("Booking", bookingSchema);

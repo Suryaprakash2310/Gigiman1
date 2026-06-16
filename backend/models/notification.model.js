@@ -45,6 +45,32 @@ const notificationSchema = new mongoose.Schema({
     data: {
         type: mongoose.Schema.Types.Mixed,
         default: {}
+    },
+    user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    description: {
+        type: String,
+        default: ""
+    },
+    bookingId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Booking',
+        default: null
+    },
+    serviceName: {
+        type: String,
+        default: ""
+    },
+    serviceDetails: {
+        type: String,
+        default: ""
+    },
+    metadata: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
     }
 }, { timestamps: true });
 

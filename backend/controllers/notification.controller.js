@@ -6,17 +6,26 @@ const ROLES = require('../enum/role.enum');
 exports.getUserNotifications = async (req, res, next) => {
     try {
         const userId = req.user.id;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || (req.query.page ? 20 : 50);
+        const skip = (page - 1) * limit;
+
         const notifications = await Notification.find({ userId })
             .sort({ createdAt: -1 })
-            .limit(50); // limit to recent 50
+            .skip(skip)
+            .limit(limit);
 
         // Get unread count
         const unreadCount = await Notification.countDocuments({ userId, isRead: false });
+        const totalCount = await Notification.countDocuments({ userId });
 
         res.status(200).json({
             success: true,
             notifications,
-            unreadCount
+            unreadCount,
+            totalPages: Math.ceil(totalCount / limit),
+            currentPage: page,
+            totalCount
         });
     } catch (err) {
         next(err);
@@ -119,6 +128,28 @@ exports.markAdminNotificationsRead = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: "Admin notifications marked as read"
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+exports.markSingleNotificationRead = async (req, res, next) => {
+    try {
+        const { notificationId } = req.params;
+        if (!notificationId) {
+            return next(new AppError("notificationId is required", 400));
+        }
+
+        const notification = await Notification.findByIdAndUpdate(notificationId, { isRead: true }, { new: true });
+        if (!notification) {
+            return next(new AppError("Notification not found", 404));
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Notification marked as read",
+            notification
         });
     } catch (err) {
         next(err);

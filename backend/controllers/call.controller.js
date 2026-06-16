@@ -31,6 +31,8 @@ exports.initiateCall = async (req, res, next) => {
       servicePhone = booking.primaryEmployee.phoneNo;
     } else if (booking.servicerCompany) {
       servicePhone = booking.servicerCompany.phoneNo;
+    } else if (booking.externalTechnicianPhone) {
+      servicePhone = booking.externalTechnicianPhone;
     }
 
     if (!userPhone || !servicePhone) {

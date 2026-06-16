@@ -8,7 +8,7 @@ const BOOKING_STATUS={
     //ceo changes 
     NO_PROVIDER: "no_provider",
     ASSIGNED: "ASSIGNED",
-
+    CONFIRMED: "confirmed",
 }
 
 module.exports=BOOKING_STATUS;

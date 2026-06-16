@@ -53,16 +53,26 @@ exports.verifyPayment = async ({
 
     // If it's a booking payment (not a commission payment starting with comm_)
     if (bookingId && !bookingId.startsWith('comm_')) {
-        const booking = await Booking.findByIdAndUpdate(
-            bookingId,
-            {
-                razorpayOrderId,
-                razorpayPaymentId,
-                razorpaySignature,
-                paymentStatus: PAYMENT_STATUS.PAID,
-            },
-            { new: true }
-        );
+        const booking = await Booking.findById(bookingId);
+        if (!booking) return { success: false };
+
+        booking.razorpayOrderId = razorpayOrderId;
+        booking.razorpayPaymentId = razorpayPaymentId;
+        booking.razorpaySignature = razorpaySignature;
+
+        const BOOKING_STATUS = require('../enum/bookingstatus.enum');
+        if (booking.status === BOOKING_STATUS.PENDING) {
+            if (booking.paymentType === "ADVANCE") {
+                booking.paymentStatus = PAYMENT_STATUS.PARTIALLY_PAID || "partially_paid";
+            } else {
+                booking.paymentStatus = PAYMENT_STATUS.PAID;
+            }
+        } else {
+            booking.paymentStatus = PAYMENT_STATUS.PAID;
+            booking.remainingAmount = 0;
+        }
+
+        await booking.save();
         return { success: true, booking };
     }
     

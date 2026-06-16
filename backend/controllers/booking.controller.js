@@ -87,6 +87,7 @@ exports.autoAssignServicer = async (req, res, next) => {
       coordinates,
       serviceCount = 1,
       couponCode,
+      paymentType,
     } = req.body;
 
     let parsedCoordinates = coordinates;
@@ -147,9 +148,19 @@ exports.autoAssignServicer = async (req, res, next) => {
         return next(new AppError("Cart is empty or not found", 400));
       }
 
+      let itemsToProcess = cart.items;
+      if (req.body.domainServiceId) {
+        itemsToProcess = cart.items.filter(
+          item => item.domainService && item.domainService.toString() === req.body.domainServiceId.toString()
+        );
+        if (itemsToProcess.length === 0) {
+          return next(new AppError("No items in cart for the specified domain service", 400));
+        }
+      }
+
       // Group cart items by domainService
       const groups = {};
-      for (const item of cart.items) {
+      for (const item of itemsToProcess) {
         const domainId = item.domainService.toString();
         if (!groups[domainId]) {
           groups[domainId] = [];
@@ -185,75 +196,39 @@ exports.autoAssignServicer = async (req, res, next) => {
         addressTitle,
         coordinates: parsedCoordinates,
         couponCode: appliedCouponCode,
+        paymentType,
       });
 
-      /* ======================================================
-          FIND NEARBY SERVICERS / TEAMS
-      ====================================================== */
-      const result = await findNearbyTeams({
-        serviceCategoryName: group.items[0].serviceCategoryName,
-        address,
-        addressTitle,
-        coordinates: parsedCoordinates,
-        serviceCount: group.items.reduce((sum, item) => sum + (item.quantity || 1), 0),
-        overrideEmployeeCount: maxEmployeeCount,
-      });
-      console.log(result);
-
-      if (!result || !result.data || result.data.length === 0) {
-        await Booking.findByIdAndUpdate(booking._id, {
-          status: BOOKING_STATUS.NO_PROVIDER,
-        });
-
-        if (io) {
-          io.to("admin_room").emit("new-failed-booking", {
-            bookingId: booking._id,
-            message: "No servicers found nearby"
-          });
-        }
-        failedBookings.push(booking);
-      } else {
-        const employeeCount = booking.employeeCount;
-
-        if (employeeCount === 1) {
-          assignNextServicer({
-            bookingId: booking._id.toString(),
-            coordinates: booking.location.coordinates,
-            io,
-          });
-        } else {
-          assignNextTeam({
-            bookingId: booking._id.toString(),
-            coordinates: booking.location.coordinates,
-            employeeCount,
-            io: io,
-          });
-        }
-        createdBookings.push(booking);
-      }
+      createdBookings.push(booking);
     }
 
     // Clear user's Cart since booking checkout was successful
     if (!serviceCategoryName) {
       const Cart = require("../models/cart.model");
-      await Cart.deleteOne({ user: userId });
+      if (req.body.domainServiceId) {
+        const cart = await Cart.findOne({ user: userId });
+        if (cart) {
+          cart.items = cart.items.filter(
+            item => !item.domainService || item.domainService.toString() !== req.body.domainServiceId.toString()
+          );
+          cart.totalPrice = cart.items.reduce(
+            (sum, item) => sum + (item.price * item.quantity),
+            0
+          );
+          await cart.save();
+        }
+      } else {
+        await Cart.deleteOne({ user: userId });
+      }
     }
 
-    const primaryBooking = createdBookings[0] || failedBookings[0];
-    console.log(primaryBooking);
-    console.log(createdBookings);
-    console.log(primaryBooking);
-    const isFailed = failedBookings.includes(primaryBooking);
-
-    if (isFailed && createdBookings.length === 0) {
-      return next(new AppError("No servicers available nearby", 404));
-    }
+    const primaryBooking = createdBookings[0];
 
     return res.status(200).json({
       success: true,
       bookingId: primaryBooking._id,
       assignType: primaryBooking.employeeCount === 1 ? "single" : "team",
-      message: "Booking created and auto-assign started",
+      message: "Booking created. Please complete payment to start assignment.",
     });
 
   } catch (err) {
@@ -670,6 +645,7 @@ exports.submitReview = async (req, res, next) => {
 exports.createOrderController = async (req, res, next) => {
   try {
     const { bookingId } = req.params;
+    const { paymentType = "FULL" } = req.body;
 
     if (!bookingId) {
       return next(new AppError("bookingId is required", 400));
@@ -684,7 +660,31 @@ exports.createOrderController = async (req, res, next) => {
       return next(new AppError("Already paid", 400));
     }
 
-    const order = await createOrder(bookingId, booking.totalPrice);
+    let amountToPay = booking.totalPrice;
+    let advanceAmount = 0;
+    let remainingAmount = 0;
+
+    if (booking.paymentStatus === "partially_paid") {
+      amountToPay = booking.remainingAmount;
+    } else if (paymentType === "ADVANCE") {
+      amountToPay = booking.totalPrice * 0.18;
+      amountToPay = Math.round(amountToPay * 100) / 100;
+      advanceAmount = amountToPay;
+      remainingAmount = Math.round((booking.totalPrice - advanceAmount) * 100) / 100;
+      booking.paymentType = paymentType;
+      booking.advanceAmount = advanceAmount;
+      booking.remainingAmount = remainingAmount;
+    } else {
+      amountToPay = booking.totalPrice;
+      advanceAmount = booking.totalPrice;
+      remainingAmount = 0;
+      booking.paymentType = paymentType;
+      booking.advanceAmount = advanceAmount;
+      booking.remainingAmount = remainingAmount;
+    }
+    await booking.save();
+
+    const order = await createOrder(bookingId, amountToPay);
 
     return res.status(200).json({
       success: true,
@@ -703,13 +703,17 @@ exports.createOrderController = async (req, res, next) => {
 ====================================================== */
 exports.paymentSuccess = async (req, res, next) => {
   try {
-    const {
+    let {
       bookingId,
       paymentMethod,
       razorpayOrderId,
       razorpayPaymentId,
       razorpaySignature
     } = req.body;
+
+    if (paymentMethod) {
+      paymentMethod = paymentMethod.toUpperCase();
+    }
 
     if (!bookingId || !paymentMethod) {
       return next(new AppError("bookingId and paymentMethod are required", 400));
@@ -723,15 +727,17 @@ exports.paymentSuccess = async (req, res, next) => {
     }
 
     // Prevent double payment
-    if (booking.paymentStatus === PAYMENT_STATUS.PAID) {
+    if (booking.paymentStatus === PAYMENT_STATUS.PAID && booking.status === BOOKING_STATUS.COMPLETED) {
       return next(new AppError("Payment already completed for this booking", 400));
     }
 
+    const isInitialPayment = booking.status === BOOKING_STATUS.PENDING;
 
     /* ------------- NOTIFY EVERYONE & COMPLETE -------------- */
     const finalizeBooking = async (method) => {
       booking.paymentMethod = method;
       booking.paymentStatus = PAYMENT_STATUS.PAID;
+      booking.remainingAmount = 0;
       booking.status = BOOKING_STATUS.COMPLETED;
       booking.completedAt = new Date();
       await booking.save();
@@ -748,7 +754,6 @@ exports.paymentSuccess = async (req, res, next) => {
         io.to(booking.user.socketId).emit("booking-completed", { bookingId });
       }
 
-
       const memberIds = [];
       if (booking.primaryEmployee) memberIds.push({ id: booking.primaryEmployee, model: SingleEmployee });
       if (booking.teamLeader) memberIds.push({ id: booking.teamLeader, model: booking.servicerCompany ? MultipleEmployee : SingleEmployee });
@@ -763,13 +768,68 @@ exports.paymentSuccess = async (req, res, next) => {
       }
     };
 
-    /* ---------------- CASH FLOW ---------------- */
+    if (isInitialPayment) {
+      /* ------------- INITIAL BOOKING CONFIRM FLOW ------------- */
+      if (paymentMethod !== PAYMENT_METHOD.RAZORPAY) {
+        return next(new AppError("Upfront payment must be verified via Razorpay", 400));
+      }
+
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+        return next(new AppError("Razorpay payment details are required", 400));
+      }
+      
+      const result = await verifyPayment({ bookingId, razorpayOrderId, razorpayPaymentId, razorpaySignature });
+      if (!result.success) return next(new AppError("Invalid Razorpay signature", 400));
+      
+      booking.razorpayOrderId = razorpayOrderId;
+      booking.razorpayPaymentId = razorpayPaymentId;
+      booking.razorpaySignature = razorpaySignature;
+      booking.paymentMethod = PAYMENT_METHOD.RAZORPAY;
+      if (booking.paymentType === "ADVANCE") {
+        booking.paymentStatus = PAYMENT_STATUS.PARTIALLY_PAID || "partially_paid";
+      } else {
+        booking.paymentStatus = PAYMENT_STATUS.PAID;
+      }
+
+      booking.status = BOOKING_STATUS.CONFIRMED;
+      booking.assignmentStatus = "SEARCHING";
+      await booking.save();
+
+      // Trigger automatic assignment
+      const employeeCount = booking.employeeCount;
+      if (employeeCount === 1) {
+        assignNextServicer({
+          bookingId: booking._id.toString(),
+          coordinates: booking.location.coordinates,
+          io,
+        });
+      } else {
+        assignNextTeam({
+          bookingId: booking._id.toString(),
+          coordinates: booking.location.coordinates,
+          employeeCount,
+          io,
+        });
+      }
+
+      // Notify User via Socket
+      if (booking.user?.socketId) {
+        io.to(booking.user.socketId).emit("booking-confirmed", { bookingId: booking._id });
+      }
+
+      return res.status(200).json({ 
+        success: true, 
+        message: "Booking confirmed and assignment started", 
+        booking 
+      });
+    }
+
+    /* ------------- SERVICE COMPLETION FINAL PAYMENT FLOW ------------- */
     if (paymentMethod === PAYMENT_METHOD.CASH) {
       await finalizeBooking(PAYMENT_METHOD.CASH);
       return res.status(200).json({ success: true, message: "Cash payment recorded", booking });
     }
 
-    /* ------------- RAZORPAY FLOW -------------- */
     if (paymentMethod === PAYMENT_METHOD.RAZORPAY) {
       if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
         return next(new AppError("Razorpay payment details are required", 400));
@@ -1284,7 +1344,8 @@ exports.scheduleBooking = async (req, res, next) => {
       coordinates,
       serviceCount = 1,
       scheduleDateTime,
-      couponCode
+      couponCode,
+      paymentType
     } = req.body;
 
     const userId = req.userId;
@@ -1342,9 +1403,19 @@ exports.scheduleBooking = async (req, res, next) => {
         return next(new AppError("Cart is empty or not found", 400));
       }
 
+      let itemsToProcess = cart.items;
+      if (req.body.domainServiceId) {
+        itemsToProcess = cart.items.filter(
+          item => item.domainService && item.domainService.toString() === req.body.domainServiceId.toString()
+        );
+        if (itemsToProcess.length === 0) {
+          return next(new AppError("No items in cart for the specified domain service", 400));
+        }
+      }
+
       // Group cart items by domainService
       const groups = {};
-      for (const item of cart.items) {
+      for (const item of itemsToProcess) {
         const domainId = item.domainService.toString();
         if (!groups[domainId]) {
           groups[domainId] = [];
@@ -1373,6 +1444,7 @@ exports.scheduleBooking = async (req, res, next) => {
         address,
         coordinates: parsedCoordinates,
         couponCode: appliedCouponCode,
+        paymentType,
       });
 
       // Update booking to be scheduled
@@ -1388,7 +1460,21 @@ exports.scheduleBooking = async (req, res, next) => {
     // Clear user's Cart since booking checkout was successful
     if (!serviceCategoryName) {
       const Cart = require("../models/cart.model");
-      await Cart.deleteOne({ user: userId });
+      if (req.body.domainServiceId) {
+        const cart = await Cart.findOne({ user: userId });
+        if (cart) {
+          cart.items = cart.items.filter(
+            item => !item.domainService || item.domainService.toString() !== req.body.domainServiceId.toString()
+          );
+          cart.totalPrice = cart.items.reduce(
+            (sum, item) => sum + (item.price * item.quantity),
+            0
+          );
+          await cart.save();
+        }
+      } else {
+        await Cart.deleteOne({ user: userId });
+      }
     }
 
     return res.status(201).json({
@@ -1543,5 +1629,184 @@ exports.getScheduledUserBookings = async (req, res) => {
     res.status(200).json({ success: true, bookings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.renderPaymentPage = async (req, res, next) => {
+  try {
+    const { bookingId } = req.params;
+    const { paymentType = "FULL" } = req.query;
+
+    const booking = await Booking.findById(bookingId).populate("user");
+    if (!booking) {
+      return res.status(404).send("Booking not found");
+    }
+
+    let amountToPay = booking.totalPrice;
+    if (booking.paymentStatus === "partially_paid") {
+      amountToPay = booking.remainingAmount;
+    } else if (paymentType === "ADVANCE") {
+      amountToPay = Math.round(booking.totalPrice * 0.18 * 100) / 100;
+    }
+    
+    // We create a Razorpay order
+    const { createOrder } = require("../transaction/razorpay.config");
+    const order = await createOrder(bookingId, amountToPay);
+
+    const keyId = process.env.RZ_KEY_ID;
+    if (!keyId) {
+      return res.status(500).send("Razorpay Key ID is not configured on the server. Please check your .env file.");
+    }
+    
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Gigiman Checkout</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0f172a;
+            color: #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+          }
+          .card {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+            border: 1px solid #334155;
+          }
+          h2 { color: #f8fafc; margin-top: 0; font-size: 24px; }
+          .price { font-size: 36px; font-weight: 800; color: #6366f1; margin: 16px 0; }
+          p { color: #94a3b8; font-size: 14px; margin-bottom: 28px; line-height: 1.5; }
+          button {
+            background-color: #6366f1;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            font-size: 16px;
+            font-weight: 700;
+            border-radius: 10px;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2);
+          }
+          button:hover { background-color: #4f46e5; }
+          .loader {
+            border: 3px solid #334155;
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2>Secure Checkout</h2>
+          <div class="price">₹${amountToPay}</div>
+          <p>Please pay using any test method to complete your Gigiman booking.</p>
+          <button id="pay-btn">Pay with Razorpay</button>
+          <div id="loader" class="loader"></div>
+        </div>
+        
+        <script>
+          window.onerror = function(msg, url, line) {
+            alert("Error loading payment gateway: " + msg + " (Line: " + line + ")");
+            return false;
+          };
+
+          const options = {
+            key: "${keyId}",
+            amount: ${Math.round(amountToPay * 100)},
+            currency: "INR",
+            name: "Gigiman Services",
+            description: "Secure Payment Verification",
+            order_id: "${order.id}",
+            handler: function (response) {
+              document.getElementById('pay-btn').style.display = 'none';
+              document.getElementById('loader').style.display = 'block';
+              
+              fetch("/api/booking/payment/success", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  bookingId: "${bookingId}",
+                  paymentMethod: "RAZORPAY",
+                  razorpayOrderId: response.razorpay_order_id,
+                  razorpayPaymentId: response.razorpay_payment_id,
+                  razorpaySignature: response.razorpay_signature
+                })
+              })
+              .then(res => res.json())
+              .then(data => {
+                if (data.success) {
+                  window.location.href = "gigiman://payment-success?status=success&bookingId=${bookingId}";
+                } else {
+                  window.location.href = "gigiman://payment-success?status=failed&message=" + encodeURIComponent(data.message);
+                }
+              })
+              .catch(err => {
+                window.location.href = "gigiman://payment-success?status=failed&message=Connection%20Error";
+              });
+            },
+            prefill: {
+              name: "${booking.user?.fullName || ''}",
+              contact: "${booking.user?.phoneNo || ''}"
+            },
+            theme: { color: "#6366f1" }
+          };
+          
+          document.getElementById('pay-btn').onclick = function() {
+            if (typeof Razorpay === 'undefined') {
+              alert("Razorpay payment gateway could not be loaded. Please check your internet connection or disable ad blockers/privacy shields, then refresh the page.");
+              return;
+            }
+            try {
+              const rzp = new Razorpay(options);
+              rzp.open();
+            } catch (e) {
+              alert("Error initializing Razorpay: " + e.message);
+            }
+          };
+          
+          window.onload = function() {
+            if (typeof Razorpay !== 'undefined') {
+              try {
+                const rzp = new Razorpay(options);
+                rzp.open();
+              } catch (e) {
+                console.error("Auto-open failed:", e);
+              }
+            } else {
+              console.error("Razorpay SDK not loaded.");
+            }
+          };
+        </script>
+      </body>
+      </html>
+    `;
+    res.send(html);
+  } catch (err) {
+    next(err);
   }
 };

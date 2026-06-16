@@ -20,6 +20,45 @@ const { sendNotification } = require("../utils/notification.util");
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 const mapboxClient = mbxGeocoding({ accessToken: MAP_BOX_TOKEN });
 
+const notifyFailedAssignment = async (bookingId, io) => {
+    try {
+        const booking = await Booking.findById(bookingId).populate("user");
+        if (!booking) return;
+
+        const serviceName = booking.serviceCategoryName;
+        const serviceDetails = booking.cartItems && booking.cartItems.length > 0 
+            ? booking.cartItems.map(item => `${item.serviceCategoryName} (x${item.quantity || 1})`).join(", ")
+            : booking.serviceCategoryName;
+
+        const { sendNotification } = require("../utils/notification.util");
+        await sendNotification({
+            userId: booking.user._id,
+            title: "Service Assignment Delayed",
+            message: "Your booking has been confirmed. We are currently unable to assign a technician automatically. Our team will manually assign a technician shortly.",
+            type: "FAILED_BOOKING",
+            data: {
+                bookingId: booking._id,
+                bookingReference: booking._id.toString(),
+                serviceName,
+                serviceDetails,
+                totalAmount: booking.totalPrice,
+                metadata: {
+                    bookingId: booking._id,
+                    serviceCategoryName: booking.serviceCategoryName,
+                    cartItems: booking.cartItems,
+                    address: booking.address,
+                    totalPrice: booking.totalPrice,
+                    paymentStatus: booking.paymentStatus,
+                    createdAt: booking.createdAt
+                }
+            },
+            io
+        });
+    } catch (err) {
+        console.error("Error in notifyFailedAssignment:", err.message);
+    }
+};
+
 /* ======================================================
    1. GEOCODE ADDRESS
 ====================================================== */
@@ -207,7 +246,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
         id => new mongoose.Types.ObjectId(id)
     );
 
-    if (booking.status !== BOOKING_STATUS.PENDING || booking.primaryEmployee) {
+    if ((booking.status !== BOOKING_STATUS.PENDING && booking.status !== BOOKING_STATUS.CONFIRMED) || booking.primaryEmployee) {
         return;
     }
 
@@ -225,11 +264,18 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     };
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
+            status: BOOKING_STATUS.CONFIRMED,
             assignmentStatus: "FAILED",
-        })
-        const booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId)
-            io.to(booking?.user?.socketId).emit("no-servicer-available");
+        });
+        const updatedBk = await Booking.findById(bookingId).populate("user");
+        if (updatedBk?.user) {
+            if (updatedBk.user.socketId) {
+                io.to(updatedBk.user.socketId).emit("no-servicer-available", { bookingId });
+            }
+            io.to(updatedBk.user._id.toString()).emit("no-servicer-available", { bookingId });
+        }
+        await notifyFailedAssignment(bookingId, io);
+        return;
     }
     // Ensure we don't exceed array
     const attemptIndex = Math.min(
@@ -295,13 +341,18 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
         if (updatedBooking) {
             await Booking.findByIdAndUpdate(bookingId, {
+                status: BOOKING_STATUS.CONFIRMED,
                 assignmentStatus: "FAILED"
             });
+            await notifyFailedAssignment(bookingId, io);
         }
 
         const user = await User.findById(updatedBooking.user).select("socketId");
-        if (user?.socketId) {
-            io.to(user.socketId).emit("no-servicer-available");
+        if (user) {
+            if (user.socketId) {
+                io.to(user.socketId).emit("no-servicer-available", { bookingId });
+            }
+            io.to(user._id.toString()).emit("no-servicer-available", { bookingId });
         }
 
         // Notify Admin via Utility (Database + Socket)
@@ -412,6 +463,10 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
 
 exports.recordCommission = async (booking, empId, empType, customAmount = null, io = null) => {
     try {
+        if (!empId) {
+            console.log("No registered technician assigned. Skipping commission record.");
+            return;
+        }
         const amountToCalculate = customAmount !== null ? customAmount : booking.totalPrice;
         const commissionAmount = amountToCalculate * 0.18;
         const empModel = empType === "single" ? "SingleEmployee" : "MultipleEmployee";
@@ -530,6 +585,10 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
     let booking = await Booking.findById(bookingId).populate("user", "fullName").populate("domainService", "_id");
     if (!booking) return;
 
+    if ((booking.status !== BOOKING_STATUS.PENDING && booking.status !== BOOKING_STATUS.CONFIRMED) || booking.primaryEmployee) {
+        return;
+    }
+
     const capableEmployees = await EmployeeService.find({
         capableservice: booking.domainService
     });
@@ -543,8 +602,12 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
             assignmentStatus: "FAILED",
         });
         const user = await User.findById(booking.user).select("socketId");
-        if (user?.socketId)
-            io.to(user.socketId).emit("no-team-available");
+        if (user) {
+            if (user.socketId) {
+                io.to(user.socketId).emit("no-team-available", { bookingId });
+            }
+            io.to(user._id.toString()).emit("no-team-available", { bookingId });
+        }
         return;
     }
 
@@ -621,11 +684,18 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
+            status: BOOKING_STATUS.CONFIRMED,
             assignmentStatus: "FAILED",
-        })
+        });
         booking = await Booking.findById(bookingId).populate("user");
-        if (booking?.user?.socketId)
-            io.to(`user_${booking.user._id}`).emit("no-servicer-available");
+        if (booking?.user) {
+            if (booking.user.socketId) {
+                io.to(booking.user.socketId).emit("no-servicer-available", { bookingId });
+            }
+            io.to(booking.user._id.toString()).emit("no-servicer-available", { bookingId });
+        }
+        await notifyFailedAssignment(bookingId, io);
+        return;
     }
 
     //  No team available
@@ -645,13 +715,18 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 
         if (updatedBooking) {
             await Booking.findByIdAndUpdate(bookingId, {
+                status: BOOKING_STATUS.CONFIRMED,
                 assignmentStatus: "FAILED"
             });
+            await notifyFailedAssignment(bookingId, io);
         }
 
         const user = await User.findById(updatedBooking.user).select("socketId");
-        if (user?.socketId) {
-            io.to(`user_${updatedBooking.user._id}`).emit("no-team-available");
+        if (user) {
+            if (user.socketId) {
+                io.to(user.socketId).emit("no-team-available", { bookingId });
+            }
+            io.to(user._id.toString()).emit("no-team-available", { bookingId });
         }
 
         // Notify Admin via Utility (Database + Socket)
@@ -963,6 +1038,7 @@ exports.createBooking = async ({
     serviceCount = 1,
     couponCode,
     cartItems,
+    paymentType = "FULL",
 }) => {
 
     /* -------------------------
@@ -1071,6 +1147,18 @@ exports.createBooking = async ({
     const serviceCountSum = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
     const serviceType = employeeCount === 1 ? "single" : "team";
 
+    let advanceAmount = 0;
+    let remainingAmount = 0;
+
+    if (paymentType === "ADVANCE") {
+        advanceAmount = totalPrice * 0.18;
+        advanceAmount = Math.round(advanceAmount * 100) / 100;
+        remainingAmount = Math.round((totalPrice - advanceAmount) * 100) / 100;
+    } else {
+        advanceAmount = totalPrice;
+        remainingAmount = 0;
+    }
+
     const booking = await Booking.create({
         user: userId,
         serviceType,
@@ -1092,7 +1180,10 @@ exports.createBooking = async ({
         StartWorkOTP: null,
         appliedCoupon: appliedCouponId,
         discountAmount: discountAmount,
-        cartItems: items
+        cartItems: items,
+        paymentType,
+        advanceAmount,
+        remainingAmount,
     });
 
     return {
@@ -1109,7 +1200,7 @@ exports.generateStartOTP = async (bookingId) => {
     }
 
     //  Employee must be assigned first
-    if (!booking.primaryEmployee) {
+    if (!booking.primaryEmployee && !booking.externalTechnicianName) {
         throw new Error("Cannot generate OTP before employee assignment");
     }
 
