@@ -160,7 +160,6 @@ exports.adminLogin = async (req, res, next) => {
       process.env.JWT_KEY,
     );
 
-
     res.json({
       message: "Admin login successfully",
       token,
@@ -1306,23 +1305,35 @@ exports.getAdminBookingReview = async (req, res, next) => {
 exports.getFailedBookings = async (req, res, next) => {
   try {
     const bookings = await Booking.find({
+      status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCALLED] },
       $or: [
         { status: BOOKING_STATUS.NO_PROVIDER },
-        {
-          assignmentStatus: "FAILED",
-        }
+        { assignmentStatus: "FAILED" },
+        { isManuallyAssigned: true }
       ]
     })
       .populate('user', 'fullName phoneNo')
       .populate('domainService', 'domainName')
+      .populate('primaryEmployee', 'fullname phoneNo')
+      .populate('servicerCompany', 'storeName')
       .sort({ createdAt: -1 })
       .lean();
 
-    // Map the status for the frontend so it explicitly shows 'failed' or 'no_provider'
-    const formattedBookings = bookings.map(booking => ({
-      ...booking,
-      status: booking.status === BOOKING_STATUS.NO_PROVIDER ? 'no_provider' : 'failed'
-    }));
+    // Map the status for the frontend so it explicitly shows correct status and matches options
+    const formattedBookings = bookings.map(booking => {
+      let displayStatus = booking.status;
+      if (booking.status === BOOKING_STATUS.NO_PROVIDER) {
+        displayStatus = 'no_provider';
+      } else if (booking.status === BOOKING_STATUS.CONFIRMED && booking.assignmentStatus === "FAILED" && !booking.isManuallyAssigned) {
+        displayStatus = 'failed';
+      } else if (booking.status) {
+        displayStatus = booking.status.toLowerCase();
+      }
+      return {
+        ...booking,
+        status: displayStatus
+      };
+    });
 
     res.json({
       success: true,
@@ -1767,7 +1778,8 @@ exports.adminManualAssignBooking = async (req, res, next) => {
       );
     }
 
-    booking.assignmentStatus = "ASSIGNED";
+    booking.isManuallyAssigned = true;
+    booking.assignmentStatus = "FAILED"; // Keep FAILED so it stays in "Awaiting Manual Assignment" in user app and getFailedBookings query
     booking.status = BOOKING_STATUS.ASSIGNED;
     booking.assignmentNotes = assignmentNotes || "";
     booking.location = {
@@ -1786,7 +1798,7 @@ exports.adminManualAssignBooking = async (req, res, next) => {
     await sendNotification({
         userId: booking.user._id,
         title: "Technician Assigned",
-        message: `A technician has been manually assigned to your booking. Name: ${servicerName}, Phone: ${servicerPhone}, ETA: ${eta || "Not specified"}.`,
+        message: `A technician has been manually assigned to your booking. Name: ${servicerName}, Phone: ${servicerPhone}, Estimated Arrival Time: ${eta || "Not specified"}.`,
         type: "SYSTEM",
         data: {
             bookingId: booking._id,
@@ -1854,6 +1866,7 @@ exports.adminUpdateBookingStatus = async (req, res, next) => {
     if (status === "retry_assignment") {
       booking.status = BOOKING_STATUS.CONFIRMED;
       booking.assignmentStatus = "SEARCHING";
+      booking.isManuallyAssigned = false;
       booking.dispatchAttempts = 0;
       booking.rejectedEmployees = [];
       booking.rejectedMultipleEmployee = [];
@@ -1899,7 +1912,9 @@ exports.adminUpdateBookingStatus = async (req, res, next) => {
     booking._statusNotes = notes || `Admin updated status from ${oldStatus} to ${status}`;
 
     if (status === BOOKING_STATUS.ASSIGNED) {
-      booking.assignmentStatus = "ASSIGNED";
+      if (!booking.isManuallyAssigned) {
+        booking.assignmentStatus = "ASSIGNED";
+      }
       if (employeeId) {
         if (employeeType === "single") {
           booking.primaryEmployee = employeeId;

@@ -569,7 +569,7 @@ exports.getBookingById = async (req, res, next) => {
       success: true,
       booking: {
         _id: booking._id,
-        name: booking.servicerCompany?.storeName || booking.primaryEmployee?.fullname || booking.primaryEmployee?.storeName,
+        name: booking.servicerCompany?.storeName || booking.primaryEmployee?.fullname || booking.primaryEmployee?.storeName || booking.externalTechnicianName,
         userName: booking.user?.fullName,
         userPhone: booking.user?.phoneNo,
         userAvatar: booking.user?.avatar,
@@ -582,14 +582,25 @@ exports.getBookingById = async (req, res, next) => {
         otp: booking.StartWorkOTP,
         domainServiceId: booking.domainService?._id,
         technician: {
-          name: booking.primaryEmployee?.fullname || booking.primaryEmployee?.storeName,
+          name: booking.primaryEmployee?.fullname || booking.primaryEmployee?.storeName || booking.externalTechnicianName,
           rating: techRating,
-          reviews: techReviewCount
+          reviews: techReviewCount,
+          phoneNo: booking.primaryEmployee?.phoneNo || booking.primaryEmployee?.phoneno || booking.externalTechnicianPhone || null
         },
         teamLeader: booking.teamLeader,
         teamHelpers: booking.teamHelpers,
         coordinates: booking.location?.coordinates,
         extraServices: booking.extraServices,
+        paymentStatus: booking.paymentStatus,
+        assignmentStatus: booking.assignmentStatus,
+        paymentType: booking.paymentType,
+        advanceAmount: booking.advanceAmount,
+        remainingAmount: booking.remainingAmount,
+        isManuallyAssigned: booking.isManuallyAssigned,
+        externalTechnicianName: booking.externalTechnicianName,
+        externalTechnicianPhone: booking.externalTechnicianPhone,
+        eta: booking.location?.eta || null,
+        cartItems: booking.cartItems || [],
       },
       review: review || null
     });

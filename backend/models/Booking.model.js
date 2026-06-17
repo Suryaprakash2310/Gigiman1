@@ -168,6 +168,11 @@ const bookingSchema = new mongoose.Schema({
     default: "SEARCHING",
     index: true
   },
+  isManuallyAssigned: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
 
   offeredEmployee: {
     type: mongoose.Schema.Types.ObjectId,
@@ -331,6 +336,13 @@ bookingSchema.pre('save', function(next) {
       updatedBy: this._updatedBy || 'SYSTEM',
       notes: this._statusNotes || `Status updated to ${this.status}`
     });
+  }
+  
+  // Update remainingAmount for ADVANCE bookings
+  if (this.paymentType === "ADVANCE" && this.paymentStatus === "partially_paid") {
+    this.remainingAmount = Math.max(0, Math.round((this.totalPrice - this.advanceAmount) * 100) / 100);
+  } else if (this.paymentStatus === "paid") {
+    this.remainingAmount = 0;
   }
   next();
 });
