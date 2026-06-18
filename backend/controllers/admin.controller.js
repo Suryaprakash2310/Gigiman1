@@ -1308,6 +1308,7 @@ exports.getFailedBookings = async (req, res, next) => {
       status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCALLED] },
       $or: [
         { status: BOOKING_STATUS.NO_PROVIDER },
+        { status: BOOKING_STATUS.MANUAL_ASSIGN },
         { assignmentStatus: "FAILED" },
         { isManuallyAssigned: true }
       ]
@@ -1324,7 +1325,7 @@ exports.getFailedBookings = async (req, res, next) => {
       let displayStatus = booking.status;
       if (booking.status === BOOKING_STATUS.NO_PROVIDER) {
         displayStatus = 'no_provider';
-      } else if (booking.status === BOOKING_STATUS.CONFIRMED && booking.assignmentStatus === "FAILED" && !booking.isManuallyAssigned) {
+      } else if ((booking.status === BOOKING_STATUS.CONFIRMED || booking.status === BOOKING_STATUS.MANUAL_ASSIGN) && booking.assignmentStatus === "FAILED" && !booking.isManuallyAssigned) {
         displayStatus = 'failed';
       } else if (booking.status) {
         displayStatus = booking.status.toLowerCase();
@@ -1779,7 +1780,7 @@ exports.adminManualAssignBooking = async (req, res, next) => {
     }
 
     booking.isManuallyAssigned = true;
-    booking.assignmentStatus = "FAILED"; // Keep FAILED so it stays in "Awaiting Manual Assignment" in user app and getFailedBookings query
+    booking.assignmentStatus = "ASSIGNED";
     booking.status = BOOKING_STATUS.ASSIGNED;
     booking.assignmentNotes = assignmentNotes || "";
     booking.location = {

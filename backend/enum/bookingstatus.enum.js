@@ -9,6 +9,7 @@ const BOOKING_STATUS={
     NO_PROVIDER: "no_provider",
     ASSIGNED: "ASSIGNED",
     CONFIRMED: "confirmed",
+    MANUAL_ASSIGN: "manual_assign",
 }
 
 module.exports=BOOKING_STATUS;

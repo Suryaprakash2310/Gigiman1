@@ -264,7 +264,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
     };
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
-            status: BOOKING_STATUS.CONFIRMED,
+            status: BOOKING_STATUS.MANUAL_ASSIGN,
             assignmentStatus: "FAILED",
         });
         const updatedBk = await Booking.findById(bookingId).populate("user");
@@ -341,7 +341,7 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
         if (updatedBooking) {
             await Booking.findByIdAndUpdate(bookingId, {
-                status: BOOKING_STATUS.CONFIRMED,
+                status: BOOKING_STATUS.MANUAL_ASSIGN,
                 assignmentStatus: "FAILED"
             });
             await notifyFailedAssignment(bookingId, io);
@@ -599,6 +599,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 
     if (booking.dispatchAttempts >= MAX_DISPATCH_ATTEMPTS) {
         await Booking.findByIdAndUpdate(bookingId, {
+            status: BOOKING_STATUS.MANUAL_ASSIGN,
             assignmentStatus: "FAILED",
         });
         const user = await User.findById(booking.user).select("socketId");
@@ -684,7 +685,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 
     if (booking.dispatchAttempts >= 5) {
         await Booking.findByIdAndUpdate(bookingId, {
-            status: BOOKING_STATUS.CONFIRMED,
+            status: BOOKING_STATUS.MANUAL_ASSIGN,
             assignmentStatus: "FAILED",
         });
         booking = await Booking.findById(bookingId).populate("user");
@@ -715,7 +716,7 @@ exports.assignNextTeam = async ({ bookingId, coordinates, employeeCount, io }) =
 
         if (updatedBooking) {
             await Booking.findByIdAndUpdate(bookingId, {
-                status: BOOKING_STATUS.CONFIRMED,
+                status: BOOKING_STATUS.MANUAL_ASSIGN,
                 assignmentStatus: "FAILED"
             });
             await notifyFailedAssignment(bookingId, io);
@@ -902,7 +903,8 @@ exports.teamAccept = async ({
                 teamLeader: leader._id,
                 teamHelpers: helperDocs.map(h => h._id),
                 employees: isLeaderMultiple ? [...helperDocs.map(h => h._id)] : [leader._id, ...helperDocs.map(h => h._id)],
-                status: BOOKING_STATUS.ASSIGNED
+                status: BOOKING_STATUS.ASSIGNED,
+                assignmentStatus: "ASSIGNED"
             },
             { new: true }
         );
