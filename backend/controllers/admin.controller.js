@@ -1812,7 +1812,7 @@ exports.adminManualAssignBooking = async (req, res, next) => {
         io
     });
 
-    if (booking.user?.socketId) {
+   if (booking.user?.socketId) {
       io.to(booking.user.socketId).emit("servicer-accepted", {
         booking,
         otp,
@@ -1827,10 +1827,7 @@ exports.adminManualAssignBooking = async (req, res, next) => {
       memberIds.push(...booking.teamHelpers);
     }
     for (const memberId of memberIds) {
-      const emp = await SingleEmployee.findById(memberId);
-      if (emp?.socketId) {
-        io.to(`employee_${emp._id}`).emit("booking-confirmed", { booking, otp });
-      }
+      io.to(`employee_${memberId}`).emit("booking-confirmed", { booking, otp });
     }
 
     res.status(200).json({

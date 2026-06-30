@@ -57,34 +57,38 @@ exports.sendOtp = async (req, res, next) => {
 exports.verifyOtp = async (req, res, next) => {
   try {
     const { phoneNo, firebaseToken } = req.body;
+
     if (!phoneNo || !firebaseToken) {
-      return next(new AppError("Phone number and Firebase Token are required", 400));
+      return next(
+        new AppError("Phone number and Firebase Token are required", 400)
+      );
     }
 
     const cleanPhone = normalizePhone(phoneNo);
 
-
     let decodedToken;
-    if (firebaseToken === "mock-token" || (firebaseToken && firebaseToken.startsWith("mock_"))) {
-      decodedToken = {
-        phone_number: cleanPhone.startsWith("+") ? cleanPhone : `+91${cleanPhone}`
-      };
-    } else {
-      try {
-        decodedToken = await admin.auth().verifyIdToken(firebaseToken);
-      } catch (error) {
-        console.error("Firebase Verification Error:", error);
-        if (error.code === 'auth/id-token-expired') {
-          return next(new AppError("Firebase token has expired", 401));
-        }
-        return next(new AppError("Invalid Firebase token", 401));
+    try {
+      decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+    } catch (error) {
+      console.error("Firebase Verification Error:", error);
+
+      if (error.code === "auth/id-token-expired") {
+        return next(new AppError("Firebase token has expired", 401));
       }
+
+      if (error.code === "auth/id-token-revoked") {
+        return next(new AppError("Firebase token has been revoked", 401));
+      }
+
+      return next(new AppError("Invalid Firebase token", 401));
     }
 
     const firebasePhone = normalizePhone(decodedToken.phone_number);
 
     if (firebasePhone !== cleanPhone) {
-      return next(new AppError("Phone number mismatch. Verification failed.", 400));
+      return next(
+        new AppError("Phone number mismatch. Verification failed.", 400)
+      );
     }
 
     let user = await User.findOne({ phoneNo: cleanPhone });
@@ -93,23 +97,24 @@ exports.verifyOtp = async (req, res, next) => {
       user = await User.create({
         phoneNo: cleanPhone,
         phoneMasked: maskPhone(cleanPhone),
+        isVerified: true,
       });
+    } else {
+      user.isVerified = true;
+      await user.save();
     }
 
-    user.isVerified = true;
-    await user.save();
-
-    // New user → complete profile
+    // New user → Complete Profile
     if (!user.fullName) {
-      return res.json({
+      return res.status(200).json({
         success: true,
         next: "COMPLETE_PROFILE",
         tempToken: generateTempToken(user._id),
       });
     }
 
-    // Existing user
-    return res.json({
+    // Existing user → Login
+    return res.status(200).json({
       success: true,
       token: generateToken(user),
       user,

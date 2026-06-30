@@ -97,9 +97,14 @@ module.exports = (io) => {
     });
 
 
-    socket.on("team-reject", ({ bookingId }) =>
-      teamReject(bookingId, io)
-    );
+    socket.on("team-reject", async ({ bookingId }) => {
+      try {
+        if (socket.role !== ROLES.MULTIPLE_EMPLOYEE) return;
+        await teamReject({ bookingId, teamId: socket.teamId, io });
+      } catch (err) {
+        console.error("team-reject error:", err);
+      }
+    });
     socket.on("join-tracking", (payload) => {
       const bookingId = payload?.bookingId || payload;
       if (!bookingId) return;

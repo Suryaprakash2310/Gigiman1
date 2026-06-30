@@ -65,6 +65,7 @@ exports.searchNearbyservicer = async (req, res, next) => {
       serviceCategoryName,
       serviceCount,
     });
+    console.log(result);
 
     return res.status(200).json({
       success: true,

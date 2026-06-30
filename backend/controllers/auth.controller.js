@@ -16,41 +16,24 @@ const sendWhatsAppMessage = require("../config/whatsapp");
 
 exports.sendOtp = async (req, res, next) => {
   try {
-    //Get the phone number
     const { phoneNo } = req.body;
     if (!phoneNo)
       return next(new AppError("Phone number is required", 400));
 
+    const cleanPhone = normalizePhone(phoneNo);
+
     // Check employee existence
     const emp =
-      (await SingleEmployee.findOne({ phoneNo })) ||
-      (await MultipleEmployee.findOne({ phoneNo })) ||
-      (await ToolShop.findOne({ phoneNo }));
+      (await SingleEmployee.findOne({ phoneNo: cleanPhone })) ||
+      (await MultipleEmployee.findOne({ phoneNo: cleanPhone })) ||
+      (await ToolShop.findOne({ phoneNo: cleanPhone }));
 
     if (!emp)
       return next(new AppError("Employee not found", 404));
 
-    const cleanPhone = normalizePhone(phoneNo);
-
-    // Generate a 4-digit OTP
-    const otpValue = Math.floor(1000 + Math.random() * 9000);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Save/Update OTP
-    await Otp.findOneAndUpdate(
-      { cleanPhone },
-      { otp: otpValue, expiresAt, attempts: 0 },
-      { upsert: true, new: true }
-    );
-    await sendWhatsAppMessage(
-      phoneNo,
-      `Do not share this OTP with anyone. This ${otpValue} is only for signup verification..`
-    );
-
     return res.status(200).json({
       success: true,
-      otp: otpValue,
-      message: "Phone number validated. Please trigger Firebase SMS OTP on the client.",
+      message: "Employee validated. Please trigger Firebase SMS OTP on the client.",
     });
   } catch (err) {
     next(err);
@@ -60,32 +43,26 @@ exports.sendOtp = async (req, res, next) => {
 
 exports.verifyOtp = async (req, res, next) => {
   try {
-    const { phoneNo, firebaseToken, otp } = req.body;
+    const { phoneNo, firebaseToken } = req.body;
 
-    if (!phoneNo)
+    if (!phoneNo || !firebaseToken) {
       return next(new AppError("Phone number and Firebase Token are required", 400));
-
-    // Verify the SMS OTP via Firebase Token
-    // const decodedToken = await verifyFirebaseToken(firebaseToken);
+    }
 
     const cleanPhone = normalizePhone(phoneNo);
 
-    // Find OTP record
-    const otpRecord = await Otp.findOne({ cleanPhone });
-
-    if (!otpRecord) {
-      return next(new AppError("OTP not found or expired", 400));
+    let decodedToken;
+    try {
+      decodedToken = await verifyFirebaseToken(firebaseToken);
+    } catch (error) {
+      console.error("Firebase Verification Error:", error);
+      return next(new AppError("Invalid or expired Firebase token", 401));
     }
 
-    // Verify OTP
-    if (otpRecord.otp !== parseInt(otp)) {
-      otpRecord.attempts += 1;
-      await otpRecord.save();
-      return next(new AppError("Invalid OTP", 400));
+    const firebasePhone = normalizePhone(decodedToken.phone_number);
+    if (firebasePhone !== cleanPhone) {
+      return next(new AppError("Phone number mismatch. Verification failed.", 400));
     }
-
-    // Delete OTP record
-    await Otp.deleteOne({ cleanPhone });
 
     const emp =
       (await SingleEmployee.findOne({ phoneNo: cleanPhone })) ||

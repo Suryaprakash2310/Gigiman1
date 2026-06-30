@@ -87,6 +87,7 @@ exports.findNearbyTeams = async ({
     const serviceList = await ServiceList.findOne({
         "serviceCategory.serviceCategoryName": serviceCategoryName,
     });
+    console.log(serviceList)
 
     if (!serviceList) {
         throw new AppError("Service Category not found", 404);
@@ -369,12 +370,10 @@ exports.assignNextServicer = async ({ bookingId, coordinates, io }) => {
 
     }
     //  Emit immediately (FAST)
-    if (servicer.socketId) {
-        io.to(`employee_${servicer._id}`).emit(
-            "new-booking-request",
-            payload
-        );
-    }
+    io.to(`employee_${servicer._id}`).emit(
+        "new-booking-request",
+        payload
+    );
 
     //  Single timeout (retry, NOT loop)
     setTimeout(async () => {
@@ -409,7 +408,7 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
         {
             _id: bookingId,
             primaryEmployee: null,
-            status: BOOKING_STATUS.PENDING,
+            status: { $in: [BOOKING_STATUS.PENDING, BOOKING_STATUS.CONFIRMED] },
         },
         {
             $set: {
@@ -438,22 +437,14 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
     await updatedBooking.populate("primaryEmployee", "fullname rating phoneno");
 
     //  Notify USER with booking + OTP
-    const user = await User.findById(updatedBooking.user).select("socketId");
-
     console.log(" OTP generated for booking:", otp);
-
-    if (user?.socketId) {
-        io.to(user.socketId).emit("servicer-accepted", {
-            booking: updatedBooking,
-            otp,
-        });
-    }
+    io.to(String(updatedBooking.user)).emit("servicer-accepted", {
+        booking: updatedBooking,
+        otp,
+    });
 
     //  Notify PROVIDER booking confirmed
-    const employee = await SingleEmployee.findById(employeeId);
-    if (employee?.socketId) {
-        io.to(`employee_${employee._id}`).emit("booking-confirmed", { booking: updatedBooking, otp });
-    }
+    io.to(`employee_${employeeId}`).emit("booking-confirmed", { booking: updatedBooking, otp });
 
     // Record Commission (18% of totalPrice)
     /* Commission should only be recorded upon completion, not acceptance */
@@ -463,53 +454,8 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
 
 exports.recordCommission = async (booking, empId, empType, customAmount = null, io = null) => {
     try {
-        if (!empId) {
-            console.log("No registered technician assigned. Skipping commission record.");
-            return;
-        }
-        const amountToCalculate = customAmount !== null ? customAmount : booking.totalPrice;
-        const commissionAmount = amountToCalculate * 0.18;
-        const empModel = empType === "single" ? "SingleEmployee" : "MultipleEmployee";
-
-        // 1. Create commission record
-        await Commission.create({
-            empId,
-            empType,
-            empModel,
-            serviceId: booking.domainService,
-            totalAmount: booking.totalPrice,
-            commissionAmount,
-            status: 'PENDING'
-        });
-
-        // 2. Check total unpaid commission for this servicer
-        const unpaidData = await Commission.aggregate([
-            { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
-            { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
-        ]);
-
-        const totalUnpaid = unpaidData[0]?.total || 0;
-
-        // 3. Block if >= 1000
-        if (totalUnpaid >= 1000) {
-            if (empModel === "SingleEmployee") {
-                await SingleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
-            } else {
-                await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
-            }
-
-            // Notify Servicer and Admin
-            await sendNotification({
-                empId,
-                empModel,
-                title: "Account Blocked (Unpaid Commissions)",
-                message: `Your account has been blocked because your unpaid commissions (₹${totalUnpaid.toFixed(2)}) have exceeded the limit of ₹1000. Please clear your dues to resume services.`,
-                type: "BLOCK",
-                targetRole: "ADMIN",
-                io
-            });
-        }
-
+        console.log("Commission recording disabled by request. Skipping.");
+        return;
     } catch (err) {
         console.error("Commission recording error:", err);
     }
@@ -568,7 +514,7 @@ exports.convertVisitToService = async ({
 
     await booking.save();
 
-    io.to(booking.user.socketId).emit("service-proposed", {
+    io.to(String(booking.user._id)).emit("service-proposed", {
         bookingId,
         price,
         durationInMinutes,
@@ -825,8 +771,8 @@ exports.teamAccept = async ({
             throw new AppError("Booking not found", 404);
         }
 
-        if (bookingMeta.status !== BOOKING_STATUS.PENDING) {
-            throw new AppError("Booking not pending", 409);
+        if (bookingMeta.status !== BOOKING_STATUS.PENDING && bookingMeta.status !== BOOKING_STATUS.CONFIRMED) {
+            throw new AppError("Booking not pending or confirmed", 409);
         }
 
         // AUTO-ASSIGNMENT LOGIC
@@ -893,7 +839,7 @@ exports.teamAccept = async ({
             {
                 _id: bookingId,
                 servicerCompany: null,
-                status: BOOKING_STATUS.PENDING
+                status: { $in: [BOOKING_STATUS.PENDING, BOOKING_STATUS.CONFIRMED] }
             },
             {
                 servicerCompany: teamId,
@@ -945,13 +891,10 @@ exports.teamAccept = async ({
         }
 
         /* Notify USER */
-        const user = await User.findById(booking.user).select("socketId");
-        if (user?.socketId) {
-            io.to(user.socketId).emit("otp-generated", {
-                bookingId: booking._id,
-                otp
-            });
-        }
+        io.to(String(booking.user)).emit("otp-generated", {
+            bookingId: booking._id,
+            otp
+        });
 
         /* Record Commission for Team (18% of totalPrice) */
         /* Commission should only be recorded upon completion, not acceptance */
@@ -959,13 +902,10 @@ exports.teamAccept = async ({
 
         /*  Notify ALL ASSIGNED MEMBERS */
         const notifyMembers = async (empId, isMultiple) => {
-            const model = isMultiple ? MultipleEmployee : SingleEmployee;
-            const emp = await model.findById(empId).select("socketId");
-            if (emp?.socketId) {
-                io.to(emp.socketId).emit("leader-otp-ready", {
-                    bookingId: booking._id,
-                });
-            }
+            const roomName = isMultiple ? `team_${empId}` : `employee_${empId}`;
+            io.to(roomName).emit("leader-otp-ready", {
+                bookingId: booking._id,
+            });
         };
 
         // Notify Leader
