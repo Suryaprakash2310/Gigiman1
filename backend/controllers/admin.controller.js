@@ -815,15 +815,21 @@ exports.deleteDomainpartById = async (req, res, next) => {
 
 exports.getAllBooking = async (req, res, next) => {
   try {
-    const booking = await Booking.find().select("-addressTitle");
-    if (!booking || !booking.lenght === 0) {
-      return next(new AppError("No booking Now", 400));
-    }
-    return res.status(200).json(booking);
+    const bookings = await Booking.find()
+      .populate("user")
+      .populate("primaryEmployee")
+      .populate("servicerCompany")
+      .select("-addressTitle")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      bookings: bookings || []
+    });
   } catch (err) {
     next(err);
   }
-}
+};
 
 const { sendNotification } = require("../utils/notification.util");
 
