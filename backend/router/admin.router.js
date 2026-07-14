@@ -5,6 +5,7 @@ const {
     adminSignup,
     inviteAdmin,
     getAllPermissions,
+    getInviteDetails,
     checkAuth,
     getEmployeecounts,
     Adddomainservice,
@@ -36,7 +37,16 @@ const {
     adminAddCommission,
     adminManualAssignBooking,
     adminUpdateBookingStatus,
-    adminSendNotification
+    adminSendNotification,
+    getRegions,
+    addEmployee,
+    updateEmployee,
+    updateUser,
+    listAdmins,
+    listInvites,
+    deleteInvite,
+    updateAdmin,
+    removeAdmin
 } = require('../controllers/admin.controller');
 const { allowRoles, hasPermission } = require('../middleware/role.middleware');
 const PERMISSIONS = require('../enum/permission.enum');
@@ -53,6 +63,16 @@ router.post("/invite", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), invite
 
 // Signup with invite
 router.post("/signup-invite", adminSignup);
+
+// Get invite details (public route used by signup page to fetch email/fullname/permissions)
+router.get("/invite-details/:token", getInviteDetails);
+
+// Admin Monitoring & Management
+router.get("/list", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), listAdmins);
+router.get("/invites", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), listInvites);
+router.delete("/invite/:id", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), deleteInvite);
+router.put("/update-admin/:id", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), updateAdmin);
+router.delete("/remove-admin/:id", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), removeAdmin);
 
 // Check auth
 router.get("/check-auth", protect, checkAuth);
@@ -87,7 +107,7 @@ router.put("/block-servicer/:id", protect, hasPermission(PERMISSIONS.MANAGE_EMPL
 router.put("/unblock-servicer/:id", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), unblockServicer);
 
 // Dashboard & Stats
-router.get("/dashboard-stats", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), getAdminDashboardStats);
+router.get("/dashboard-stats", protect, getAdminDashboardStats);
 router.get("/live-bookings", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), getLiveBookings);
 router.get("/employee-capabilities", protect, hasPermission(PERMISSIONS.VIEW_EMPLOYEES), getEmployeeCapabilities);
 router.get("/export-dashboard", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), exportDashboardData);
@@ -103,5 +123,11 @@ router.post("/add-commission", protect, hasPermission(PERMISSIONS.MANAGE_FINANCE
 router.post("/booking/assign", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), adminManualAssignBooking);
 router.put("/booking/status", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), adminUpdateBookingStatus);
 router.post("/notify-custom", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), adminSendNotification);
+
+// Regions & Onboarding
+router.get("/regions", protect, getRegions);
+router.post("/add-employee", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), addEmployee);
+router.put("/update-employee/:id", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), updateEmployee);
+router.put("/update-user/:id", protect, hasPermission(PERMISSIONS.VIEW_USERS), updateUser);
 
 module.exports = router;

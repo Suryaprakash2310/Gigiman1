@@ -453,20 +453,12 @@ exports.servicerAccept = async (bookingId, employeeId, io) => {
 
 
 exports.recordCommission = async (booking, empId, empType, customAmount = null, io = null) => {
-    try {
-        console.log("Commission recording disabled by request. Skipping.");
-        return;
-    } catch (err) {
-        console.error("Commission recording error:", err);
-    }
+    // Commissions are completely removed, return noop
+    return;
 };
 
 exports.getServicerUnpaidCommission = async (empId) => {
-    const unpaidData = await Commission.aggregate([
-        { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
-        { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
-    ]);
-    return unpaidData[0]?.total || 0;
+    return 0; // Always 0, commissions are removed
 };
 
 
@@ -1101,6 +1093,13 @@ exports.createBooking = async ({
         remainingAmount = 0;
     }
 
+    /* -------------------------
+       Stamp region/city from the user for region-based filtering
+    ------------------------- */
+    const bookingUser = await User.findById(userId).select("region city");
+    const bookingRegion = bookingUser?.region || "trichy";
+    const bookingCity   = bookingUser?.city   || "trichy";
+
     const booking = await Booking.create({
         user: userId,
         serviceType,
@@ -1126,6 +1125,8 @@ exports.createBooking = async ({
         paymentType,
         advanceAmount,
         remainingAmount,
+        region: bookingRegion,
+        city:   bookingCity,
     });
 
     return {

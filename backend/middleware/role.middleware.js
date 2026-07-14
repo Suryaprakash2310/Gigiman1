@@ -28,8 +28,8 @@ exports.hasPermission = (permission) => {
             return next(new AppError("Unauthorized access", 403));
         }
 
-        // 'admin' and 'super_admin' roles have absolute bypass (superuser)
-        if (req.role === ROLES.ADMIN || req.role === ROLES.SUPER_ADMIN) {
+        // Only 'super_admin' role acts as a superuser with absolute bypass
+        if (req.role === ROLES.SUPER_ADMIN) {
             return next();
         }
 

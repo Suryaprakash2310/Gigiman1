@@ -9,6 +9,7 @@ const PERMISSIONS = require('../enum/permission.enum');
 router.post('/', protect, hasPermission(PERMISSIONS.MANAGE_COUPONS), couponController.createCoupon); // Admin create
 router.get('/', protect, hasPermission(PERMISSIONS.MANAGE_COUPONS), couponController.getCoupons); // Admin get all
 router.put('/:id', protect, hasPermission(PERMISSIONS.MANAGE_COUPONS), couponController.updateCoupon); // Admin update
+router.delete('/:id', protect, hasPermission(PERMISSIONS.MANAGE_COUPONS), couponController.deleteCoupon); // Admin delete
 router.post('/validate', couponController.validateCoupon); // User validate
 
 module.exports = router;

@@ -5,6 +5,10 @@ const inviteSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    fullname: {
+        type: String,
+        required: false,
+    },
     role: {
         type: String,
         default: ROLES.ADMIN,

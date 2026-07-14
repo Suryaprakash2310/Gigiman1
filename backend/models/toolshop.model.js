@@ -88,6 +88,16 @@ const toolshopSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    region: {
+      type: String,
+      default: "trichy",
+      index: true
+    },
+    city: {
+      type: String,
+      default: "trichy",
+      index: true
+    }
   },
   { timestamps: true }
 );

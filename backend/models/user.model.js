@@ -84,6 +84,18 @@ const UserSchema = new mongoose.Schema(
       type: String,
       enum: Object.values(ROLES),
       default: ROLES.USER,
+    },
+    region: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      default: "trichy"
+    },
+    city: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      default: "trichy"
     }
   },
   { timestamps: true }

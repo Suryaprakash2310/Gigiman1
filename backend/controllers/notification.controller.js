@@ -155,3 +155,34 @@ exports.markSingleNotificationRead = async (req, res, next) => {
         next(err);
     }
 };
+
+exports.deleteSingleNotification = async (req, res, next) => {
+    try {
+        const { notificationId } = req.params;
+        await Notification.findByIdAndDelete(notificationId);
+        res.status(200).json({
+            success: true,
+            message: "Notification deleted"
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+exports.clearAllAdminNotifications = async (req, res, next) => {
+    try {
+        const adminId = req.employee.id;
+        await Notification.deleteMany({
+            $or: [
+                { adminId },
+                { targetRole: 'ADMIN' }
+            ]
+        });
+        res.status(200).json({
+            success: true,
+            message: "All admin notifications cleared"
+        });
+    } catch (err) {
+        next(err);
+    }
+};

@@ -17,6 +17,39 @@ const generateToken = (user) => {
   }, process.env.JWT_KEY,);
 };
 
+const normalizeRegionName = (name) => {
+  if (!name) return "";
+  const clean = name.toLowerCase().trim();
+  if (clean === "tiruchirappalli" || clean === "tiruchy" || clean === "trichy") {
+    return "trichy";
+  }
+  return clean;
+};
+
+const extractCityFromAddress = (address) => {
+  if (!address) return undefined;
+  const clean = address.toLowerCase();
+  if (clean.includes("trichy") || clean.includes("tiruchirappalli") || clean.includes("tiruchy")) {
+    return "trichy";
+  }
+  if (clean.includes("thanjavur") || clean.includes("tanjore")) {
+    return "thanjavur";
+  }
+  if (clean.includes("coimbatore") || clean.includes("kovai") || clean.includes("coimboratore")) {
+    return "coimbatore";
+  }
+  if (clean.includes("chennai") || clean.includes("madras")) {
+    return "chennai";
+  }
+  if (clean.includes("madurai")) {
+    return "madurai";
+  }
+  if (clean.includes("manachanallur")) {
+    return "manachanallur";
+  }
+  return undefined;
+};
+
 //Send-otp always (Firebase Initiation)
 exports.sendOtp = async (req, res, next) => {
   try {
@@ -188,6 +221,11 @@ exports.completeProfile = async (req, res, next) => {
           coordinates: [parseFloat(longitude), parseFloat(latitude)],
         },
       });
+      const resolved = extractCityFromAddress(address);
+      if (resolved) {
+        user.region = resolved;
+        user.city = resolved;
+      }
     }
     user.isVerified = true;
     const finalToken = generateToken(user._id);

@@ -756,11 +756,13 @@ exports.paymentSuccess = async (req, res, next) => {
       await booking.save();
       await resetAvailability(booking);
 
-      // Record Commission on Completion
+      // Record Commission on Completion (Disabled/Removed)
+      /*
       const empId = booking.servicerCompany || booking.primaryEmployee?._id || booking.primaryEmployee;
       const empType = booking.servicerCompany ? "team" : "single";
       const { recordCommission } = require("../services/booking.service");
       await recordCommission(booking, empId, empType, null, io);
+      */
 
       // Notify User (Customer)
       if (booking?.user?.socketId) {

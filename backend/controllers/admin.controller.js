@@ -26,9 +26,24 @@ const Notification = require('../models/notification.model');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
 const { findNearbyTeams } = require("../services/booking.service");
 
+const normalizeRegionName = (name) => {
+  if (!name) return "";
+  const clean = name.toLowerCase().trim();
+  // Use .includes() so any variant is caught
+  if (clean.includes("trichy") || clean.includes("tiruchy") ||
+      clean.includes("tiruchirappalli") || clean.includes("tiruchirapalli")) {
+    return "trichy";
+  }
+  if (clean.includes("thanjavur") || clean.includes("tanjore")) return "thanjavur";
+  if (clean.includes("coimbatore") || clean.includes("kovai"))  return "coimbatore";
+  if (clean.includes("chennai")    || clean.includes("madras")) return "chennai";
+  if (clean.includes("madurai"))    return "madurai";
+  return clean;
+};
+
 exports.inviteAdmin = async (req, res, next) => {
   try {
-    const { email, permissions } = req.body;
+    const { email, permissions, fullname } = req.body;
 
     if (!email) {
       return next(new AppError("Email is required", 400));
@@ -55,6 +70,7 @@ exports.inviteAdmin = async (req, res, next) => {
       { email },
       {
         email,
+        fullname,
         token,
         permission: permissions || [],
         expiresAt,
@@ -70,6 +86,7 @@ exports.inviteAdmin = async (req, res, next) => {
       message: "Invite generated successfully",
       token,
       email,
+      fullname,
       permissions: permissions || []
     });
   } catch (err) {
@@ -88,21 +105,64 @@ exports.getAllPermissions = async (req, res, next) => {
   }
 };
 
+exports.getInviteDetails = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    if (!token) {
+      return next(new AppError("Token is required", 400));
+    }
+    const invite = await Invite.findOne({ token });
+    if (!invite) {
+      return next(new AppError("Invite not found", 404));
+    }
+    if (invite.used) {
+      return next(new AppError("Invite has already been used", 400));
+    }
+    if (invite.expiresAt < Date.now()) {
+      return next(new AppError("Invite has expired", 400));
+    }
+    res.status(200).json({
+      success: true,
+      invite: {
+        email: invite.email,
+        fullname: invite.fullname,
+        permission: invite.permission,
+        role: invite.role
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.adminSignup = async (req, res, next) => {
   try {
     const { fullname, email, password, token } = req.body;
     if (!fullname || !email || !password || !token) {
       return next(new AppError("All the fields are required", 400));
     }
-    const invite = await Invite.findOne({ email });
+
+    // Look up the invite by token (random string) rather than email
+    const invite = await Invite.findOne({ token });
     if (!invite) {
       return next(new AppError("Invite not found", 403));
     }
     if (invite.lockedUntil && invite.lockedUntil > Date.now()) {
       return next(new AppError("Too many attempts. Try later", 403));
     }
+
+    // Verify the email matches the invite email
+    if (invite.email.toLowerCase() !== email.toLowerCase()) {
+      invite.attempts += 1;
+      if (invite.attempts >= MAX_ATTEMPTS) {
+        invite.lockedUntil = Date.now() + LOCK_TIME;
+      }
+      await invite.save();
+      return next(new AppError("Email mismatch for this invite token", 403));
+    }
+
+    // Verify invite token usage/expiration
     if (
-      invite.token !== token ||
       invite.used ||
       invite.expiresAt < Date.now()
     ) {
@@ -115,7 +175,13 @@ exports.adminSignup = async (req, res, next) => {
 
       await invite.save();
 
-      return next(new AppError("Invalid or expired token", 403));
+      return next(new AppError("Invite token is already used or expired", 403));
+    }
+
+    // Strong password validation check
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return next(new AppError("Password must be at least 8 characters long, and contain at least one uppercase letter, one lowercase letter, one number, and one special character", 400));
     }
 
     invite.attempts = 0;
@@ -124,13 +190,13 @@ exports.adminSignup = async (req, res, next) => {
     await invite.save();
 
     const admin = await Admin.create({
-      fullname,
-      email,
+      fullname: fullname || invite.fullname || "Admin",
+      email: email.toLowerCase(),
       password,
-      role: ROLES.ADMIN,
+      role: invite.role || ROLES.ADMIN,
       permissions: invite.permission,
       isApproved: true,
-    })
+    });
 
     res.status(201).json({ message: "Admin created Successfully" });
 
@@ -138,12 +204,16 @@ exports.adminSignup = async (req, res, next) => {
   catch (err) {
     next(err);
   }
-}
+};
+
 exports.adminLogin = async (req, res, next) => {
   try {
     const {email,password}=req.body;
     let admin = await Admin.findOne({ email });
 
+    if (!admin) {
+      return next(new AppError("Admin not found", 404));
+    }
 
     if (!admin.isApproved)
       throw new AppError("Not approved", 403);
@@ -168,13 +238,14 @@ exports.adminLogin = async (req, res, next) => {
         fullname: admin.fullname,
         email: admin.email,
         role: admin.role,
+        permissions: admin.permissions || []
       }
     });
   }
   catch (err) {
     next(err); //let Global error handler deal with it
   }
-}
+};
 
 exports.checkAuth = async (req, res, next) => {
   try {
@@ -352,9 +423,14 @@ exports.setServiceList = async (req, res, next) => {
 
 exports.getAllEmployee = async (req, res, next) => {
   try {
-    const singleemployee = await SingleEmployee.find().sort({ createdAt: -1 });
-    const multipleEmployee = await MultipleEmployee.find().sort({ createdAt: -1 });
-    const toolshop = await ToolShop.find().populate('categories', 'domainpartname').sort({ createdAt: -1 });
+    const rawRegion = req.query.region ? normalizeRegionName(req.query.region) : null;
+    const regionFilter = rawRegion && rawRegion !== "all"
+      ? { $or: [{ region: rawRegion }, { city: rawRegion }] }
+      : {};
+
+    const singleemployee = await SingleEmployee.find(regionFilter).sort({ createdAt: -1 });
+    const multipleEmployee = await MultipleEmployee.find(regionFilter).populate('members', 'fullname empId').sort({ createdAt: -1 });
+    const toolshop = await ToolShop.find(regionFilter).populate('categories', 'domainpartname').sort({ createdAt: -1 });
 
     // Get capabilities mapping
     const capabilities = await EmployeeService.find()
@@ -400,11 +476,32 @@ exports.DeleteDomainService = async (req, res, next) => {
       return next(new AppError("Domain service not found", 404));
     }
 
+    // 1. Clean up images of related ServiceLists & Subservices
+    const serviceLists = await ServiceList.find({ DomainServiceId: id });
+    for (const list of serviceLists) {
+      if (list.serviceCategory && list.serviceCategory.length > 0) {
+        for (const cat of list.serviceCategory) {
+          if (cat.servicecategoryImagePublicId) {
+            try {
+              await deleteFromCloudinary(cat.servicecategoryImagePublicId);
+            } catch (cloudinaryErr) {
+              console.error(`Failed to delete image ${cat.servicecategoryImagePublicId} from Cloudinary:`, cloudinaryErr);
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Cascade delete related ServiceLists
+    await ServiceList.deleteMany({ DomainServiceId: id });
+
+    // 3. Delete Domain Service image
     await deleteFromCloudinary(service.serviceImagePublicId);
 
+    // 4. Delete Domain Service document
     await service.deleteOne();
 
-    res.json({ success: true, message: "Service deleted successfully" });
+    res.json({ success: true, message: "Service and all associated lists/subservices deleted successfully" });
   } catch (err) {
     next(err); //let Global error handler deal with it
   }
@@ -989,167 +1086,191 @@ exports.unblockServicer = async (req, res, next) => {
 exports.getAdminDashboardStats = async (req, res, next) => {
   try {
     const now = new Date();
+    // Optional region filter from query string e.g. ?region=trichy
+    const rawRegion = req.query.region ? normalizeRegionName(req.query.region) : null;
+    const hasRegion = rawRegion && rawRegion !== "all";
 
     // Helper for date ranges
     const getStartOf = (unit, count) => {
       const d = new Date(now);
-      if (unit === 'day') d.setDate(d.getDate() - count);
-      if (unit === 'week') d.setDate(d.getDate() - (count * 7));
+      if (unit === 'day')   d.setDate(d.getDate() - count);
+      if (unit === 'week')  d.setDate(d.getDate() - (count * 7));
       if (unit === 'month') d.setMonth(d.getMonth() - count);
-      if (unit === 'year') d.setFullYear(d.getFullYear() - count);
+      if (unit === 'year')  d.setFullYear(d.getFullYear() - count);
       d.setHours(0, 0, 0, 0);
       return d;
     };
 
-    // 1. Basic Counts
+    // Resolve User and Employee IDs dynamically in that region/city for legacy record compatibility
+    let bookingRegionMatch = {};
+    let empRegionMatch = {};
+    let userRegionMatch = {};
+    let partRegionMatch = {};
+    let commissionRegionMatch = {};
+
+    if (hasRegion) {
+      const [usersInRegion, singlesInRegion, multiplesInRegion, shopsInRegion] = await Promise.all([
+        User.find({ $or: [{ region: rawRegion }, { city: rawRegion }] }).select("_id"),
+        SingleEmployee.find({ $or: [{ region: rawRegion }, { city: rawRegion }] }).select("_id"),
+        MultipleEmployee.find({ $or: [{ region: rawRegion }, { city: rawRegion }] }).select("_id"),
+        ToolShop.find({ $or: [{ region: rawRegion }, { city: rawRegion }] }).select("_id")
+      ]);
+
+      const userIds = usersInRegion.map(u => u._id);
+      const singleIds = singlesInRegion.map(e => e._id);
+      const multipleIds = multiplesInRegion.map(e => e._id);
+      const employeeIds = [...singleIds, ...multipleIds];
+      const shopIds = shopsInRegion.map(s => s._id);
+
+      bookingRegionMatch = {
+        $or: [
+          { region: rawRegion },
+          { city: rawRegion },
+          { user: { $in: userIds } },
+          { primaryEmployee: { $in: employeeIds } },
+          { servicerCompany: { $in: employeeIds } }
+        ]
+      };
+
+      empRegionMatch = { $or: [{ region: rawRegion }, { city: rawRegion }] };
+      userRegionMatch = { $or: [{ region: rawRegion }, { city: rawRegion }] };
+      partRegionMatch = { employeeId: { $in: employeeIds } };
+      commissionRegionMatch = { empId: { $in: [...employeeIds, ...shopIds] } };
+    }
+
+    // 1. Basic Counts (filtered by region)
     const [singleCount, multiCount, shopCount, bookingCount, userCount] = await Promise.all([
-      SingleEmployee.countDocuments(),
-      MultipleEmployee.countDocuments(),
-      ToolShop.countDocuments(),
-      Booking.countDocuments(),
-      User.countDocuments()
+      SingleEmployee.countDocuments(empRegionMatch),
+      MultipleEmployee.countDocuments(empRegionMatch),
+      ToolShop.countDocuments(empRegionMatch),
+      Booking.countDocuments(bookingRegionMatch),
+      User.countDocuments(userRegionMatch)
     ]);
 
-    // 2. Revenue Totals
+    // 2. Revenue Totals (filtered by region)
     const [serviceRevenueStats, partRevenueStats, commissionStats] = await Promise.all([
       Booking.aggregate([
-        { $match: { status: BOOKING_STATUS.COMPLETED } },
+        { $match: { status: BOOKING_STATUS.COMPLETED, ...bookingRegionMatch } },
         { $group: { _id: null, total: { $sum: "$totalServicePrice" } } }
       ]),
       PartRequest.aggregate([
-        { $match: { status: PART_REQUEST_STATUS.COLLECTED } },
+        { $match: { status: PART_REQUEST_STATUS.COLLECTED, ...partRegionMatch } },
         { $group: { _id: null, total: { $sum: "$totalCost" } } }
       ]),
-      Commission.aggregate([
-        { $group: { _id: null, total: { $sum: "$commissionAmount" } } }
+      Booking.aggregate([
+        { $match: { paymentStatus: { $in: ["paid", "partially_paid"] }, ...bookingRegionMatch } },
+        { $group: { _id: null, total: { $sum: "$advanceAmount" } } }
       ])
     ]);
 
-    const totalServiceRevenue = serviceRevenueStats.length > 0 ? serviceRevenueStats[0].total : 0;
-    const totalPartRevenue = partRevenueStats.length > 0 ? partRevenueStats[0].total : 0;
-    const totalCommissionPrice = commissionStats.length > 0 ? commissionStats[0].total : 0;
-    const grandTotalRevenue = totalServiceRevenue + totalPartRevenue;
+    const totalServiceRevenue   = serviceRevenueStats[0]?.total || 0;
+    const totalPartRevenue      = partRevenueStats[0]?.total    || 0;
+    const totalCommissionPrice  = commissionStats[0]?.total     || 0;
+    const grandTotalRevenue     = totalServiceRevenue + totalPartRevenue;
 
     // 3. Trends Aggregation Helper
     const getTrends = async (startDate, groupFormat) => {
       const [service, parts, commissions] = await Promise.all([
         Booking.aggregate([
-          { $match: { status: BOOKING_STATUS.COMPLETED, createdAt: { $gte: startDate } } },
-          {
-            $group: {
-              _id: groupFormat,
-              serviceRevenue: { $sum: "$totalServicePrice" }
-            }
-          },
+          { $match: { status: BOOKING_STATUS.COMPLETED, createdAt: { $gte: startDate }, ...bookingRegionMatch } },
+          { $group: { _id: groupFormat, serviceRevenue: { $sum: "$totalServicePrice" } } },
           { $sort: { "_id": 1 } }
         ]),
         PartRequest.aggregate([
-          { $match: { status: PART_REQUEST_STATUS.COLLECTED, createdAt: { $gte: startDate } } },
-          {
-            $group: {
-              _id: groupFormat,
-              partRevenue: { $sum: "$totalCost" }
-            }
-          },
+          { $match: { status: PART_REQUEST_STATUS.COLLECTED, createdAt: { $gte: startDate }, ...partRegionMatch } },
+          { $group: { _id: groupFormat, partRevenue: { $sum: "$totalCost" } } },
           { $sort: { "_id": 1 } }
         ]),
-        Commission.aggregate([
-          { $match: { createdAt: { $gte: startDate } } },
-          {
-            $group: {
-              _id: groupFormat,
-              commissionRevenue: { $sum: "$commissionAmount" }
-            }
-          },
+        Booking.aggregate([
+          { $match: { paymentStatus: { $in: ["paid", "partially_paid"] }, createdAt: { $gte: startDate }, ...bookingRegionMatch } },
+          { $group: { _id: groupFormat, commissionRevenue: { $sum: "$advanceAmount" } } },
           { $sort: { "_id": 1 } }
         ])
       ]);
       return { service, parts, commissions };
     };
 
-
     // Define Timeframes
-    const dayStart = getStartOf('day', 7);
-    const weekStart = getStartOf('week', 8);
+    const dayStart   = getStartOf('day',   7);
+    const weekStart  = getStartOf('week',  8);
     const monthStart = getStartOf('month', 6);
-    const yearStart = getStartOf('year', 5);
+    const yearStart  = getStartOf('year',  5);
 
     // Run Aggregations
     const [dailyData, weeklyData, monthlyData, yearlyData] = await Promise.all([
-      getTrends(dayStart, { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }),
-      getTrends(weekStart, { $concat: [{ $toString: { $year: "$createdAt" } }, "-W", { $toString: { $week: "$createdAt" } }] }),
+      getTrends(dayStart,   { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }),
+      getTrends(weekStart,  { $concat: [{ $toString: { $year: "$createdAt" } }, "-W", { $toString: { $week: "$createdAt" } }] }),
       getTrends(monthStart, { $dateToString: { format: "%Y-%m", date: "$createdAt" } }),
-      getTrends(yearStart, { $dateToString: { format: "%Y", date: "$createdAt" } })
+      getTrends(yearStart,  { $dateToString: { format: "%Y",    date: "$createdAt" } })
     ]);
 
     // Format Trends Helper
     const formatTrends = (data, timeframe, count) => {
       const merged = {};
 
-      // Initialize empty slots
       for (let i = 0; i < count; i++) {
         const d = new Date(now);
         let key, label;
 
         if (timeframe === 'day') {
           d.setDate(d.getDate() - i);
-          key = d.toISOString().split('T')[0];
+          key   = d.toISOString().split('T')[0];
           label = d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
         } else if (timeframe === 'week') {
           d.setDate(d.getDate() - (i * 7));
-          // Simplified week key (not ISO but consistent with aggregate)
           const weekNum = Math.ceil((((d - new Date(d.getFullYear(), 0, 1)) / 86400000) + 1) / 7);
-          key = `${d.getFullYear()}-W${weekNum}`;
+          key   = `${d.getFullYear()}-W${weekNum}`;
           label = `Week ${weekNum}`;
         } else if (timeframe === 'month') {
           d.setMonth(d.getMonth() - i);
-          key = d.toISOString().slice(0, 7);
+          key   = d.toISOString().slice(0, 7);
           label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         } else if (timeframe === 'year') {
           d.setFullYear(d.getFullYear() - i);
-          key = d.getFullYear().toString();
+          key   = d.getFullYear().toString();
           label = key;
         }
 
         merged[key] = { label, serviceRevenue: 0, partRevenue: 0, commissionRevenue: 0, totalRevenue: 0 };
       }
 
-      data.service.forEach(item => { if (merged[item._id]) { merged[item._id].serviceRevenue = item.serviceRevenue; merged[item._id].totalRevenue += item.serviceRevenue; } });
-      data.parts.forEach(item => { if (merged[item._id]) { merged[item._id].partRevenue = item.partRevenue; merged[item._id].totalRevenue += item.partRevenue; } });
+      data.service.forEach(item     => { if (merged[item._id]) { merged[item._id].serviceRevenue    = item.serviceRevenue;    merged[item._id].totalRevenue += item.serviceRevenue; } });
+      data.parts.forEach(item       => { if (merged[item._id]) { merged[item._id].partRevenue       = item.partRevenue;       merged[item._id].totalRevenue += item.partRevenue; } });
       data.commissions.forEach(item => { if (merged[item._id]) { merged[item._id].commissionRevenue = item.commissionRevenue; } });
 
       return Object.values(merged).reverse();
     };
 
-    // 4. Booking Status Distribution
+    // 4. Booking Status Distribution (filtered by region)
     const statusDistribution = await Booking.aggregate([
+      { $match: bookingRegionMatch },
       { $group: { _id: "$status", count: { $count: {} } } }
     ]);
 
     res.json({
       success: true,
+      region: rawRegion || "all",
       counts: {
-        singleEmployee: singleCount,
+        singleEmployee:   singleCount,
         multipleEmployee: multiCount,
-        toolShop: shopCount,
-        totalBookings: bookingCount,
-        totalemp: singleCount + multiCount + shopCount,
-        userCount: userCount
+        toolShop:         shopCount,
+        totalBookings:    bookingCount,
+        totalemp:         singleCount + multiCount + shopCount,
+        userCount:        userCount
       },
       revenueOverview: {
         totalServiceRevenue,
         totalPartRevenue,
-        totalCommission: totalCommissionPrice,
+        totalCommission:      totalCommissionPrice,
         totalCommissionPrice,
         grandTotalRevenue
       },
       trends: {
-        daily: formatTrends(dailyData, 'day', 7),
-        weekly: formatTrends(weeklyData, 'week', 8),
+        daily:   formatTrends(dailyData,   'day',   7),
+        weekly:  formatTrends(weeklyData,  'week',  8),
         monthly: formatTrends(monthlyData, 'month', 6),
-        yearly: formatTrends(yearlyData, 'year', 5)
+        yearly:  formatTrends(yearlyData,  'year',  5)
       },
-      // Backward compatibility for existing frontend
       monthlyTrends: formatTrends(monthlyData, 'month', 6),
       statusDistribution
     });
@@ -1191,7 +1312,6 @@ exports.exportDashboardData = async (req, res, next) => {
 };
 
 exports.getLiveBookings = async (req, res, next) => {
-
   try {
     const liveStatuses = [
       BOOKING_STATUS.PENDING,
@@ -1200,10 +1320,37 @@ exports.getLiveBookings = async (req, res, next) => {
       BOOKING_STATUS.IN_PROGRESS
     ];
 
-    const liveBookings = await Booking.find({ status: { $in: liveStatuses } })
-      .populate('user', 'fullName phoneNo')
-      .populate('primaryEmployee', 'fullname phoneNo')
-      .populate('servicerCompany', 'storeName ownerName')
+    // Optional region filter: ?region=trichy
+    const rawRegion = req.query.region ? normalizeRegionName(req.query.region) : null;
+    let regionFilter = {};
+
+    if (rawRegion && rawRegion !== "all") {
+      const [usersInRegion, singlesInRegion, multiplesInRegion] = await Promise.all([
+        User.find({ $or: [{ region: rawRegion }, { city: rawRegion }] }).select("_id"),
+        SingleEmployee.find({ $or: [{ region: rawRegion }, { city: rawRegion }] }).select("_id"),
+        MultipleEmployee.find({ $or: [{ region: rawRegion }, { city: rawRegion }] }).select("_id")
+      ]);
+
+      const userIds = usersInRegion.map(u => u._id);
+      const singleIds = singlesInRegion.map(e => e._id);
+      const multipleIds = multiplesInRegion.map(e => e._id);
+      const employeeIds = [...singleIds, ...multipleIds];
+
+      regionFilter = {
+        $or: [
+          { region: rawRegion },
+          { city: rawRegion },
+          { user: { $in: userIds } },
+          { primaryEmployee: { $in: employeeIds } },
+          { servicerCompany: { $in: employeeIds } }
+        ]
+      };
+    }
+
+    const liveBookings = await Booking.find({ status: { $in: liveStatuses }, ...regionFilter })
+      .populate('user', 'fullName phoneNo region city')
+      .populate('primaryEmployee', 'fullname phoneNo region city')
+      .populate('servicerCompany', 'storeName ownerName region city')
       .sort({ createdAt: -1 });
 
     res.json({
@@ -1256,7 +1403,13 @@ exports.getEmployeeCapabilities = async (req, res, next) => {
 
 exports.getAllUsers = async (req, res, next) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 });
+    // Optional region filter: ?region=trichy
+    const rawRegion = req.query.region ? normalizeRegionName(req.query.region) : null;
+    const regionFilter = rawRegion && rawRegion !== "all"
+      ? { $or: [{ region: rawRegion }, { city: rawRegion }] }
+      : {};
+
+    const users = await User.find(regionFilter).sort({ createdAt: -1 });
     res.json({
       success: true,
       user: users
@@ -1415,7 +1568,8 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
       return next(new AppError("Servicer is currently blocked", 400));
     }
 
-    // --- Commission Owed Check ---
+    // --- Commission Owed Check (Disabled/Bypassed) ---
+    /*
     const unpaidData = await Commission.aggregate([
       { $match: { empId: new mongoose.Types.ObjectId(servicerId), status: { $ne: 'PAID' } } },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
@@ -1424,6 +1578,7 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
     if (totalUnpaid >= 1000) {
       return next(new AppError("Servicer is blocked due to outstanding commission >= 1000", 400));
     }
+    */
 
     // Check availability
     const statusField = isSingle ? "availabilityStatus" : "teamStatus";
@@ -1543,28 +1698,67 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
 exports.getAllCommissionsAdmin = async (req, res, next) => {
   try {
     const { status, empId } = req.query;
-    let filter = {};
-    if (status) filter.status = status;
-    if (empId) filter.empId = empId;
+    let filter = { status: BOOKING_STATUS.COMPLETED };
 
-    const commissions = await Commission.find(filter)
-      .populate('serviceId', 'serviceName')
-      .populate('empId', 'fullname storeName phoneNo')
+    if (empId) {
+      const empObjectId = new mongoose.Types.ObjectId(empId);
+      filter.$or = [
+        { primaryEmployee: empObjectId },
+        { servicerCompany: empObjectId }
+      ];
+    }
+
+    const bookings = await Booking.find(filter)
+      .populate('primaryEmployee', 'fullname storeName phoneNo')
+      .populate('servicerCompany', 'ownerName storeName phoneNo')
       .sort({ createdAt: -1 });
 
-    // Aggregated summary per employee
-    const summary = await Commission.aggregate([
+    const commissions = bookings.map(b => {
+      const emp = b.servicerCompany || b.primaryEmployee;
+      return {
+        _id: b._id.toString(),
+        empId: {
+          _id: emp?._id,
+          fullname: emp?.fullname || emp?.ownerName || emp?.storeName || 'Unknown',
+          storeName: emp?.storeName || emp?.ownerName || emp?.fullname || 'Unknown',
+          phoneNo: emp?.phoneNo || ''
+        },
+        empType: b.servicerCompany ? 'TEAM' : 'SINGLE',
+        commissionAmount: b.paymentType === 'FULL' ? (b.totalPrice || 0) : (b.advanceAmount || 0),
+        paymentType: b.paymentType || 'FULL',
+        serviceId: { serviceName: b.serviceCategoryName },
+        status: b.paymentStatus === 'paid' ? 'PAID' : 'PENDING',
+        createdAt: b.createdAt
+      };
+    });
+
+    // Aggregated summary per employee based on bookings
+    const summary = await Booking.aggregate([
+      { $match: { status: BOOKING_STATUS.COMPLETED } },
       {
         $group: {
-          _id: "$empId",
-          empModel: { $first: "$empModel" },
-          totalCommission: { $sum: "$commissionAmount" },
-          totalPaid: { $sum: { $ifNull: ["$paidAmount", 0] } },
+          _id: { $ifNull: ["$primaryEmployee", "$servicerCompany"] },
+          empModel: {
+            $first: {
+              $cond: [{ $ifNull: ["$servicerCompany", false] }, "MultipleEmployee", "SingleEmployee"]
+            }
+          },
+          totalCommission: { $sum: "$totalPrice" },
+          totalPaid: {
+            $sum: {
+              $cond: [
+                { $eq: ["$paymentType", "FULL"] },
+                "$totalPrice",
+                { $ifNull: ["$advanceAmount", 0] }
+              ]
+            }
+          },
           totalPending: {
             $sum: {
-              $subtract: [
-                "$commissionAmount",
-                { $ifNull: ["$paidAmount", 0] }
+              $cond: [
+                { $eq: ["$paymentType", "FULL"] },
+                0,
+                { $ifNull: ["$remainingAmount", 0] }
               ]
             }
           }
@@ -1623,7 +1817,7 @@ exports.getAllCommissionsAdmin = async (req, res, next) => {
           type: "$employee.role"
         }
       },
-      { $sort: { totalPending: -1 } }
+      { $sort: { totalPaid: -1 } }
     ]);
 
     res.json({ success: true, commissions, summary });
@@ -1678,7 +1872,8 @@ exports.adminAddCommission = async (req, res, next) => {
 
     const totalUnpaid = unpaidData[0]?.total || 0;
 
-    // Automatically block the servicer if >= 1000
+    // Automatically block the servicer if >= 1000 (Disabled/Bypassed)
+    /*
     if (totalUnpaid >= 1000) {
       if (empType === ROLES.SINGLE_EMPLOYEE) {
         await SingleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
@@ -1686,6 +1881,7 @@ exports.adminAddCommission = async (req, res, next) => {
         await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
       }
     }
+    */
 
     res.json({
       success: true,
@@ -2077,6 +2273,378 @@ exports.adminSendNotification = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: "Custom notification sent successfully"
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getRegions = async (req, res, next) => {
+  try {
+    const singleemployee = await SingleEmployee.find({}, 'region city').lean();
+    const multipleEmployee = await MultipleEmployee.find({}, 'region city').lean();
+    const toolshop = await ToolShop.find({}, 'region city').lean();
+    const bookings = await Booking.find({}, 'region city').lean();
+    const admins = await Admin.find({}, 'region').lean();
+
+    const allStrings = [
+      ...singleemployee.map(e => e.region),
+      ...singleemployee.map(e => e.city),
+      ...multipleEmployee.map(e => e.region),
+      ...multipleEmployee.map(e => e.city),
+      ...toolshop.map(t => t.region),
+      ...toolshop.map(t => t.city),
+      ...bookings.map(b => b.region),
+      ...bookings.map(b => b.city),
+      ...admins.map(a => a.region)
+    ].filter(Boolean);
+
+    const regions = Array.from(new Set(allStrings.map(r => r.toLowerCase().trim())));
+    res.json({
+      success: true,
+      regions
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.addEmployee = async (req, res, next) => {
+  try {
+    const {
+      employeeType,
+      phoneNo,
+      email,
+      password,
+      region,
+      city,
+      capabilities,
+      fullname,
+      ownerName,
+      storeName,
+      shopName,
+      gstNo
+    } = req.body;
+
+    const cleanPhone = phoneNo.trim();
+    const maskedPhone = cleanPhone.slice(0, 2) + "******" + cleanPhone.slice(-2);
+
+    // Default location based on region
+    let coordinates = [78.6824, 10.7905]; // Trichy default
+    if (region && region.toLowerCase() === 'thanjavur') {
+      coordinates = [79.1378, 10.7870];
+    }
+
+    let createdEmployee;
+
+    if (employeeType === 'single_employee') {
+      createdEmployee = await SingleEmployee.create({
+        fullname,
+        phoneNo: cleanPhone,
+        phoneMasked: maskedPhone,
+        address: region ? region.toUpperCase() : "TRICHY",
+        aadhaarNo: "DUMMY_AADHAAR",
+        aadhaarMasked: "XXXX-XXXX-DUMMY",
+        aadhaarHash: "DUMMY_HASH_" + Date.now(),
+        location: {
+          type: "Point",
+          coordinates
+        },
+        role: ROLES.SINGLE_EMPLOYEE,
+        region: region ? normalizeRegionName(region) : "trichy",
+        city: city ? normalizeRegionName(city) : "trichy",
+        isActive: true,
+        verified: "Yes"
+      });
+
+      // Map capabilities to EmployeeService
+      if (capabilities && capabilities.length > 0) {
+        // Find matching domain services
+        const matchedServices = await DomainService.find({
+          domainName: { $in: capabilities.map(c => new RegExp("^" + c + "$", "i")) }
+        });
+        if (matchedServices.length > 0) {
+          await EmployeeService.create({
+            employeeId: createdEmployee._id,
+            capableservice: matchedServices.map(s => s._id)
+          });
+        }
+      }
+    } else if (employeeType === 'multiple_employee') {
+      createdEmployee = await MultipleEmployee.create({
+        storeName,
+        ownerName,
+        storeLocation: region ? region.toUpperCase() : "TRICHY",
+        phoneNo: cleanPhone,
+        phoneMasked: maskedPhone,
+        role: ROLES.MULTIPLE_EMPLOYEE,
+        location: {
+          type: "Point",
+          coordinates
+        },
+        region: region ? normalizeRegionName(region) : "trichy",
+        city: city ? normalizeRegionName(city) : "trichy",
+        isActive: true
+      });
+    } else if (employeeType === 'tool_shop') {
+      createdEmployee = await ToolShop.create({
+        shopName,
+        ownerName,
+        gstNo,
+        storeLocation: region ? region.toUpperCase() : "TRICHY",
+        phoneNo: cleanPhone,
+        phoneMasked: maskedPhone,
+        role: ROLES.TOOL_SHOP,
+        location: {
+          type: "Point",
+          coordinates
+        },
+        region: region ? normalizeRegionName(region) : "trichy",
+        city: city ? normalizeRegionName(city) : "trichy",
+        isActive: true
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "Employee onboarded successfully",
+      employee: createdEmployee
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateEmployee = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const {
+      employeeType,
+      phoneNo,
+      fullname,
+      ownerName,
+      storeName,
+      shopName,
+      gstNo,
+      region,
+      city,
+      capabilities
+    } = req.body;
+
+    let updatedEmployee;
+
+    if (employeeType === 'single_employee' || employeeType === ROLES.SINGLE_EMPLOYEE) {
+      const updates = {};
+      if (fullname) updates.fullname = fullname;
+      if (phoneNo) {
+        updates.phoneNo = phoneNo.trim();
+        updates.phoneMasked = phoneNo.trim().slice(0, 2) + "******" + phoneNo.trim().slice(-2);
+      }
+      if (region) {
+        updates.region = normalizeRegionName(region);
+        updates.address = region.toUpperCase();
+      }
+      if (city) updates.city = normalizeRegionName(city);
+
+      updatedEmployee = await SingleEmployee.findByIdAndUpdate(id, updates, { new: true });
+
+      // Update capabilities if specified
+      if (capabilities) {
+        // Remove existing mapping
+        await EmployeeService.deleteMany({ employeeId: id });
+        
+        // Find matching domain services
+        const matchedServices = await DomainService.find({
+          domainName: { $in: capabilities.map(c => new RegExp("^" + c + "$", "i")) }
+        });
+        if (matchedServices.length > 0) {
+          await EmployeeService.create({
+            employeeId: id,
+            capableservice: matchedServices.map(s => s._id)
+          });
+        }
+      }
+    } else if (employeeType === 'multiple_employee' || employeeType === ROLES.MULTIPLE_EMPLOYEE) {
+      const updates = {};
+      if (storeName) updates.storeName = storeName;
+      if (ownerName) updates.ownerName = ownerName;
+      if (phoneNo) {
+        updates.phoneNo = phoneNo.trim();
+        updates.phoneMasked = phoneNo.trim().slice(0, 2) + "******" + phoneNo.trim().slice(-2);
+      }
+      if (region) {
+        updates.region = normalizeRegionName(region);
+        updates.storeLocation = region.toUpperCase();
+      }
+      if (city) updates.city = normalizeRegionName(city);
+
+      updatedEmployee = await MultipleEmployee.findByIdAndUpdate(id, updates, { new: true });
+    } else if (employeeType === 'tool_shop' || employeeType === ROLES.TOOL_SHOP) {
+      const updates = {};
+      if (shopName) updates.shopName = shopName;
+      if (ownerName) updates.ownerName = ownerName;
+      if (gstNo) updates.gstNo = gstNo;
+      if (phoneNo) {
+        updates.phoneNo = phoneNo.trim();
+        updates.phoneMasked = phoneNo.trim().slice(0, 2) + "******" + phoneNo.trim().slice(-2);
+      }
+      if (region) {
+        updates.region = normalizeRegionName(region);
+        updates.storeLocation = region.toUpperCase();
+      }
+      if (city) updates.city = normalizeRegionName(city);
+
+      updatedEmployee = await ToolShop.findByIdAndUpdate(id, updates, { new: true });
+    }
+
+    if (!updatedEmployee) {
+      return next(new AppError("Employee not found", 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Employee updated successfully",
+      employee: updatedEmployee
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { fullName, phoneNo, region, city } = req.body;
+
+    const updates = {};
+    if (fullName) updates.fullName = fullName;
+    if (phoneNo) {
+      updates.phoneNo = phoneNo.trim();
+      updates.phoneMasked = phoneNo.trim().slice(0, 2) + "******" + phoneNo.trim().slice(-2);
+    }
+    if (region) updates.region = normalizeRegionName(region);
+    if (city) updates.city = normalizeRegionName(city);
+
+    const updatedUser = await User.findByIdAndUpdate(id, updates, { new: true });
+    if (!updatedUser) {
+      return next(new AppError("User not found", 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "User updated successfully",
+      user: updatedUser
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listAdmins = async (req, res, next) => {
+  try {
+    const admins = await Admin.find({}, '-password').sort({ createdAt: -1 });
+    res.status(200).json({
+      success: true,
+      admins
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listInvites = async (req, res, next) => {
+  try {
+    const invites = await Invite.find({}).sort({ createdAt: -1 });
+    res.status(200).json({
+      success: true,
+      invites
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteInvite = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await Invite.findByIdAndDelete(id);
+    res.status(200).json({
+      success: true,
+      message: "Invitation deleted successfully"
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateAdmin = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { fullname, email, role, permissions, isApproved } = req.body;
+
+    const updates = {};
+    if (fullname) updates.fullname = fullname;
+    if (email) updates.email = email.toLowerCase();
+    if (isApproved !== undefined) updates.isApproved = isApproved;
+    
+    if (role) {
+      if (!Object.values(ROLES).includes(role)) {
+        return next(new AppError("Invalid role", 400));
+      }
+      updates.role = role;
+    }
+
+    if (permissions && Array.isArray(permissions)) {
+      const validPermissions = Object.values(PERMISSIONS);
+      const invalidPermissions = permissions.filter(p => !validPermissions.includes(p));
+      if (invalidPermissions.length > 0) {
+        return next(new AppError(`Invalid permissions: ${invalidPermissions.join(', ')}`, 400));
+      }
+      updates.permissions = permissions;
+    }
+
+    const admin = await Admin.findByIdAndUpdate(id, updates, { new: true, runValidators: true });
+    if (!admin) {
+      return next(new AppError("Admin not found", 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Admin updated successfully",
+      admin
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeAdmin = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Prevent self-deletion or deleting the last super admin
+    const adminToDelete = await Admin.findById(id);
+    if (!adminToDelete) {
+      return next(new AppError("Admin not found", 404));
+    }
+    
+    if (adminToDelete.role === ROLES.SUPER_ADMIN) {
+      // Count super admins
+      const superAdminCount = await Admin.countDocuments({ role: ROLES.SUPER_ADMIN });
+      if (superAdminCount <= 1) {
+        return next(new AppError("Cannot delete the last Super Admin", 400));
+      }
+    }
+
+    if (adminToDelete._id.toString() === req.employeeId.toString()) {
+      return next(new AppError("You cannot delete your own account", 400));
+    }
+
+    await Admin.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: "Administrator removed successfully"
     });
   } catch (err) {
     next(err);

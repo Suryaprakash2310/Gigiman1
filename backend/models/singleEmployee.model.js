@@ -96,7 +96,16 @@ const singleEmployeeSchema = new mongoose.Schema({
     default: "AVAILABLE",
     index: true
   },
-
+  region: {
+    type: String,
+    default: "trichy",
+    index: true
+  },
+  city: {
+    type: String,
+    default: "trichy",
+    index: true
+  }
 }, { timestamps: true });
 
 singleEmployeeSchema.index({ location: "2dsphere" });

@@ -155,3 +155,20 @@ exports.validateCoupon = async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error', error: error.message });
     }
 };
+
+// Delete coupon (Admin)
+exports.deleteCoupon = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const coupon = await Coupon.findByIdAndDelete(id);
+        
+        if (!coupon) {
+            return res.status(404).json({ success: false, message: 'Coupon not found' });
+        }
+
+        res.status(200).json({ success: true, message: 'Coupon deleted successfully' });
+    } catch (error) {
+        console.error("Error deleting coupon:", error);
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    }
+};

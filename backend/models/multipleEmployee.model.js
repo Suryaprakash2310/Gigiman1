@@ -108,6 +108,16 @@ const MultipleEmployeeSchema = new mongoose.Schema({
     enum: ["AVAILABLE", "OFFERED", "BUSY"],
     default: "AVAILABLE",
   },
+  region: {
+    type: String,
+    default: "trichy",
+    index: true
+  },
+  city: {
+    type: String,
+    default: "trichy",
+    index: true
+  }
 }, { timestamps: true });
 
 MultipleEmployeeSchema.index({ location: "2dsphere" });
