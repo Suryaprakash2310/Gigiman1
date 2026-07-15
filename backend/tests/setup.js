@@ -96,6 +96,16 @@ jest.mock('../services/booking.schedule', () => ({
     startScheduler: jest.fn()
 }));
 
+jest.mock('puppeteer', () => ({
+    launch: jest.fn().mockResolvedValue({
+        newPage: jest.fn().mockResolvedValue({
+            setContent: jest.fn().mockResolvedValue(null),
+            pdf: jest.fn().mockResolvedValue(Buffer.from('mock pdf')),
+        }),
+        close: jest.fn().mockResolvedValue(null)
+    })
+}));
+
 jest.setTimeout(300000);
 
 jest.mock('razorpay', () => {

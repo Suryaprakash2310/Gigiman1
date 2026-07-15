@@ -25,8 +25,7 @@ module.exports = (server) => {
     const io = new Server(server, {
         cors: {
             origin: "*",
-            methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-            credentials: true,
+            methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
         },
         transports: ["websocket"],//Disable long-polling in productive
         pingInterval: 25000,      //How often ping is sent

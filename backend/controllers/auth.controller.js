@@ -105,7 +105,8 @@ exports.ShowServices = async (req, res, next) => {
     const services = await DomainService.find({}, {
       _id: 1,
       domainName: 1,
-      serviceImage: 1
+      serviceImage: 1,
+      status: 1
     })
       .sort({ domainName: 1 })
       .lean();
@@ -183,6 +184,7 @@ exports.getServiceCategoryById = async (req, res, next) => {
             price: "$serviceCategory.price",
             durationInMinutes: "$serviceCategory.durationInMinutes",
             employeeCount: "$serviceCategory.employeeCount",
+            status: "$serviceCategory.status",
           }
         }
       },
@@ -223,6 +225,7 @@ exports.ShowsubserviceId = async (req, res, next) => {
         "serviceCategory.price": 1,
         "serviceCategory.durationInMinutes": 1,
         "serviceCategory.employeeCount": 1,
+        "serviceCategory.status": 1,
         createdAt: 1,
       })
       .sort({ createdAt: 1 }) // oldest first, optional

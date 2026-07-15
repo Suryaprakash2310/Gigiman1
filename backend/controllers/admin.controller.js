@@ -283,7 +283,7 @@ exports.getEmployeecounts = async (req, res, next) => {
 
 exports.Adddomainservice = async (req, res, next) => {
   try {
-    const { domainName } = req.body;
+    const { domainName, status } = req.body;
     if (!domainName || !req.file) {
       return next(new AppError("All fields including image are required", 400));
     }
@@ -301,6 +301,7 @@ exports.Adddomainservice = async (req, res, next) => {
       domainName,
       serviceImage: result.url,
       serviceImagePublicId: result.publicId,
+      status: status || "Available",
     });
 
     return res.status(201).json({
@@ -325,7 +326,8 @@ exports.setServiceList = async (req, res, next) => {
       price,
       durationInMinutes,
       employeeCount,
-      servicecategoryImage
+      servicecategoryImage,
+      status
     } = req.body;
 
     // ================= VALIDATION =================
@@ -369,6 +371,7 @@ exports.setServiceList = async (req, res, next) => {
         price,
         durationInMinutes,
         employeeCount,
+        status: status || "Available",
         servicecategoryImage: result ? result.url : null,
         servicecategoryImagePublicId: result ? result.publicId : null,
       });
@@ -402,6 +405,7 @@ exports.setServiceList = async (req, res, next) => {
           price,
           durationInMinutes,
           employeeCount,
+          status: status || "Available",
           servicecategoryImage: result ? result.url : null,
           servicecategoryImagePublicId: result ? result.publicId : null,
         }
@@ -527,6 +531,10 @@ exports.EditDomainService = async (req, res, next) => {
       update.domainName = req.body.domainName.trim();
     }
 
+    if (req.body.status) {
+      update.status = req.body.status;
+    }
+
     if (req.file) {
       if (domainservice.serviceImagePublicId) {
         await deleteFromCloudinary(domainservice.serviceImagePublicId);
@@ -593,6 +601,10 @@ exports.updateServiceCategory = async (req, res, next) => {
 
     if (req.body.employeeCount) {
       category.employeeCount = req.body.employeeCount;
+    }
+
+    if (req.body.status) {
+      category.status = req.body.status;
     }
 
     if (req.file) {
@@ -2645,6 +2657,25 @@ exports.removeAdmin = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: "Administrator removed successfully"
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAllReviewsAdmin = async (req, res, next) => {
+  try {
+    const reviews = await Review.find()
+      .populate('user', 'fullName phoneNo email')
+      .populate('primaryEmployee', 'fullname phoneNo')
+      .populate('company', 'storeName')
+      .populate('booking', 'serviceCategoryName address createdAt totalPrice')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: reviews.length,
+      reviews
     });
   } catch (err) {
     next(err);

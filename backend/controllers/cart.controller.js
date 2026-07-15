@@ -27,6 +27,17 @@ exports.addToCart = async (req, res, next) => {
             throw new AppError("Service category detail not found", 404);
         }
 
+        // Check if service or parent domain is "Coming Soon"
+        const DomainService = require('../models/domainservice.model');
+        const domain = await DomainService.findById(serviceList.DomainServiceId);
+        if (domain && domain.status === "Coming Soon") {
+            throw new AppError("This service category is coming soon and cannot be added to the cart", 400);
+        }
+
+        if (category.status === "Coming Soon") {
+            throw new AppError("This service is coming soon and cannot be added to the cart", 400);
+        }
+
         let cart = await Cart.findOne({ user: userId });
 
         if (!cart) {

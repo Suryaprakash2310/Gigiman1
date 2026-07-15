@@ -13,6 +13,11 @@ const domainserviceschema = mongoose.Schema({
     serviceImagePublicId: {
       type: String,
       default: null,
+    },
+    status: {
+      type: String,
+      enum: ["Available", "Coming Soon", "New Service"],
+      default: "Available",
     }
 }, { timestamps: true, autoIndex: true });
 

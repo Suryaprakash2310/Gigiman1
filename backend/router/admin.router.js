@@ -46,7 +46,8 @@ const {
     listInvites,
     deleteInvite,
     updateAdmin,
-    removeAdmin
+    removeAdmin,
+    getAllReviewsAdmin
 } = require('../controllers/admin.controller');
 const { allowRoles, hasPermission } = require('../middleware/role.middleware');
 const PERMISSIONS = require('../enum/permission.enum');
@@ -114,6 +115,7 @@ router.get("/export-dashboard", protect, hasPermission(PERMISSIONS.SYSTEM_SETTIN
 router.get("/get-all-users", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAllUsers);
 router.get("/user-history/:userId", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAdminUserHistory);
 router.get("/booking-review/:bookingId", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAdminBookingReview);
+router.get("/all-reviews", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAllReviewsAdmin);
 
 // Commission Wallet details
 router.get("/commissions", protect, hasPermission(PERMISSIONS.MANAGE_FINANCE), getAllCommissionsAdmin);

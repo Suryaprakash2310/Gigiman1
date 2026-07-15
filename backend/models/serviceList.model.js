@@ -43,6 +43,11 @@ const serviceListSchema = mongoose.Schema({
             type: Number,
             required: true,
         },
+        status: {
+            type: String,
+            enum: ["Available", "Coming Soon", "New Service"],
+            default: "Available",
+        },
     }]
 }, { timestamps: true })
 

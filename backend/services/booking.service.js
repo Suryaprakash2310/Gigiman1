@@ -1020,6 +1020,29 @@ exports.createBooking = async ({
         throw new AppError("No services in booking", 400);
     }
 
+    /* -------------------------
+       Check if any service/category is "Coming Soon"
+    ------------------------- */
+    const DomainService = require("../models/domainservice.model");
+    for (const item of items) {
+        const serviceList = await ServiceList.findOne({
+            "serviceCategory._id": item.serviceCategoryId
+        });
+        if (serviceList) {
+            const category = serviceList.serviceCategory.find(
+                c => c._id.toString() === item.serviceCategoryId.toString()
+            );
+            if (category && category.status === "Coming Soon") {
+                throw new AppError(`The service "${item.serviceCategoryName}" is coming soon and cannot be booked yet`, 400);
+            }
+
+            const domain = await DomainService.findById(serviceList.DomainServiceId);
+            if (domain && domain.status === "Coming Soon") {
+                throw new AppError(`The service category "${domain.domainName}" is coming soon and cannot be booked yet`, 400);
+            }
+        }
+    }
+
     const employeeCount = Math.max(...items.map(item => item.employeeCount));
     const totalServicePrice = items.reduce(
         (sum, item) => sum + (item.price * (item.quantity || 1)),

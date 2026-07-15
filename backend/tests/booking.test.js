@@ -84,6 +84,45 @@ describe('Booking API', () => {
             expect(res.statusCode).toBe(400);
             expect(res.body.message).toContain('"userId" is required');
         });
+
+        it('should fail booking if the service category is Coming Soon', async () => {
+            await ServiceList.updateOne(
+                { "serviceCategory._id": serviceCategoryId },
+                { $set: { "serviceCategory.$.status": "Coming Soon" } }
+            );
+
+            const res = await request(app)
+                .post('/api/booking/auto-assign')
+                .set('Authorization', `Bearer ${userToken}`)
+                .send({
+                    userId: userId.toString(),
+                    serviceCategoryName: 'Full House Cleaning',
+                    address: '123 Test St',
+                    coordinates: [77.5946, 12.9716],
+                    serviceCount: 1
+                });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.body.message).toContain('coming soon');
+        });
+
+        it('should fail booking if the parent domain service is Coming Soon', async () => {
+            await DomainService.updateMany({}, { $set: { status: "Coming Soon" } });
+
+            const res = await request(app)
+                .post('/api/booking/auto-assign')
+                .set('Authorization', `Bearer ${userToken}`)
+                .send({
+                    userId: userId.toString(),
+                    serviceCategoryName: 'Full House Cleaning',
+                    address: '123 Test St',
+                    coordinates: [77.5946, 12.9716],
+                    serviceCount: 1
+                });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.body.message).toContain('coming soon');
+        });
     });
 
     describe('GET /api/booking/history/user', () => {
