@@ -34,7 +34,6 @@ const {
     getNearbyServicersForBooking,
     adminManualNotifyServicer,
     getAllCommissionsAdmin,
-    adminAddCommission,
     adminManualAssignBooking,
     adminUpdateBookingStatus,
     adminSendNotification,
@@ -123,7 +122,6 @@ router.get("/all-reviews", protect, hasPermission(PERMISSIONS.VIEW_USERS), getAl
 
 // Commission Wallet details
 router.get("/commissions", protect, hasPermission(PERMISSIONS.MANAGE_FINANCE), getAllCommissionsAdmin);
-router.post("/add-commission", protect, hasPermission(PERMISSIONS.MANAGE_FINANCE), adminAddCommission);
 
 // Booking assignment and status updates
 router.post("/booking/assign", protect, hasPermission(PERMISSIONS.MANAGE_BOOKING), adminManualAssignBooking);
