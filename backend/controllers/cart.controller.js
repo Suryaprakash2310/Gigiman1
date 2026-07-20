@@ -60,7 +60,7 @@ exports.addToCart = async (req, res, next) => {
                 domainService: serviceList.DomainServiceId,
                 serviceCategoryId: category._id,
                 serviceCategoryName: category.serviceCategoryName,
-                price: category.price,
+                price: Math.round(category.price),
                 durationInMinutes: category.durationInMinutes,
                 employeeCount: category.employeeCount,
                 quantity: 1,
@@ -68,10 +68,10 @@ exports.addToCart = async (req, res, next) => {
             });
         }
 
-        cart.totalPrice = cart.items.reduce(
-            (sum, item) => sum + (item.price * item.quantity),
+        cart.totalPrice = Math.round(cart.items.reduce(
+            (sum, item) => sum + (Math.round(item.price) * item.quantity),
             0
-        );
+        ));
 
         await cart.save();
 
@@ -115,10 +115,10 @@ exports.removeFromCart = async (req, res, next) => {
             item.quantity -= 1;
         }
 
-        cart.totalPrice = cart.items.reduce(
-            (sum, item) => sum + (item.price * item.quantity),
+        cart.totalPrice = Math.round(cart.items.reduce(
+            (sum, item) => sum + (Math.round(item.price) * item.quantity),
             0
-        );
+        ));
 
         await cart.save();
 

@@ -8,17 +8,136 @@ const EmployeeService = require("../models/employeeService.model");
 const PartRequest = require("../models/partsrequest.model");
 const User = require("../models/user.model");
 const Coupon = require("../models/coupon.model");
+const Admin = require("../models/admin.model");
+const RegionModel = require("../models/region.model");
 const BOOKING_STATUS = require("../enum/bookingstatus.enum");
 const { SEARCH_RADIUS_METERS, RADIUS_STEPS, MAX_DISPATCH_ATTEMPTS } = require("../utils/constants");
 const mongoose = require("mongoose");
 const PART_REQUEST_STATUS = require("../enum/partsstatus.enum");
 const AppError = require("../utils/AppError");
 const Commission = require("../models/commissionwallet.model");
+const { normalizeRegionName } = require("../utils/geo");
 require("dotenv").config();
 const { sendNotification } = require("../utils/notification.util");
 
 const MAP_BOX_TOKEN = process.env.MAP_BOX_TOKEN;
 const mapboxClient = mbxGeocoding({ accessToken: MAP_BOX_TOKEN });
+
+/* ======================================================
+   ADMIN ALLOWED REGIONS & LOCATION VALIDATION
+====================================================== */
+const getAdminAllowedRegions = async () => {
+    const allowedSet = new Set();
+
+    // 1. Fetch active booking regions from RegionModel
+    try {
+        const managedRegions = await RegionModel.find({ isBookingAllowed: true }, "name code isBookingAllowed").lean();
+        if (managedRegions && managedRegions.length > 0) {
+            for (const reg of managedRegions) {
+                if (reg.code) allowedSet.add(reg.code.toLowerCase().trim());
+                if (reg.name) allowedSet.add(normalizeRegionName(reg.name));
+            }
+        }
+    } catch (e) {
+        console.error("Error fetching RegionModel:", e);
+    }
+
+    // 2. Combine with Admin assigned regions if any
+    try {
+        const admins = await Admin.find({ isApproved: true }, "allowedRegions region").lean();
+        for (const admin of admins) {
+            if (admin.region) {
+                allowedSet.add(normalizeRegionName(admin.region));
+            }
+            if (Array.isArray(admin.allowedRegions)) {
+                for (const r of admin.allowedRegions) {
+                    if (r) allowedSet.add(normalizeRegionName(r));
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Error fetching Admin allowed regions:", e);
+    }
+
+    if (allowedSet.has("*") || allowedSet.has("all")) {
+        return { isAllAllowed: true, allowedRegions: ["*"] };
+    }
+
+    if (allowedSet.size === 0) {
+        return { isAllAllowed: false, allowedRegions: ["trichy", "thanjavur", "coimbatore", "chennai", "madurai"] };
+    }
+
+    return { isAllAllowed: false, allowedRegions: Array.from(allowedSet) };
+};
+
+const validateBookingLocation = async ({ address, coordinates }) => {
+    let lngLat = coordinates;
+    let placeText = address || "";
+
+    if (!lngLat && address) {
+        try {
+            lngLat = await exports.geocodeAddress(address);
+        } catch (e) {
+            // Geocoding error fallback
+        }
+    }
+
+    if (lngLat && Array.isArray(lngLat) && lngLat.length === 2 && MAP_BOX_TOKEN) {
+        try {
+            const revRes = await mapboxClient.reverseGeocode({
+                query: lngLat,
+                limit: 1,
+            }).send();
+            const feature = revRes?.body?.features?.[0];
+            if (feature) {
+                const geoPlace = feature.place_name || feature.text || "";
+                placeText = (placeText ? placeText + " " : "") + geoPlace;
+            }
+        } catch (err) {
+            console.log("Reverse geocode warning:", err.message);
+        }
+    }
+
+    const detectedRegion = normalizeRegionName(placeText);
+    const { isAllAllowed, allowedRegions } = await getAdminAllowedRegions();
+
+    if (isAllAllowed) {
+        return { isAllowed: true, detectedRegion: detectedRegion || "all", allowedRegions };
+    }
+
+    if (detectedRegion) {
+        const matched = allowedRegions.some(reg => {
+            const norm = normalizeRegionName(reg);
+            return norm === detectedRegion || detectedRegion.includes(norm) || norm.includes(detectedRegion);
+        });
+
+        if (matched) {
+            return { isAllowed: true, detectedRegion, allowedRegions };
+        }
+    }
+
+    if (address) {
+        const cleanAddr = address.toLowerCase();
+        const directMatch = allowedRegions.some(reg => {
+            const norm = normalizeRegionName(reg);
+            return cleanAddr.includes(norm) || (norm === "trichy" && (cleanAddr.includes("tiruchirappalli") || cleanAddr.includes("tiruchy")));
+        });
+
+        if (directMatch) {
+            return { isAllowed: true, detectedRegion: detectedRegion || "allowed_region", allowedRegions };
+        }
+    }
+
+    return {
+        isAllowed: false,
+        detectedRegion: detectedRegion || "Unknown Region",
+        allowedRegions
+    };
+};
+
+exports.getAdminAllowedRegions = getAdminAllowedRegions;
+exports.validateBookingLocation = validateBookingLocation;
+
 
 const notifyFailedAssignment = async (bookingId, io) => {
     try {
@@ -976,7 +1095,7 @@ exports.createBooking = async ({
 }) => {
 
     /* -------------------------
-       Validate coordinates
+       Validate coordinates & Location Region
     ------------------------- */
     if (
         !Array.isArray(coordinates) ||
@@ -985,6 +1104,14 @@ exports.createBooking = async ({
         typeof coordinates[1] !== "number"
     ) {
         throw new AppError("Invalid or missing coordinates", 400);
+    }
+
+    const locationCheck = await validateBookingLocation({ address, coordinates });
+    if (!locationCheck.isAllowed) {
+        throw new AppError(
+            `Service is not available in your region (${locationCheck.detectedRegion}). Currently available in: ${locationCheck.allowedRegions.join(", ")}`,
+            400
+        );
     }
 
     let items = cartItems;
@@ -1009,7 +1136,7 @@ exports.createBooking = async ({
         items = [{
             serviceCategoryId: category._id,
             serviceCategoryName: category.serviceCategoryName,
-            price: category.price,
+            price: Math.round(category.price),
             durationInMinutes: category.durationInMinutes,
             employeeCount: category.employeeCount,
             quantity: serviceCount
@@ -1044,10 +1171,10 @@ exports.createBooking = async ({
     }
 
     const employeeCount = Math.max(...items.map(item => item.employeeCount));
-    const totalServicePrice = items.reduce(
-        (sum, item) => sum + (item.price * (item.quantity || 1)),
+    const totalServicePrice = Math.round(items.reduce(
+        (sum, item) => sum + (Math.round(item.price) * (item.quantity || 1)),
         0
-    );
+    ));
     const durationInMinutes = items.reduce(
         (sum, item) => sum + item.durationInMinutes,
         0
@@ -1080,19 +1207,20 @@ exports.createBooking = async ({
         }
 
         if (coupon.discountType === 'PERCENTAGE') {
-            discountAmount = (totalServicePrice * coupon.discountValue) / 100;
+            discountAmount = Math.round((totalServicePrice * coupon.discountValue) / 100);
             if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
-                discountAmount = coupon.maxDiscount;
+                discountAmount = Math.round(coupon.maxDiscount);
             }
         } else {
-            discountAmount = coupon.discountValue;
+            discountAmount = Math.round(coupon.discountValue);
         }
 
         if (discountAmount > totalServicePrice) {
             discountAmount = totalServicePrice;
         }
 
-        totalPrice -= discountAmount;
+        discountAmount = Math.round(discountAmount);
+        totalPrice = Math.round(totalServicePrice - discountAmount);
         appliedCouponId = coupon._id;
 
         // Increment used count
@@ -1108,11 +1236,10 @@ exports.createBooking = async ({
     let remainingAmount = 0;
 
     if (paymentType === "ADVANCE") {
-        advanceAmount = totalPrice * 0.18;
-        advanceAmount = Math.round(advanceAmount * 100) / 100;
-        remainingAmount = Math.round((totalPrice - advanceAmount) * 100) / 100;
+        advanceAmount = Math.round(totalPrice * 0.18);
+        remainingAmount = Math.round(totalPrice - advanceAmount);
     } else {
-        advanceAmount = totalPrice;
+        advanceAmount = Math.round(totalPrice);
         remainingAmount = 0;
     }
 
@@ -1589,7 +1716,7 @@ exports.proposeVisitServiceSocket = async (
         const proposal = {
             serviceCategoryId,
             serviceCategoryName: category.serviceCategoryName,
-            price: category.price,
+            price: Math.round(category.price),
             durationInMinutes: category.durationInMinutes,
             employeeCount: category.employeeCount,
             proposedAt: new Date()
@@ -1600,7 +1727,7 @@ exports.proposeVisitServiceSocket = async (
 
         booking.proposalHistory.push({
             serviceCategoryName: category.serviceCategoryName,
-            price: category.price,
+            price: Math.round(category.price),
             proposedBy: employeeId,
             status: "PROPOSED",
             proposedAt: new Date()
@@ -1663,8 +1790,9 @@ exports.approveVisitServiceSocket = async (
         const p = booking.proposedService;
 
         booking.serviceCategoryName = p.serviceCategoryName;
-        booking.pricePerService = p.price;
-        booking.totalPrice = p.price;
+        booking.pricePerService = Math.round(p.price);
+        booking.totalPrice = Math.round(p.price);
+        booking.totalServicePrice = Math.round(p.price);
         booking.durationInMinutes = p.durationInMinutes;
         booking.employeeCount = p.employeeCount;
 
@@ -1720,7 +1848,7 @@ exports.proposeExtraService = async ({ bookingId, serviceCategoryId, employeeId,
     const extraService = {
         serviceCategoryId,
         serviceName: category.serviceCategoryName,
-        price: category.price,
+        price: Math.round(category.price),
         durationInMinutes: category.durationInMinutes,
         status: "PENDING",
         requestedAt: new Date()
@@ -1771,9 +1899,9 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
     if (approve) {
         extraService.status = "APPROVED";
         extraService.approvedAt = new Date();
-        const extraPrice = Number(extraService.price || 0);
-        booking.totalPrice += extraPrice;
-        booking.totalServicePrice += extraPrice;
+        const extraPrice = Math.round(Number(extraService.price || 0));
+        booking.totalPrice = Math.round(booking.totalPrice + extraPrice);
+        booking.totalServicePrice = Math.round(booking.totalServicePrice + extraPrice);
         booking.durationInMinutes += Number(extraService.durationInMinutes || 0);
 
         // Add to regular proposal history for tracking

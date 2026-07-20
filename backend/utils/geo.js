@@ -27,6 +27,28 @@ const getDistance = (coords1, coords2) => {
   return R * c; // in meters
 };
 
+/**
+ * Normalizes a location/city/region name into a canonical region slug.
+ * 
+ * @param {string} name 
+ * @returns {string} Normalized region name
+ */
+const normalizeRegionName = (name) => {
+  if (!name) return "";
+  const clean = name.toLowerCase().trim();
+  if (clean.includes("trichy") || clean.includes("tiruchy") ||
+      clean.includes("tiruchirappalli") || clean.includes("tiruchirapalli")) {
+    return "trichy";
+  }
+  if (clean.includes("thanjavur") || clean.includes("tanjore")) return "thanjavur";
+  if (clean.includes("coimbatore") || clean.includes("kovai"))  return "coimbatore";
+  if (clean.includes("chennai")    || clean.includes("madras")) return "chennai";
+  if (clean.includes("madurai"))    return "madurai";
+  return clean;
+};
+
 module.exports = {
   getDistance,
+  normalizeRegionName,
 };
+

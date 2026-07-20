@@ -47,7 +47,11 @@ const {
     deleteInvite,
     updateAdmin,
     removeAdmin,
-    getAllReviewsAdmin
+    getAllReviewsAdmin,
+    getManagedRegions,
+    addManagedRegion,
+    toggleRegionBooking,
+    deleteManagedRegion
 } = require('../controllers/admin.controller');
 const { allowRoles, hasPermission } = require('../middleware/role.middleware');
 const PERMISSIONS = require('../enum/permission.enum');
@@ -128,6 +132,11 @@ router.post("/notify-custom", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS
 
 // Regions & Onboarding
 router.get("/regions", protect, getRegions);
+router.get("/regions-management", protect, getManagedRegions);
+router.post("/regions-management", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), addManagedRegion);
+router.put("/regions-management/:id", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), toggleRegionBooking);
+router.delete("/regions-management/:id", protect, hasPermission(PERMISSIONS.SYSTEM_SETTINGS), deleteManagedRegion);
+
 router.post("/add-employee", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), addEmployee);
 router.put("/update-employee/:id", protect, hasPermission(PERMISSIONS.MANAGE_EMPLOYEES), updateEmployee);
 router.put("/update-user/:id", protect, hasPermission(PERMISSIONS.VIEW_USERS), updateUser);

@@ -14,6 +14,10 @@ const inviteSchema = new mongoose.Schema({
         default: ROLES.ADMIN,
     },
     permission: [String],
+    allowedRegions: {
+        type: [String],
+        default: []
+    },
     token: String,
     expiresAt: Date,
     used: {

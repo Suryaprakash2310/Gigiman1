@@ -23,6 +23,7 @@ const {
   resetAvailability,
   approveExtraService,
   proposeExtraService,
+  validateBookingLocation,
 } = require("../services/booking.service");
 const AppError = require("../utils/AppError");
 const Review = require("../models/review.model");
@@ -56,6 +57,12 @@ exports.searchNearbyservicer = async (req, res, next) => {
     let parsedCoordinates = coordinates;
     if (Array.isArray(coordinates)) {
       parsedCoordinates = [parseFloat(coordinates[0]), parseFloat(coordinates[1])];
+    }
+
+    // Region validation before searching
+    const locationCheck = await validateBookingLocation({ address, coordinates: parsedCoordinates });
+    if (!locationCheck.isAllowed) {
+      return next(new AppError(`Service is not available in your region (${locationCheck.detectedRegion}). Currently available in: ${locationCheck.allowedRegions.join(", ")}`, 400));
     }
 
     const result = await findNearbyTeams({
@@ -351,8 +358,8 @@ exports.requestToolController = async (req, res, next) => {
     // Compute total cost if not provided
     const computedTotalCost =
       totalCost != null
-        ? totalCost
-        : resolvedParts.reduce((sum, r) => sum + (r.price || 0) * (r.quantity || 0), 0);
+        ? Math.round(totalCost)
+        : Math.round(resolvedParts.reduce((sum, r) => sum + (r.price || 0) * (r.quantity || 0), 0));
 
     const partRequest = await requestTool({
       bookingId,
@@ -1531,6 +1538,13 @@ exports.createVisitBooking = async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(domainServiceId)) {
       return next(new AppError("Domain service not found", 404));
     }
+
+    // Region validation before creating visit booking
+    const locationCheck = await validateBookingLocation({ address, coordinates: location.coordinates });
+    if (!locationCheck.isAllowed) {
+      return next(new AppError(`Service is not available in your region (${locationCheck.detectedRegion}). Currently available in: ${locationCheck.allowedRegions.join(", ")}`, 400));
+    }
+
     const VISIT_PRICE = 99;
 
     const booking = await Booking.create({
@@ -1592,6 +1606,34 @@ exports.proposeExtraService = async (req, res, next) => {
     res.status(200).json({
       success: true,
       extraService: result
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ======================================================
+   VALIDATE BOOKING LOCATION REGION
+====================================================== */
+exports.validateBookingRegionController = async (req, res, next) => {
+  try {
+    const { address, coordinates } = req.body;
+    let parsedCoordinates = coordinates;
+    if (Array.isArray(coordinates)) {
+      parsedCoordinates = [parseFloat(coordinates[0]), parseFloat(coordinates[1])];
+    }
+
+    const result = await validateBookingLocation({
+      address,
+      coordinates: parsedCoordinates,
+    });
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+      message: result.isAllowed
+        ? "Location is within service region"
+        : `Service is not available in region (${result.detectedRegion})`,
     });
   } catch (err) {
     next(err);

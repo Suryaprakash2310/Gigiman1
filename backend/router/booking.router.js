@@ -11,6 +11,7 @@ const schemas = require("../validations/booking.validation");
 /* ===============================
    SEARCH & AUTO ASSIGN
 =============================== */
+router.post("/validate-region", validate(schemas.validateRegion), bookingController.validateBookingRegionController);
 router.post("/search", bookingController.searchNearbyservicer);
 router.post("/auto-assign", validate(schemas.autoAssignServicer), userProtect,bookingController.autoAssignServicer);
 router.post('/schedule', userProtect, bookingController.scheduleBooking);

@@ -120,18 +120,19 @@ exports.validateCoupon = async (req, res) => {
 
         if (cartTotal !== undefined && cartTotal >= 0) {
             if (coupon.discountType === 'PERCENTAGE') {
-                discountAmount = (cartTotal * coupon.discountValue) / 100;
+                discountAmount = Math.round((cartTotal * coupon.discountValue) / 100);
                 if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
-                    discountAmount = coupon.maxDiscount;
+                    discountAmount = Math.round(coupon.maxDiscount);
                 }
             } else { // FLAT
-                discountAmount = coupon.discountValue;
+                discountAmount = Math.round(coupon.discountValue);
             }
             
             if (discountAmount > cartTotal) {
                 discountAmount = cartTotal;
             }
-            finalTotal = cartTotal - discountAmount;
+            discountAmount = Math.round(discountAmount);
+            finalTotal = Math.round(cartTotal - discountAmount);
         }
 
 

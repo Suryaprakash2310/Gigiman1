@@ -340,7 +340,7 @@ bookingSchema.pre('save', function(next) {
   
   // Update remainingAmount for ADVANCE bookings
   if (this.paymentType === "ADVANCE" && this.paymentStatus === "partially_paid") {
-    this.remainingAmount = Math.max(0, Math.round((this.totalPrice - this.advanceAmount) * 100) / 100);
+    this.remainingAmount = Math.max(0, Math.round(this.totalPrice - this.advanceAmount));
   } else if (this.paymentStatus === "paid") {
     this.remainingAmount = 0;
   }

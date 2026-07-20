@@ -24,6 +24,14 @@ const adminSchema = mongoose.Schema({
         type: [String],
         default: []
     },
+    allowedRegions: {
+        type: [String],
+        default: []
+    },
+    region: {
+        type: String,
+        default: null
+    },
     isApproved: {
         type: Boolean,
         default: false

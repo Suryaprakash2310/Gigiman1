@@ -18,7 +18,12 @@ const bookingSchemas = {
         bookingId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
         servicerId: Joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
         servicerType: Joi.string().valid('single', 'team', 'single_employee', 'multi_employee').required()
-    })
+    }),
+
+    validateRegion: Joi.object({
+        address: Joi.string().optional(),
+        coordinates: Joi.array().items(Joi.number()).length(2).optional()
+    }).or('address', 'coordinates')
 };
 
 module.exports = bookingSchemas;

@@ -23,6 +23,7 @@ const PART_REQUEST_STATUS = require('../enum/partsstatus.enum');
 const User = require('../models/user.model');
 const Review = require('../models/review.model');
 const Notification = require('../models/notification.model');
+const RegionModel = require('../models/region.model');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../utils/uploadHandler');
 const { findNearbyTeams } = require("../services/booking.service");
 
@@ -43,7 +44,7 @@ const normalizeRegionName = (name) => {
 
 exports.inviteAdmin = async (req, res, next) => {
   try {
-    const { email, permissions, fullname } = req.body;
+    const { email, permissions, fullname, allowedRegions } = req.body;
 
     if (!email) {
       return next(new AppError("Email is required", 400));
@@ -73,6 +74,7 @@ exports.inviteAdmin = async (req, res, next) => {
         fullname,
         token,
         permission: permissions || [],
+        allowedRegions: allowedRegions || [],
         expiresAt,
         used: false,
         attempts: 0
@@ -87,7 +89,8 @@ exports.inviteAdmin = async (req, res, next) => {
       token,
       email,
       fullname,
-      permissions: permissions || []
+      permissions: permissions || [],
+      allowedRegions: allowedRegions || []
     });
   } catch (err) {
     next(err);
@@ -195,6 +198,7 @@ exports.adminSignup = async (req, res, next) => {
       password,
       role: invite.role || ROLES.ADMIN,
       permissions: invite.permission,
+      allowedRegions: invite.allowedRegions || [],
       isApproved: true,
     });
 
@@ -238,7 +242,8 @@ exports.adminLogin = async (req, res, next) => {
         fullname: admin.fullname,
         email: admin.email,
         role: admin.role,
-        permissions: admin.permissions || []
+        permissions: admin.permissions || [],
+        allowedRegions: admin.allowedRegions || []
       }
     });
   }
@@ -368,7 +373,7 @@ exports.setServiceList = async (req, res, next) => {
       service.serviceCategory.push({
         serviceCategoryName,
         description,
-        price,
+        price: price != null ? Math.round(Number(price)) : price,
         durationInMinutes,
         employeeCount,
         status: status || "Available",
@@ -402,7 +407,7 @@ exports.setServiceList = async (req, res, next) => {
         {
           serviceCategoryName,
           description,
-          price,
+          price: price != null ? Math.round(Number(price)) : price,
           durationInMinutes,
           employeeCount,
           status: status || "Available",
@@ -591,8 +596,8 @@ exports.updateServiceCategory = async (req, res, next) => {
       category.description = req.body.description.trim();
     }
 
-    if (req.body.price) {
-      category.price = req.body.price;
+    if (req.body.price !== undefined) {
+      category.price = Math.round(Number(req.body.price));
     }
 
     if (req.body.durationInMinutes) {
@@ -924,7 +929,21 @@ exports.deleteDomainpartById = async (req, res, next) => {
 
 exports.getAllBooking = async (req, res, next) => {
   try {
-    const bookings = await Booking.find()
+    let filter = {};
+    if (req.role !== ROLES.SUPER_ADMIN && req.employee?.allowedRegions?.length > 0) {
+      const allowed = req.employee.allowedRegions;
+      if (!allowed.includes("ALL") && !allowed.includes("all")) {
+        const regexes = allowed.map(r => new RegExp(r, "i"));
+        filter = {
+          $or: [
+            { region: { $in: regexes } },
+            { city: { $in: regexes } }
+          ]
+        };
+      }
+    }
+
+    const bookings = await Booking.find(filter)
       .populate("user")
       .populate("primaryEmployee")
       .populate("servicerCompany")
@@ -1710,9 +1729,18 @@ exports.adminManualNotifyServicer = async (req, res, next) => {
 exports.getAllCommissionsAdmin = async (req, res, next) => {
   try {
     const { status, empId } = req.query;
-    let filter = { status: BOOKING_STATUS.COMPLETED };
+    let filter = {};
 
-    if (empId) {
+    if (status && status.trim() !== '') {
+      const sUpper = status.toUpperCase();
+      if (sUpper === 'PAID' || sUpper === 'PENDING') {
+        filter.paymentStatus = sUpper === 'PAID' ? 'paid' : 'pending';
+      } else {
+        filter.status = status.toLowerCase();
+      }
+    }
+
+    if (empId && typeof empId === 'string' && empId.trim() !== '' && mongoose.Types.ObjectId.isValid(empId)) {
       const empObjectId = new mongoose.Types.ObjectId(empId);
       filter.$or = [
         { primaryEmployee: empObjectId },
@@ -1721,192 +1749,172 @@ exports.getAllCommissionsAdmin = async (req, res, next) => {
     }
 
     const bookings = await Booking.find(filter)
-      .populate('primaryEmployee', 'fullname storeName phoneNo')
-      .populate('servicerCompany', 'ownerName storeName phoneNo')
+      .populate({ path: "user", strictPopulate: false })
+      .populate({ path: "primaryEmployee", strictPopulate: false })
+      .populate({ path: "servicerCompany", strictPopulate: false })
+      .populate({ path: "employees", strictPopulate: false })
+      .populate({ path: "offeredEmployee", strictPopulate: false })
+      .populate({ path: "teamLeader", strictPopulate: false })
+      .populate({ path: "selectedToolShop", strictPopulate: false })
+      .populate({ path: "domainService", strictPopulate: false })
       .sort({ createdAt: -1 });
 
     const commissions = bookings.map(b => {
-      const emp = b.servicerCompany || b.primaryEmployee;
+      // User details extraction
+      const u = b.user || b.userId;
+      let userName = '';
+      let userPhone = '';
+
+      if (u && typeof u === 'object') {
+        userName = u.fullName || u.fullname || u.name || u.email || '';
+        userPhone = u.phoneNo || u.phone || u.mobile || '';
+      }
+
+      if (!userName) userName = b.userName || b.name || b.customerName || b.fullName || b.fullname || '';
+      if (!userPhone) userPhone = b.userPhone || b.phoneNo || b.customerPhone || b.phone || b.mobile || '';
+
+      if (!userName || userName.trim() === '') {
+        userName = `Customer (${b._id ? b._id.toString().substring(0, 6) : 'User'})`;
+      }
+      if (!userPhone || userPhone.trim() === '') {
+        userPhone = 'N/A';
+      }
+
+      const address = b.address || (Array.isArray(u?.addresses) && u?.addresses[0]?.address) || 'N/A';
+
+      // Service details
+      const serviceName = b.serviceCategoryName || b.domainService?.domainName || 'Service';
+
+      // Servicer & Manual Assignment extraction
+      let servicerName = '';
+      let servicerPhone = '';
+      let servicerType = 'SINGLE';
+      let servicerId = null;
+
+      if (b.externalTechnicianName) {
+        servicerName = `${b.externalTechnicianName} (Manual)`;
+        servicerPhone = b.externalTechnicianPhone || 'N/A';
+        servicerType = 'MANUAL_EXTERNAL';
+        servicerId = b.externalTechnicianPhone || b._id.toString();
+      } else if (b.servicerCompany && typeof b.servicerCompany === 'object') {
+        servicerName = b.servicerCompany.storeName || b.servicerCompany.ownerName || 'Company';
+        servicerPhone = b.servicerCompany.phoneNo || b.servicerCompany.phone || 'N/A';
+        servicerType = 'TEAM';
+        servicerId = b.servicerCompany._id?.toString() || 'TEAM';
+      } else if (b.primaryEmployee && typeof b.primaryEmployee === 'object') {
+        servicerName = b.primaryEmployee.fullname || b.primaryEmployee.fullName || b.primaryEmployee.storeName || 'Technician';
+        servicerPhone = b.primaryEmployee.phoneNo || b.primaryEmployee.phone || 'N/A';
+        servicerType = 'SINGLE';
+        servicerId = b.primaryEmployee._id?.toString() || 'SINGLE';
+      } else if (b.offeredEmployee && typeof b.offeredEmployee === 'object') {
+        servicerName = `${b.offeredEmployee.fullname || b.offeredEmployee.storeName || 'Technician'} (Offered)`;
+        servicerPhone = b.offeredEmployee.phoneNo || b.offeredEmployee.phone || 'N/A';
+        servicerType = 'SINGLE';
+        servicerId = b.offeredEmployee._id?.toString() || 'OFFERED';
+      } else if (b.teamLeader && typeof b.teamLeader === 'object') {
+        servicerName = b.teamLeader.fullname || b.teamLeader.storeName || 'Team Leader';
+        servicerPhone = b.teamLeader.phoneNo || 'N/A';
+        servicerType = 'TEAM';
+        servicerId = b.teamLeader._id?.toString() || 'LEADER';
+      } else if (Array.isArray(b.employees) && b.employees.length > 0 && typeof b.employees[0] === 'object') {
+        const emp0 = b.employees[0];
+        servicerName = emp0.fullname || emp0.storeName || 'Technician';
+        servicerPhone = emp0.phoneNo || 'N/A';
+        servicerType = 'SINGLE';
+        servicerId = emp0._id?.toString() || 'EMP';
+      } else if (b.selectedToolShop && typeof b.selectedToolShop === 'object') {
+        servicerName = b.selectedToolShop.shopName || b.selectedToolShop.storeName || 'Tool Shop';
+        servicerPhone = b.selectedToolShop.phoneNo || 'N/A';
+        servicerType = 'TOOLSHOP';
+        servicerId = b.selectedToolShop._id?.toString() || 'TOOLSHOP';
+      } else if (b.servicerName || b.empName || b.providerName) {
+        servicerName = b.servicerName || b.empName || b.providerName;
+        servicerPhone = b.servicerPhone || b.empPhone || b.providerPhone || 'N/A';
+        servicerId = b._id.toString();
+      } else {
+        servicerName = 'Unassigned / System';
+        servicerPhone = 'N/A';
+        servicerId = 'UNASSIGNED';
+      }
+
+      // Payment details
+      const total = Number(b.totalPrice) || Number(b.totalServicePrice) || Number(b.price) || 0;
+      const pType = (b.paymentType || 'FULL').toUpperCase();
+      const adv = pType === 'FULL' ? total : (Number(b.advanceAmount) || Number(b.advancePayment) || 0);
+      const rem = pType === 'FULL' ? 0 : (Number(b.remainingAmount) || Number(b.remainingPayment) || (total > adv ? total - adv : 0));
+      const isPaid = (b.paymentStatus || '').toLowerCase() === 'paid';
+      const userPaidAmt = pType === 'FULL' || isPaid ? total : adv;
+
       return {
         _id: b._id.toString(),
-        empId: {
-          _id: emp?._id,
-          fullname: emp?.fullname || emp?.ownerName || emp?.storeName || 'Unknown',
-          storeName: emp?.storeName || emp?.ownerName || emp?.fullname || 'Unknown',
-          phoneNo: emp?.phoneNo || ''
+        bookingId: b._id.toString(),
+        userId: {
+          _id: u?._id || b._id.toString(),
+          fullName: userName,
+          fullname: userName,
+          phoneNo: userPhone,
+          phone: userPhone,
+          address: address
         },
-        empType: b.servicerCompany ? 'TEAM' : 'SINGLE',
-        commissionAmount: b.paymentType === 'FULL' ? (b.totalPrice || 0) : (b.advanceAmount || 0),
-        paymentType: b.paymentType || 'FULL',
-        serviceId: { serviceName: b.serviceCategoryName },
-        status: b.paymentStatus === 'paid' ? 'PAID' : 'PENDING',
+        empId: {
+          _id: servicerId,
+          fullname: servicerName,
+          fullName: servicerName,
+          storeName: servicerName,
+          phoneNo: servicerPhone,
+          phone: servicerPhone
+        },
+        empType: servicerType,
+        address: address,
+        userName: userName,
+        userPhone: userPhone,
+        servicerName: servicerName,
+        servicerPhone: servicerPhone,
+        serviceName: serviceName,
+        isManuallyAssigned: !!b.isManuallyAssigned || !!b.externalTechnicianName,
+        userPaidAmount: userPaidAmt,
+        commissionAmount: userPaidAmt,
+        advanceAmount: adv,
+        remainingAmount: rem,
+        totalPrice: total,
+        paymentType: pType,
+        serviceId: { serviceName: serviceName },
+        serviceCategoryName: serviceName,
+        status: isPaid ? 'PAID' : 'PENDING',
         createdAt: b.createdAt
       };
     });
 
-    // Aggregated summary per employee based on bookings
-    const summary = await Booking.aggregate([
-      { $match: { status: BOOKING_STATUS.COMPLETED } },
-      {
-        $group: {
-          _id: { $ifNull: ["$primaryEmployee", "$servicerCompany"] },
-          empModel: {
-            $first: {
-              $cond: [{ $ifNull: ["$servicerCompany", false] }, "MultipleEmployee", "SingleEmployee"]
-            }
-          },
-          totalCommission: { $sum: "$totalPrice" },
-          totalPaid: {
-            $sum: {
-              $cond: [
-                { $eq: ["$paymentType", "FULL"] },
-                "$totalPrice",
-                { $ifNull: ["$advanceAmount", 0] }
-              ]
-            }
-          },
-          totalPending: {
-            $sum: {
-              $cond: [
-                { $eq: ["$paymentType", "FULL"] },
-                0,
-                { $ifNull: ["$remainingAmount", 0] }
-              ]
-            }
-          }
-        }
-      },
-      {
-        $lookup: {
-          from: "singleemployees",
-          localField: "_id",
-          foreignField: "_id",
-          as: "singleEmp"
-        }
-      },
-      {
-        $lookup: {
-          from: "multipleemployees",
-          localField: "_id",
-          foreignField: "_id",
-          as: "multiEmp"
-        }
-      },
-      {
-        $lookup: {
-          from: "toolshops",
-          localField: "_id",
-          foreignField: "_id",
-          as: "toolShop"
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          totalCommission: 1,
-          totalPaid: 1,
-          totalPending: 1,
-          employee: {
-            $switch: {
-              branches: [
-                { case: { $gt: [{ $size: "$singleEmp" }, 0] }, then: { $arrayElemAt: ["$singleEmp", 0] } },
-                { case: { $gt: [{ $size: "$multiEmp" }, 0] }, then: { $arrayElemAt: ["$multiEmp", 0] } },
-                { case: { $gt: [{ $size: "$toolShop" }, 0] }, then: { $arrayElemAt: ["$toolShop", 0] } }
-              ],
-              default: null
-            }
-          }
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          totalCommission: 1,
-          totalPaid: 1,
-          totalPending: 1,
-          name: { $ifNull: ["$employee.fullname", "$employee.storeName", "$employee.shopName"] },
-          phoneNo: "$employee.phoneNo",
-          type: "$employee.role"
-        }
-      },
-      { $sort: { totalPaid: -1 } }
-    ]);
+    // Build Summary Map dynamically from commissions to ensure 100% accuracy for all servicers (including manual assigns)
+    const summaryMap = {};
+    commissions.forEach(c => {
+      const key = c.servicerName || 'Unassigned';
+      if (!summaryMap[key]) {
+        summaryMap[key] = {
+          _id: c.empId?._id || key,
+          name: c.servicerName,
+          phoneNo: c.servicerPhone !== 'N/A' ? c.servicerPhone : '',
+          type: c.empType,
+          isManuallyAssigned: c.isManuallyAssigned,
+          totalCommission: 0,
+          totalPaid: 0,
+          totalPending: 0
+        };
+      }
+      summaryMap[key].totalCommission += Number(c.totalPrice) || 0;
+      summaryMap[key].totalPaid += Number(c.advanceAmount) || 0;
+      summaryMap[key].totalPending += Number(c.remainingAmount) || 0;
+    });
+
+    const summary = Object.values(summaryMap).sort((a, b) => b.totalPaid - a.totalPaid);
 
     res.json({ success: true, commissions, summary });
   } catch (err) {
+    console.error("Error in getAllCommissionsAdmin:", err);
     next(err);
   }
 };
 
-
-exports.adminAddCommission = async (req, res, next) => {
-  try {
-    const { empId, amount } = req.body;
-
-    if (!empId || !amount) {
-      return next(new AppError("empId and amount are required", 400));
-    }
-
-    let servicer = await SingleEmployee.findById(empId);
-    let empModel = "SingleEmployee";
-    let empType = ROLES.SINGLE_EMPLOYEE;
-
-    if (!servicer) {
-      servicer = await MultipleEmployee.findById(empId);
-      empModel = "MultipleEmployee";
-      empType = ROLES.MULTIPLE_EMPLOYEE;
-    }
-
-    if (!servicer) {
-      return next(new AppError("Servicer not found", 404));
-    }
-
-
-    const empService = await EmployeeService.findOne({ employeeId: empId }).populate("capableservice");
-    if (!empService || !empService.capableservice || empService.capableservice.length === 0) {
-      return next(new AppError("Servicer does not have an assigned service domain to associate with commission charge", 400));
-    }
-
-    const newCommission = await Commission.create({
-      empId,
-      empType,
-      empModel,
-      serviceId: empService.capableservice[0]._id, // using first capable domain service as proxy
-      totalAmount: 0,
-      commissionAmount: amount, // The manual penalty / commission
-      status: 'PENDING'
-    });
-
-    const unpaidData = await Commission.aggregate([
-      { $match: { empId: new mongoose.Types.ObjectId(empId), status: { $ne: 'PAID' } } },
-      { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
-    ]);
-
-    const totalUnpaid = unpaidData[0]?.total || 0;
-
-    // Automatically block the servicer if >= 1000 (Disabled/Bypassed)
-    /*
-    if (totalUnpaid >= 1000) {
-      if (empType === ROLES.SINGLE_EMPLOYEE) {
-        await SingleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
-      } else if (empType === ROLES.MULTIPLE_EMPLOYEE) {
-        await MultipleEmployee.findByIdAndUpdate(empId, { isBlocked: true, isActive: false });
-      }
-    }
-    */
-
-    res.json({
-      success: true,
-      message: "Commission added successfully",
-      newCommission,
-      totalUnpaid,
-      isBlocked: totalUnpaid >= 1000
-    });
-
-  } catch (err) {
-    next(err);
-  }
-};
 
 /* ======================================================
    ADMIN MANUAL ASSIGN BOOKING
@@ -2592,12 +2600,15 @@ exports.deleteInvite = async (req, res, next) => {
 exports.updateAdmin = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { fullname, email, role, permissions, isApproved } = req.body;
+    const { fullname, email, role, permissions, allowedRegions, isApproved } = req.body;
 
     const updates = {};
     if (fullname) updates.fullname = fullname;
     if (email) updates.email = email.toLowerCase();
     if (isApproved !== undefined) updates.isApproved = isApproved;
+    if (allowedRegions !== undefined && Array.isArray(allowedRegions)) {
+      updates.allowedRegions = allowedRegions;
+    }
     
     if (role) {
       if (!Object.values(ROLES).includes(role)) {
@@ -2676,6 +2687,124 @@ exports.getAllReviewsAdmin = async (req, res, next) => {
       success: true,
       count: reviews.length,
       reviews
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getManagedRegions = async (req, res, next) => {
+  try {
+    let regions = await RegionModel.find().sort({ name: 1 }).lean();
+
+    if (regions.length === 0) {
+      const defaults = [
+        { name: "Trichy", code: "trichy", isBookingAllowed: true, description: "Primary service hub" },
+        { name: "Thanjavur", code: "thanjavur", isBookingAllowed: true, description: "Delta region hub" },
+        { name: "Coimbatore", code: "coimbatore", isBookingAllowed: true, description: "Industrial zone" },
+        { name: "Chennai", code: "chennai", isBookingAllowed: true, description: "Metropolitan zone" },
+        { name: "Madurai", code: "madurai", isBookingAllowed: true, description: "Southern zone" },
+      ];
+      await RegionModel.insertMany(defaults);
+      regions = await RegionModel.find().sort({ name: 1 }).lean();
+    }
+
+    res.status(200).json({
+      success: true,
+      count: regions.length,
+      regions
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.addManagedRegion = async (req, res, next) => {
+  try {
+    const { name, isBookingAllowed = true, description = "" } = req.body;
+    if (!name || !name.trim()) {
+      return next(new AppError("Region name is required", 400));
+    }
+
+    const cleanName = name.trim();
+    const code = normalizeRegionName(cleanName) || cleanName.toLowerCase().replace(/\s+/g, "_");
+
+    const existing = await RegionModel.findOne({
+      $or: [{ name: cleanName }, { code }]
+    });
+
+    if (existing) {
+      existing.isBookingAllowed = Boolean(isBookingAllowed);
+      if (description) existing.description = description.trim();
+      await existing.save();
+      return res.status(200).json({
+        success: true,
+        message: `Region ${existing.name} updated successfully`,
+        region: existing
+      });
+    }
+
+    const newRegion = await RegionModel.create({
+      name: cleanName,
+      code,
+      isBookingAllowed: Boolean(isBookingAllowed),
+      description: description.trim()
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Region added successfully",
+      region: newRegion
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.toggleRegionBooking = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { isBookingAllowed, name, description } = req.body;
+
+    const region = await RegionModel.findById(id);
+    if (!region) {
+      return next(new AppError("Region not found", 404));
+    }
+
+    if (isBookingAllowed !== undefined) {
+      region.isBookingAllowed = Boolean(isBookingAllowed);
+    }
+    if (name) {
+      region.name = name.trim();
+      region.code = normalizeRegionName(region.name) || region.name.toLowerCase().replace(/\s+/g, "_");
+    }
+    if (description !== undefined) {
+      region.description = description.trim();
+    }
+
+    await region.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Region updated successfully",
+      region
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteManagedRegion = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const region = await RegionModel.findByIdAndDelete(id);
+    if (!region) {
+      return next(new AppError("Region not found", 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Region deleted successfully"
     });
   } catch (err) {
     next(err);
