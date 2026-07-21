@@ -186,3 +186,68 @@ exports.clearAllAdminNotifications = async (req, res, next) => {
         next(err);
     }
 };
+
+// FCM Token Updates
+exports.updateUserFcmToken = async (req, res, next) => {
+    try {
+        const { fcmToken } = req.body;
+        if (!fcmToken) {
+            return next(new AppError("fcmToken is required", 400));
+        }
+
+        const user = req.user;
+        user.fcmToken = fcmToken;
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: "User FCM token updated successfully",
+            fcmToken: user.fcmToken
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+exports.updateServicerFcmToken = async (req, res, next) => {
+    try {
+        const { fcmToken } = req.body;
+        if (!fcmToken) {
+            return next(new AppError("fcmToken is required", 400));
+        }
+
+        const employee = req.employee;
+        employee.fcmToken = fcmToken;
+        await employee.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Servicer FCM token updated successfully",
+            fcmToken: employee.fcmToken
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+exports.updateAdminFcmToken = async (req, res, next) => {
+    try {
+        const { fcmToken } = req.body;
+        if (!fcmToken) {
+            return next(new AppError("fcmToken is required", 400));
+        }
+
+        const adminDoc = req.employee;
+        adminDoc.fcmToken = fcmToken;
+        await adminDoc.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Admin FCM token updated successfully",
+            fcmToken: adminDoc.fcmToken
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+

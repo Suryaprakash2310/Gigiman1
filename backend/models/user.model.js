@@ -78,6 +78,10 @@ const UserSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    fcmToken: {
+      type: String,
+      default: null,
+    },
 
     socketConnectedAt: Date,
     role: {

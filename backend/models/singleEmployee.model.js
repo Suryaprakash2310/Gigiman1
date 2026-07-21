@@ -69,6 +69,10 @@ const singleEmployeeSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  fcmToken: {
+    type: String,
+    default: null
+  },
   isActive: {
     type: Boolean,
   },
