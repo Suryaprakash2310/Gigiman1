@@ -1823,16 +1823,21 @@ exports.approveVisitServiceSocket = async (
     }
 };
 
-exports.proposeExtraService = async ({ bookingId, serviceCategoryId, employeeId, io }) => {
+exports.proposeExtraService = async ({ bookingId, serviceCategoryId, employeeId, userId, io }) => {
     const booking = await Booking.findById(bookingId).populate("user").populate("primaryEmployee");
     if (!booking) throw new AppError("Booking not found", 404);
 
-    // Only workers on the booking can propose extra services
-    const isAssigned = booking.employees.some(emp => emp.toString() === employeeId) ||
-        (booking.primaryEmployee && booking.primaryEmployee._id.toString() === employeeId);
+    let isAuthorized = false;
 
-    if (!isAssigned) {
-        throw new AppError("Unauthorized: Only assigned employees can propose extra services", 403);
+    if (employeeId) {
+        isAuthorized = booking.employees.some(emp => emp.toString() === employeeId.toString()) ||
+            (booking.primaryEmployee && booking.primaryEmployee._id.toString() === employeeId.toString());
+    } else if (userId) {
+        isAuthorized = booking.user._id.toString() === userId.toString();
+    }
+
+    if (!isAuthorized) {
+        throw new AppError("Unauthorized: Only assigned employees or the customer can propose extra services", 403);
     }
 
     const serviceList = await ServiceList.findOne({

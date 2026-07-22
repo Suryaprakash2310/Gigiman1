@@ -751,7 +751,7 @@ exports.paymentSuccess = async (req, res, next) => {
       return next(new AppError("Payment already completed for this booking", 400));
     }
 
-    const isInitialPayment = booking.status === BOOKING_STATUS.PENDING;
+    const isInitialPayment = booking.paymentStatus === PAYMENT_STATUS.PENDING;
 
     /* ------------- NOTIFY EVERYONE & COMPLETE -------------- */
     const finalizeBooking = async (method) => {
@@ -813,30 +813,46 @@ exports.paymentSuccess = async (req, res, next) => {
         booking.paymentStatus = PAYMENT_STATUS.PAID;
       }
 
-      booking.status = BOOKING_STATUS.CONFIRMED;
-      booking.assignmentStatus = "SEARCHING";
-      await booking.save();
+      if (booking.status === BOOKING_STATUS.PENDING) {
+        booking.status = BOOKING_STATUS.CONFIRMED;
+        if (booking.isScheduled) {
+          booking.assignmentStatus = "SCHEDULED";
+          await booking.save();
+          
+          // Notify User via Socket
+          if (booking.user?.socketId) {
+            io.to(booking.user.socketId).emit("booking-confirmed", { bookingId: booking._id });
+          }
+        } else {
+          booking.assignmentStatus = "SEARCHING";
+          await booking.save();
 
-      // Trigger automatic assignment
-      const employeeCount = booking.employeeCount;
-      if (employeeCount === 1) {
-        assignNextServicer({
-          bookingId: booking._id.toString(),
-          coordinates: booking.location.coordinates,
-          io,
-        });
+          // Trigger automatic assignment
+          const employeeCount = booking.employeeCount;
+          if (employeeCount === 1) {
+            assignNextServicer({
+              bookingId: booking._id.toString(),
+              coordinates: booking.location.coordinates,
+              io,
+            });
+          } else {
+            assignNextTeam({
+              bookingId: booking._id.toString(),
+              coordinates: booking.location.coordinates,
+              employeeCount,
+              io,
+            });
+          }
+
+          // Notify User via Socket
+          if (booking.user?.socketId) {
+            io.to(booking.user.socketId).emit("booking-confirmed", { bookingId: booking._id });
+          }
+        }
       } else {
-        assignNextTeam({
-          bookingId: booking._id.toString(),
-          coordinates: booking.location.coordinates,
-          employeeCount,
-          io,
-        });
-      }
-
-      // Notify User via Socket
-      if (booking.user?.socketId) {
-        io.to(booking.user.socketId).emit("booking-confirmed", { bookingId: booking._id });
+        // If booking status was already changed (e.g. manually assigned to ASSIGNED by admin),
+        // we just save the payment updates without resetting the status.
+        await booking.save();
       }
 
       return res.status(200).json({ 
@@ -1590,6 +1606,7 @@ exports.proposeExtraService = async (req, res, next) => {
   try {
     const { bookingId, serviceCategoryId } = req.body;
     const employeeId = req.employeeId;
+    const userId = req.userId;
     const io = req.app.get("io");
 
     if (!bookingId || !serviceCategoryId) {
@@ -1600,6 +1617,7 @@ exports.proposeExtraService = async (req, res, next) => {
       bookingId,
       serviceCategoryId,
       employeeId,
+      userId,
       io
     });
 
@@ -1675,8 +1693,8 @@ exports.getActiveUserBookings = async (req, res) => {
       user: userId,
       // Include anything that is currently being processed
       $or: [
-        { isScheduled: false, status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCALLED] } },
-        { isScheduled: true, assignmentStatus: 'ASSIGNED' } // Scheduled jobs that have started
+        { isScheduled: { $ne: true }, status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCALLED] } },
+        { isScheduled: true, scheduleExecuted: true, status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCALLED] } }
       ]
     })
       .populate("primaryEmployee", "fullname rating phone avatar") // Show technician details
@@ -1693,7 +1711,7 @@ exports.getScheduledUserBookings = async (req, res) => {
     const bookings = await Booking.find({
       user: userId,
       isScheduled: true,
-      assignmentStatus: "SCHEDULED", // Specifically those waiting in the queue
+      scheduleExecuted: false,
       status: { $nin: [BOOKING_STATUS.COMPLETED, BOOKING_STATUS.CANCALLED] }
     })
       .sort({ scheduleDateTime: 1 }); // Show closest date first

@@ -1955,7 +1955,12 @@ exports.adminManualAssignBooking = async (req, res, next) => {
 
       servicerName = externalName || "Technician";
       servicerPhone = externalPhone || "";
-    } else if (servicerType === "single" || servicerType === ROLES.SINGLE_EMPLOYEE) {
+    } else if (
+      servicerType &&
+      (servicerType.toLowerCase() === "single" ||
+       servicerType.toLowerCase() === "single_employee" ||
+       servicerType.toLowerCase() === ROLES.SINGLE_EMPLOYEE.toLowerCase())
+    ) {
       const employee = await SingleEmployee.findById(servicerId);
       if (!employee) return next(new AppError("Technician not found", 404));
 
@@ -2136,7 +2141,8 @@ exports.adminUpdateBookingStatus = async (req, res, next) => {
         booking.assignmentStatus = "ASSIGNED";
       }
       if (employeeId) {
-        if (employeeType === "single") {
+        const empTypeLower = (employeeType || "").toLowerCase();
+        if (empTypeLower === "single" || empTypeLower === "single_employee" || empTypeLower === ROLES.SINGLE_EMPLOYEE.toLowerCase()) {
           booking.primaryEmployee = employeeId;
           booking.employees = [employeeId];
           booking.primaryEmployeeModel = "SingleEmployee";

@@ -60,12 +60,12 @@ exports.verifyPayment = async ({
         booking.razorpayPaymentId = razorpayPaymentId;
         booking.razorpaySignature = razorpaySignature;
 
-        const BOOKING_STATUS = require('../enum/bookingstatus.enum');
-        if (booking.status === BOOKING_STATUS.PENDING) {
+        if (booking.paymentStatus === PAYMENT_STATUS.PENDING) {
             if (booking.paymentType === "ADVANCE") {
                 booking.paymentStatus = PAYMENT_STATUS.PARTIALLY_PAID || "partially_paid";
             } else {
                 booking.paymentStatus = PAYMENT_STATUS.PAID;
+                booking.remainingAmount = 0;
             }
         } else {
             booking.paymentStatus = PAYMENT_STATUS.PAID;

@@ -40,7 +40,7 @@ router.post("/approve/:requestId", userProtect, bookingController.approvePartReq
 /* ===============================
    EXTRA SERVICES
 =============================== */
-router.post("/extra/propose", protect, bookingController.proposeExtraService);
+router.post("/extra/propose", anyAuth, bookingController.proposeExtraService);
 router.post("/extra/approve", userProtect, bookingController.approveExtraService);
 
 router.get("/parts/part-request/:requestId", protect, bookingController.getPartRequestById);

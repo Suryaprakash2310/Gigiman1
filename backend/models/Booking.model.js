@@ -199,7 +199,10 @@ const bookingSchema = new mongoose.Schema({
     index: true
   },
   scheduleDateTime: Date,
-  isScheduled: Boolean,
+  isScheduled: {
+    type: Boolean,
+    default: false
+  },
   scheduleExecuted: {
     type: Boolean,
     default: false,
