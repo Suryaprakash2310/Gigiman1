@@ -758,35 +758,34 @@ exports.paymentSuccess = async (req, res, next) => {
       booking.paymentMethod = method;
       booking.paymentStatus = PAYMENT_STATUS.PAID;
       booking.remainingAmount = 0;
-      booking.status = BOOKING_STATUS.COMPLETED;
-      booking.completedAt = new Date();
-      await booking.save();
-      await resetAvailability(booking);
 
-      // Record Commission on Completion (Disabled/Removed)
-      /*
-      const empId = booking.servicerCompany || booking.primaryEmployee?._id || booking.primaryEmployee;
-      const empType = booking.servicerCompany ? "team" : "single";
-      const { recordCommission } = require("../services/booking.service");
-      await recordCommission(booking, empId, empType, null, io);
-      */
+      const hasProvider = booking.primaryEmployee || booking.servicerCompany || booking.isManuallyAssigned;
 
-      // Notify User (Customer)
-      if (booking?.user?.socketId) {
-        io.to(booking.user.socketId).emit("booking-completed", { bookingId });
-      }
+      if (hasProvider) {
+        booking.status = BOOKING_STATUS.COMPLETED;
+        booking.completedAt = new Date();
+        await booking.save();
+        await resetAvailability(booking);
 
-      const memberIds = [];
-      if (booking.primaryEmployee) memberIds.push({ id: booking.primaryEmployee, model: SingleEmployee });
-      if (booking.teamLeader) memberIds.push({ id: booking.teamLeader, model: booking.servicerCompany ? MultipleEmployee : SingleEmployee });
-      if (booking.teamHelpers?.length > 0) {
-        booking.teamHelpers.forEach(h => memberIds.push({ id: h, model: SingleEmployee }));
-      }
-      for (const item of memberIds) {
-        const emp = await item.model.findById(item.id).select("socketId");
-        if (emp?.socketId) {
-          io.to(emp.socketId).emit("booking-completed", { bookingId });
+        // Notify User (Customer)
+        if (booking?.user?.socketId) {
+          io.to(booking.user.socketId).emit("booking-completed", { bookingId });
         }
+
+        const memberIds = [];
+        if (booking.primaryEmployee) memberIds.push({ id: booking.primaryEmployee, model: SingleEmployee });
+        if (booking.teamLeader) memberIds.push({ id: booking.teamLeader, model: booking.servicerCompany ? MultipleEmployee : SingleEmployee });
+        if (booking.teamHelpers?.length > 0) {
+          booking.teamHelpers.forEach(h => memberIds.push({ id: h, model: SingleEmployee }));
+        }
+        for (const item of memberIds) {
+          const emp = await item.model.findById(item.id).select("socketId");
+          if (emp?.socketId) {
+            io.to(emp.socketId).emit("booking-completed", { bookingId });
+          }
+        }
+      } else {
+        await booking.save();
       }
     };
 
