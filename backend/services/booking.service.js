@@ -1914,6 +1914,17 @@ exports.approveExtraService = async ({ bookingId, extraServiceId, approve, userI
         extraService.status = "APPROVED";
         extraService.approvedAt = new Date();
         const extraPrice = Math.round(Number(extraService.price || 0));
+
+        if (booking.paymentStatus === "paid") {
+            booking.advanceAmount = booking.totalPrice; // Lock in the amount paid so far
+            booking.paymentStatus = "partially_paid";
+            booking.remainingAmount = extraPrice;
+        } else if (booking.paymentStatus === "partially_paid") {
+            if (booking.paymentType === "FULL") {
+                booking.remainingAmount = Math.round(booking.remainingAmount + extraPrice);
+            }
+        }
+
         booking.totalPrice = Math.round(booking.totalPrice + extraPrice);
         booking.totalServicePrice = Math.round(booking.totalServicePrice + extraPrice);
         booking.durationInMinutes += Number(extraService.durationInMinutes || 0);
