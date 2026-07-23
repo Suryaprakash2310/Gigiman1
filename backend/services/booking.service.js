@@ -1075,6 +1075,7 @@ exports.teamReject = async ({ bookingId, teamId, io }) => {
         employeeCount: booking.employeeCount,
         io,
     });
+};
 /* ======================================================
    5. CREATE BOOKING
 ====================================================== */
