@@ -1075,9 +1075,6 @@ exports.teamReject = async ({ bookingId, teamId, io }) => {
         employeeCount: booking.employeeCount,
         io,
     });
-};
-
-
 /* ======================================================
    5. CREATE BOOKING
 ====================================================== */
@@ -1093,6 +1090,17 @@ exports.createBooking = async ({
     cartItems,
     paymentType = "FULL",
 }) => {
+
+    // Clean up any old unpaid pending bookings for this user to avoid duplication/abandoned orders
+    await Booking.deleteMany({
+        user: userId,
+        status: BOOKING_STATUS.PENDING,
+        paymentStatus: "pending"
+    });
+
+    if (paymentType && !["ADVANCE", "FULL"].includes(paymentType)) {
+        throw new AppError("Invalid payment type. Must be ADVANCE or FULL", 400);
+    }
 
     /* -------------------------
        Validate coordinates & Location Region

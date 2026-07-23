@@ -1287,6 +1287,28 @@ exports.getPopularBookings = async (req, res, next) => {
       }
     ]);
 
+    if (!popularBookings || popularBookings.length === 0) {
+      popularBookings = await ServiceList.aggregate([
+        { $unwind: "$serviceCategory" },
+        { $limit: 3 },
+        {
+          $project: {
+            _id: "$serviceCategory._id",
+            totalBookings: { $literal: 0 },
+            totalRevenue: { $literal: 0 },
+            serviceCategoryName: "$serviceCategory.serviceCategoryName",
+            servicecategoryImage: {
+              $ifNull: [
+                "$serviceCategory.servicecategoryImage",
+                "$serviceCategory.servicecategroyImage",
+                null
+              ]
+            }
+          }
+        }
+      ]);
+    }
+
     return res.status(200).json({
       success: true,
       rangeDays: Number(days),
