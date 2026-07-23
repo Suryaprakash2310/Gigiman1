@@ -300,7 +300,7 @@ const bookingSchema = new mongoose.Schema({
 
   paymentType: {
     type: String,
-    enum: ["FULL", "ADVANCE"],
+    enum: ["FULL", "ADVANCE", "BALANCE"],
     default: "FULL"
   },
   advanceAmount: {

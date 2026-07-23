@@ -683,7 +683,7 @@ exports.createOrderController = async (req, res, next) => {
     let advanceAmount = 0;
     let remainingAmount = 0;
 
-    if (booking.paymentStatus === "partially_paid") {
+    if (booking.paymentStatus === "partially_paid" || paymentType === "BALANCE") {
       amountToPay = booking.remainingAmount;
     } else if (paymentType === "ADVANCE") {
       amountToPay = booking.totalPrice * 0.18;

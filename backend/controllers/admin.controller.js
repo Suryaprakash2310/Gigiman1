@@ -1878,6 +1878,7 @@ exports.getAllCommissionsAdmin = async (req, res, next) => {
         remainingAmount: rem,
         totalPrice: total,
         paymentType: pType,
+        paymentMethod: b.paymentMethod || 'N/A',
         serviceId: { serviceName: serviceName },
         serviceCategoryName: serviceName,
         status: isPaid ? 'PAID' : 'PENDING',

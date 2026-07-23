@@ -13,10 +13,14 @@ exports.createOrder = async (bookingId, amount) => {
     const order = await razorpay.orders.create(options);
     //update booking with orderId and payment status
     if (bookingId && !bookingId.toString().startsWith("comm_")) {
-        await Booking.findByIdAndUpdate(bookingId, {
-            razorpayOrderId: order.id,
-            paymentStatus: PAYMENT_STATUS.PENDING,
-        });
+        const booking = await Booking.findById(bookingId);
+        if (booking) {
+            booking.razorpayOrderId = order.id;
+            if (booking.paymentStatus !== PAYMENT_STATUS.PARTIALLY_PAID) {
+                booking.paymentStatus = PAYMENT_STATUS.PENDING;
+            }
+            await booking.save();
+        }
     }
 
     return order;
