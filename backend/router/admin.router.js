@@ -2,6 +2,7 @@ const express = require('express');
 const { protect } = require('../middleware/auth.middleware');
 const {
     adminLogin,
+    adminVerifyOtp,
     adminSignup,
     inviteAdmin,
     getAllPermissions,
@@ -60,6 +61,7 @@ const router = express.Router();
 
 // Login admin
 router.post("/login", adminLogin);
+router.post("/verify-otp", adminVerifyOtp);
 
 // Invite admin - Restricted to those with MANAGE_ADMINS permission
 router.get("/permissions", protect, hasPermission(PERMISSIONS.MANAGE_ADMINS), getAllPermissions);

@@ -1,4 +1,5 @@
 const Admin = require('../models/admin.model');
+const { sendOtpEmail, sendLoginNotificationEmail } = require('../services/email.service');
 const jwt = require("jsonwebtoken");
 const crypto = require('crypto');
 const SingleEmployee = require('../models/singleEmployee.model');
@@ -229,6 +230,72 @@ exports.adminLogin = async (req, res, next) => {
     if (!match) {
       return next(new AppError("Invalid password", 400));
     }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    admin.otp = otp;
+    admin.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+    await admin.save();
+
+    // Send OTP email
+    try {
+      await sendOtpEmail(admin.email, admin.fullname, otp);
+    } catch (err) {
+      console.error("Failed to send OTP email:", err);
+      // We don't fail the login request here in development, but in prod we might.
+      // Given we log the OTP as fallback in sendOtpEmail, we can proceed.
+    }
+
+    res.json({
+      otpSent: true,
+      email: admin.email,
+      message: "OTP sent successfully. Please check your email."
+    });
+  }
+  catch (err) {
+    next(err); //let Global error handler deal with it
+  }
+};
+
+exports.adminVerifyOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return next(new AppError("Email and OTP are required", 400));
+    }
+
+    let admin = await Admin.findOne({ email });
+    if (!admin) {
+      return next(new AppError("Admin not found", 404));
+    }
+
+    if (!admin.otp || !admin.otpExpiresAt) {
+      return next(new AppError("OTP has not been sent or has expired", 400));
+    }
+
+    if (admin.otpExpiresAt < Date.now()) {
+      admin.otp = null;
+      admin.otpExpiresAt = null;
+      await admin.save();
+      return next(new AppError("OTP has expired. Please request a new one.", 400));
+    }
+
+    if (admin.otp !== otp) {
+      return next(new AppError("Invalid OTP passcode", 400));
+    }
+
+    // Clear OTP fields
+    admin.otp = null;
+    admin.otpExpiresAt = null;
+    await admin.save();
+
+    // Send login notification email asynchronously
+    const ipAddress = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'Unknown IP';
+    const userAgent = req.headers['user-agent'] || 'Unknown Device';
+    sendLoginNotificationEmail(admin.email, admin.fullname, ipAddress, userAgent).catch(err => {
+      console.error("Failed to send login notification email:", err);
+    });
+
     const token = jwt.sign(
       { id: admin._id, role: admin.role },
       process.env.JWT_KEY,
@@ -246,9 +313,8 @@ exports.adminLogin = async (req, res, next) => {
         allowedRegions: admin.allowedRegions || []
       }
     });
-  }
-  catch (err) {
-    next(err); //let Global error handler deal with it
+  } catch (err) {
+    next(err);
   }
 };
 
@@ -269,9 +335,11 @@ exports.checkAuth = async (req, res, next) => {
 
 exports.getEmployeecounts = async (req, res, next) => {
   try {
-    const SingleEmployeeCount = await SingleEmployee.countDocuments();
-    const MultipleEmployeeCount = await MultipleEmployee.countDocuments();
-    const toolShopCount = await ToolShop.countDocuments();
+    const [SingleEmployeeCount, MultipleEmployeeCount, toolShopCount] = await Promise.all([
+      SingleEmployee.countDocuments(),
+      MultipleEmployee.countDocuments(),
+      ToolShop.countDocuments(),
+    ]);
 
     const total = SingleEmployeeCount + MultipleEmployeeCount + toolShopCount;
 
@@ -2257,20 +2325,25 @@ exports.adminSendNotification = async (req, res, next) => {
       });
     } else if (targetAudience === "all_users") {
       const users = await User.find({ role: ROLES.USER });
-      for (const u of users) {
-        await sendNotification({
+      // Send concurrently in chunks of 50 to avoid overloading the DB pool
+      const chunkSize = 50;
+      for (let i = 0; i < users.length; i += chunkSize) {
+        const chunk = users.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(u => sendNotification({
           userId: u._id,
           title,
           message,
           type: "SYSTEM",
           data: metadata,
           io
-        });
+        })));
       }
     } else if (targetAudience === "employees") {
       const employees = await SingleEmployee.find({ isActive: true });
-      for (const emp of employees) {
-        await sendNotification({
+      const chunkSize = 50;
+      for (let i = 0; i < employees.length; i += chunkSize) {
+        const chunk = employees.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(emp => sendNotification({
           empId: emp._id,
           empModel: "SingleEmployee",
           title,
@@ -2278,12 +2351,14 @@ exports.adminSendNotification = async (req, res, next) => {
           type: "SYSTEM",
           data: metadata,
           io
-        });
+        })));
       }
     } else if (targetAudience === "teams") {
       const teams = await MultipleEmployee.find({ isActive: true });
-      for (const team of teams) {
-        await sendNotification({
+      const chunkSize = 50;
+      for (let i = 0; i < teams.length; i += chunkSize) {
+        const chunk = teams.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(team => sendNotification({
           empId: team._id,
           empModel: "MultipleEmployee",
           title,
@@ -2291,7 +2366,7 @@ exports.adminSendNotification = async (req, res, next) => {
           type: "SYSTEM",
           data: metadata,
           io
-        });
+        })));
       }
     } else {
       return next(new AppError("Invalid target audience", 400));
@@ -2308,11 +2383,13 @@ exports.adminSendNotification = async (req, res, next) => {
 
 exports.getRegions = async (req, res, next) => {
   try {
-    const singleemployee = await SingleEmployee.find({}, 'region city').lean();
-    const multipleEmployee = await MultipleEmployee.find({}, 'region city').lean();
-    const toolshop = await ToolShop.find({}, 'region city').lean();
-    const bookings = await Booking.find({}, 'region city').lean();
-    const admins = await Admin.find({}, 'region').lean();
+    const [singleemployee, multipleEmployee, toolshop, bookings, admins] = await Promise.all([
+      SingleEmployee.find({}, 'region city').lean(),
+      MultipleEmployee.find({}, 'region city').lean(),
+      ToolShop.find({}, 'region city').lean(),
+      Booking.find({}, 'region city').lean(),
+      Admin.find({}, 'region').lean()
+    ]);
 
     const allStrings = [
       ...singleemployee.map(e => e.region),

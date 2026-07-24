@@ -74,4 +74,9 @@ const notificationSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+notificationSchema.index({ userId: 1, createdAt: -1 });
+notificationSchema.index({ empId: 1, createdAt: -1 });
+notificationSchema.index({ adminId: 1, createdAt: -1 });
+notificationSchema.index({ targetRole: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Notification', notificationSchema);

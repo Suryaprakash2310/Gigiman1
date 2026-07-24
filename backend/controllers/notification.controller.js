@@ -10,14 +10,14 @@ exports.getUserNotifications = async (req, res, next) => {
         const limit = parseInt(req.query.limit) || (req.query.page ? 20 : 50);
         const skip = (page - 1) * limit;
 
-        const notifications = await Notification.find({ userId })
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit);
-
-        // Get unread count
-        const unreadCount = await Notification.countDocuments({ userId, isRead: false });
-        const totalCount = await Notification.countDocuments({ userId });
+        const [notifications, unreadCount, totalCount] = await Promise.all([
+            Notification.find({ userId })
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Notification.countDocuments({ userId, isRead: false }),
+            Notification.countDocuments({ userId })
+        ]);
 
         res.status(200).json({
             success: true,
@@ -50,11 +50,12 @@ exports.markUserNotificationsRead = async (req, res, next) => {
 exports.getServicerNotifications = async (req, res, next) => {
     try {
         const empId = req.employee.id;
-        const notifications = await Notification.find({ empId })
-            .sort({ createdAt: -1 })
-            .limit(50);
-
-        const unreadCount = await Notification.countDocuments({ empId, isRead: false });
+        const [notifications, unreadCount] = await Promise.all([
+            Notification.find({ empId })
+                .sort({ createdAt: -1 })
+                .limit(50),
+            Notification.countDocuments({ empId, isRead: false })
+        ]);
 
         res.status(200).json({
             success: true,
@@ -87,22 +88,22 @@ exports.getAdminNotifications = async (req, res, next) => {
         
         // Admins can see notifications directed specifically to them (adminId) 
         // OR general admin notifications (targetRole: 'ADMIN')
-        const notifications = await Notification.find({
+        const adminQuery = {
             $or: [
                 { adminId },
                 { targetRole: 'ADMIN' }
             ]
-        })
-            .sort({ createdAt: -1 })
-            .limit(50);
+        };
 
-        const unreadCount = await Notification.countDocuments({
-            $or: [
-                { adminId },
-                { targetRole: 'ADMIN' }
-            ],
-            isRead: false
-        });
+        const [notifications, unreadCount] = await Promise.all([
+            Notification.find(adminQuery)
+                .sort({ createdAt: -1 })
+                .limit(50),
+            Notification.countDocuments({
+                ...adminQuery,
+                isRead: false
+            })
+        ]);
 
         res.status(200).json({
             success: true,

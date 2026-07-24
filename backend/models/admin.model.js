@@ -42,6 +42,14 @@ const adminSchema = mongoose.Schema({
     fcmToken: {
         type: String,
         default: null
+    },
+    otp: {
+        type: String,
+        default: null
+    },
+    otpExpiresAt: {
+        type: Date,
+        default: null
     }
     
 }, { timestamps: true });

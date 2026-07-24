@@ -28,6 +28,8 @@ const commissionRouter = require("./router/commission.router");
 const notificationRouter = require("./router/notification.router");
 const cartRouter = require("./router/cart.router");
 const { startScheduler } = require("./services/booking.schedule");
+const { startNotificationScheduler } = require("./services/notification.schedule");
+const scheduledNotificationRouter = require("./router/scheduledNotification.router");
 const errorHandler = require("./middleware/error.middleware");
 const setupGracefulShutdown = require("./utils/gracefulShutdown");
 const mongoose = require("mongoose");
@@ -79,6 +81,7 @@ const io = socketConfig(server);
 
 app.set("io", io);
 startScheduler(io);
+startNotificationScheduler(io);
 // ------------------- ROUTES -------------------
 app.get("/", (req, res) => res.send("API is running..."));
 
@@ -99,6 +102,7 @@ app.use("/api/tickets", ticketRouter);
 app.use("/api/commission", commissionRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/cart", cartRouter);
+app.use("/api/admin/scheduled-notifications", scheduledNotificationRouter);
 
 // Global Error Handler
 app.use(errorHandler);
