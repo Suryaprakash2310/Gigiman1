@@ -1,33 +1,66 @@
 const cloudinary = require('../config/cloudinary');
 const fs = require('fs');
+const sharp = require('sharp');
 
 exports.uploadToCloudinary = async (file, folder = 'Gigiman') => {
     if (!file) return null;
+    const filePath = file.path || file;
+    const compressedPath = filePath + '-compressed.webp';
+    let uploadPath = filePath;
+    let isCompressed = false;
+
     try {
-        // file could be a Multer file object (has .path) or a direct string (URL/base64)
-        const filePath = file.path || file;
+        // If file is from Multer, compress it locally first using sharp
+        if (file.path && fs.existsSync(filePath)) {
+            try {
+                await sharp(filePath)
+                    .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
+                    .webp({ quality: 80 })
+                    .toFile(compressedPath);
+                uploadPath = compressedPath;
+                isCompressed = true;
+            } catch (sharpError) {
+                console.error('Sharp image compression failed, falling back to original upload:', sharpError);
+            }
+        }
         
-        const result = await cloudinary.uploader.upload(filePath, {
+        const result = await cloudinary.uploader.upload(uploadPath, {
             folder: folder
         });
 
-        // Clean up local file if it's from Multer
-        if (file.path) {
-            fs.unlink(file.path, (err) => {
-                if (err) console.error('Error deleting local file:', err);
+        // Clean up original file if from Multer
+        if (file.path && fs.existsSync(filePath)) {
+            fs.unlink(filePath, (err) => {
+                if (err) console.error('Error deleting original local file:', err);
             });
         }
 
+        // Clean up compressed temp file if created
+        if (isCompressed && fs.existsSync(compressedPath)) {
+            fs.unlink(compressedPath, (err) => {
+                if (err) console.error('Error deleting compressed local file:', err);
+            });
+        }
+
+        // Optimize secure url via Cloudinary dynamic transformation (f_auto,q_auto)
+        const optimizedUrl = result.secure_url.replace('/upload/', '/upload/f_auto,q_auto/');
+
         return {
-            url: result.secure_url,
+            url: optimizedUrl,
             publicId: result.public_id
         };
     } catch (error) {
         console.error('Cloudinary upload error:', error);
-        // Clean up even on error if possible
-        if (file.path && fs.existsSync(file.path)) {
-            fs.unlink(file.path, (err) => {
-                if (err) console.error('Error deleting local file after upload error:', err);
+        
+        // Ensure cleanup happens on error
+        if (file.path && fs.existsSync(filePath)) {
+            fs.unlink(filePath, (err) => {
+                if (err) console.error('Error deleting original file after upload error:', err);
+            });
+        }
+        if (fs.existsSync(compressedPath)) {
+            fs.unlink(compressedPath, (err) => {
+                if (err) console.error('Error deleting compressed file after upload error:', err);
             });
         }
         throw error;

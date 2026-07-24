@@ -46,4 +46,6 @@ const commissionSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+commissionSchema.index({ empId: 1, status: 1 });
+
 module.exports = mongoose.model('Commission', commissionSchema);

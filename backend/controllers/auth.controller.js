@@ -22,11 +22,13 @@ exports.sendOtp = async (req, res, next) => {
 
     const cleanPhone = normalizePhone(phoneNo);
 
-    // Check employee existence
-    const emp =
-      (await SingleEmployee.findOne({ phoneNo: cleanPhone })) ||
-      (await MultipleEmployee.findOne({ phoneNo: cleanPhone })) ||
-      (await ToolShop.findOne({ phoneNo: cleanPhone }));
+    // Check employee existence in parallel
+    const [singleEmp, multiEmp, toolShop] = await Promise.all([
+      SingleEmployee.findOne({ phoneNo: cleanPhone }),
+      MultipleEmployee.findOne({ phoneNo: cleanPhone }),
+      ToolShop.findOne({ phoneNo: cleanPhone }),
+    ]);
+    const emp = singleEmp || multiEmp || toolShop;
 
     if (!emp)
       return next(new AppError("Employee not found", 404));
@@ -64,10 +66,12 @@ exports.verifyOtp = async (req, res, next) => {
       return next(new AppError("Phone number mismatch. Verification failed.", 400));
     }
 
-    const emp =
-      (await SingleEmployee.findOne({ phoneNo: cleanPhone })) ||
-      (await MultipleEmployee.findOne({ phoneNo: cleanPhone })) ||
-      (await ToolShop.findOne({ phoneNo: cleanPhone }));
+    const [singleEmp, multiEmp, toolShop] = await Promise.all([
+      SingleEmployee.findOne({ phoneNo: cleanPhone }),
+      MultipleEmployee.findOne({ phoneNo: cleanPhone }),
+      ToolShop.findOne({ phoneNo: cleanPhone }),
+    ]);
+    const emp = singleEmp || multiEmp || toolShop;
 
     if (!emp)
       return next(new AppError("Employee not found", 404));

@@ -329,6 +329,7 @@ bookingSchema.index({ location: "2dsphere" });
 bookingSchema.index({ status: 1, createdAt: -1 });
 bookingSchema.index({ servicerCompany: 1, status: 1 });
 bookingSchema.index({ primaryEmployee: 1, status: 1 });
+bookingSchema.index({ isScheduled: 1, scheduleExecuted: 1, scheduleDateTime: 1 });
 
 /* ---------------- PRE-SAVE HOOK FOR STATUS HISTORY ---------------- */
 bookingSchema.pre('save', function(next) {

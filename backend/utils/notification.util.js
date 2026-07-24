@@ -145,9 +145,9 @@ exports.sendNotification = async ({
             });
         }
 
-        // Send push notification via FCM if any tokens were found
+        // Send push notification via FCM if any tokens were found (asynchronously)
         if (targetFcmTokens.length > 0) {
-            await sendFcmNotification({
+            sendFcmNotification({
                 fcmTokens: targetFcmTokens,
                 title,
                 body: message,
@@ -156,7 +156,7 @@ exports.sendNotification = async ({
                     type: String(type),
                     notificationId: notification._id.toString()
                 }
-            });
+            }).catch(err => console.error('FCM async delivery error:', err.message));
         }
 
         return notification;

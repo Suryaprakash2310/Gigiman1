@@ -115,8 +115,8 @@ exports.autoAssignServicer = async (req, res, next) => {
        Validate user + socket
     ------------------------- */
     const user = await User.findById(userId);
-    if (!user || !user.socketId) {
-      return next(new AppError("Invalid user or user not connected", 400));
+    if (!user) {
+      return next(new AppError("Invalid user", 400));
     }
 
     let cartGroups = [];

@@ -33,6 +33,8 @@ const setupGracefulShutdown = require("./utils/gracefulShutdown");
 const mongoose = require("mongoose");
 dotenv.config();
 const app = express();
+app.set("trust proxy", 1);
+
 
 // ------------------- MIDDLEWARE -------------------
 // CORS configuration should be first
@@ -48,12 +50,26 @@ app.use(compression());
 app.use(morgan("combined", { stream: { write: (message) => logger.info(message.trim()) } }));
 
 // Rate limiting
-const limiter = rateLimit({
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 2000, // Limit each IP to 2000 requests per windowMs
-  message: "Too many requests from this IP, please try again after 15 minutes"
+  max: 10000, // Safe limit for shared public IPs (Nginx / Cloudflare)
+  message: "Too many requests, please try again later."
 });
-app.use("/api/", limiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 15, // Max 15 OTP attempts per IP per 15 mins to protect costs
+  message: "Too many OTP requests from this IP. Please try again after 15 minutes."
+});
+
+// Apply strict rate limiting to OTP/Auth endpoints first
+app.use("/api/auth/send-otp", authLimiter);
+app.use("/api/auth/verify-otp", authLimiter);
+app.use("/api/user/send-otp", authLimiter);
+app.use("/api/user/verify-otp", authLimiter);
+
+// Apply relaxed rate limiting to all other APIs
+app.use("/api/", generalLimiter);
 
 // ------------------- DATABASE -------------------
 connectDb();

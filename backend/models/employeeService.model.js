@@ -21,4 +21,6 @@ EmployeeServiceSchema.pre("save", async function (next) {
 });
 
 
+EmployeeServiceSchema.index({ capableservice: 1 });
+
 module.exports=mongoose.model('EmployeeService',EmployeeServiceSchema);
